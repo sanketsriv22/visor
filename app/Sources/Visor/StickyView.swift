@@ -62,6 +62,10 @@ private struct StickyCard: View {
     @ObservedObject var devin: DevinRunner
     var onClose: () -> Void
 
+    @FocusState private var focused: UUID?
+    @State private var newTask = ""
+    private let addFieldID = UUID()
+
     private var shape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(
             topLeadingRadius: 0,
@@ -86,10 +90,7 @@ private struct StickyCard: View {
             .padding(.horizontal, 16)
             .padding(.top, 12)
 
-            TextEditor(text: $store.text)
-                .font(.system(size: 13, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal, 10)
+            taskList
 
             footer
                 .padding(.horizontal, 16)
@@ -108,6 +109,53 @@ private struct StickyCard: View {
         .onExitCommand(perform: onClose)
     }
 
+    private var taskList: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach($store.items) { $item in
+                    NoteRow(
+                        item: $item,
+                        focused: $focused,
+                        onToggle: { store.toggle(item.id) },
+                        onSubmit: { focusRow(store.insertTask(after: item.id)) },
+                        onDelete: { store.remove(item.id) }
+                    )
+                }
+                addRow
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 2)
+        }
+    }
+
+    private var addRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "plus.circle")
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+            TextField("Add a task…", text: $newTask)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .focused($focused, equals: addFieldID)
+                .onSubmit(commitNewTask)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture { focused = addFieldID }
+    }
+
+    private func commitNewTask() {
+        let trimmed = newTask.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        store.addTask(trimmed)
+        newTask = ""
+        focused = addFieldID // stay in the add field for rapid entry
+    }
+
+    private func focusRow(_ id: UUID) {
+        DispatchQueue.main.async { focused = id }
+    }
+
     private var footer: some View {
         HStack(spacing: 8) {
             statusLabel
@@ -120,7 +168,7 @@ private struct StickyCard: View {
     private var statusLabel: some View {
         switch devin.status {
         case .idle:
-            Text("- [ ] makes a task")
+            Text("click ○ to complete")
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
         case .running:
@@ -167,5 +215,50 @@ private struct StickyCard: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .help(store.openTaskCount == 0 ? "No open tasks to send" : "Send open tasks to Devin")
+    }
+}
+
+/// A single editable line: a clickable checkbox + inline text for tasks, or
+/// plain text otherwise. A delete affordance appears on hover.
+private struct NoteRow: View {
+    @Binding var item: NoteItem
+    @FocusState.Binding var focused: UUID?
+    var onToggle: () -> Void
+    var onSubmit: () -> Void
+    var onDelete: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if item.isTask {
+                Button(action: onToggle) {
+                    Image(systemName: item.done ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(item.done ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
+                }
+                .buttonStyle(.plain)
+            }
+
+            TextField("", text: $item.text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .strikethrough(item.isTask && item.done, color: .secondary)
+                .foregroundStyle(item.isTask && item.done ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                .focused($focused, equals: item.id)
+                .onSubmit(onSubmit)
+
+            if hovering {
+                Button(action: onDelete) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity)
+            }
+        }
+        .padding(.vertical, 1)
+        .onHover { hovering = $0 }
     }
 }
