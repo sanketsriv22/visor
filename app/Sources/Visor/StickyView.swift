@@ -3,6 +3,7 @@ import SwiftUI
 struct StickyRootView: View {
     @ObservedObject var store: NotesStore
     @ObservedObject var ui: UIState
+    @ObservedObject var devin: DevinRunner
     var onToggle: () -> Void
 
     var body: some View {
@@ -12,7 +13,7 @@ struct StickyRootView: View {
                 expanded: ui.expanded
             )
             if ui.expanded {
-                StickyCard(store: store, onClose: onToggle)
+                StickyCard(store: store, devin: devin, onClose: onToggle)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
             Spacer(minLength: 0)
@@ -58,6 +59,7 @@ private struct NotchStrip: View {
 
 private struct StickyCard: View {
     @ObservedObject var store: NotesStore
+    @ObservedObject var devin: DevinRunner
     var onClose: () -> Void
 
     private var shape: UnevenRoundedRectangle {
@@ -89,9 +91,7 @@ private struct StickyCard: View {
                 .scrollContentBackground(.hidden)
                 .padding(.horizontal, 10)
 
-            Text("- [ ] makes a task  ·  click the notch to hide")
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
+            footer
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
         }
@@ -106,5 +106,66 @@ private struct StickyCard: View {
             shape.strokeBorder(.white.opacity(0.14), lineWidth: 1)
         )
         .onExitCommand(perform: onClose)
+    }
+
+    private var footer: some View {
+        HStack(spacing: 8) {
+            statusLabel
+            Spacer(minLength: 8)
+            devinButton
+        }
+    }
+
+    @ViewBuilder
+    private var statusLabel: some View {
+        switch devin.status {
+        case .idle:
+            Text("- [ ] makes a task")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+        case .running:
+            Label("Devin working…", systemImage: "circle.dotted")
+                .font(.system(size: 10))
+                .foregroundStyle(.orange)
+        case .done:
+            Button(action: devin.revealLog) {
+                Label("Devin finished — view log", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.green)
+            }
+            .buttonStyle(.plain)
+        case .failed(let why):
+            Button(action: devin.revealLog) {
+                Label("Devin failed (\(why))", systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var devinButton: some View {
+        let busy = devin.status == .running
+        let enabled = store.openTaskCount > 0 && !busy
+        return Button {
+            devin.send(tasks: store.openTasks)
+        } label: {
+            HStack(spacing: 5) {
+                if busy {
+                    ProgressView().controlSize(.small).tint(.black)
+                } else {
+                    Image(systemName: "paperplane.fill")
+                }
+                Text(busy ? "Sending" : "Send to Devin")
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.black)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(enabled ? Color.orange : Color.white.opacity(0.18)))
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .help(store.openTaskCount == 0 ? "No open tasks to send" : "Send open tasks to Devin")
     }
 }

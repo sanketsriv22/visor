@@ -35,6 +35,7 @@ final class NotchController {
     private let panel: NotchPanel
     private let store = NotesStore()
     private let ui = UIState()
+    private let devin = DevinRunner()
     private var screenObserver: Any?
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
@@ -55,7 +56,7 @@ final class NotchController {
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
 
-        let root = StickyRootView(store: store, ui: ui) { [weak self] in
+        let root = StickyRootView(store: store, ui: ui, devin: devin) { [weak self] in
             self?.toggle()
         }
         panel.contentView = FirstMouseHostingView(rootView: root)

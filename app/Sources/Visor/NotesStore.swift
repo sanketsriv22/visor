@@ -16,11 +16,16 @@ final class NotesStore: ObservableObject {
     private var suppressDirty = false
     private var saveTask: DispatchWorkItem?
 
-    var openTaskCount: Int {
+    /// Text of each open ("- [ ]") task, checkbox prefix stripped.
+    var openTasks: [String] {
         text.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { $0.trimmingCharacters(in: .whitespaces).hasPrefix("- [ ]") }
-            .count
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("- [ ]") }
+            .map { String($0.dropFirst(5)).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
+
+    var openTaskCount: Int { openTasks.count }
 
     init() {
         if let env = ProcessInfo.processInfo.environment["STICKY_NOTES_FILE"] {
