@@ -96,7 +96,7 @@ final class NotchController {
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
             guard let self, !self.ui.expanded,
                   let screen = self.targetScreen,
-                  self.collapsedHitRect(on: screen).contains(NSEvent.mouseLocation) else { return }
+                  self.collapsedHitTestRect(on: screen).contains(NSEvent.mouseLocation) else { return }
             self.toggle()
         }
 
@@ -167,6 +167,16 @@ final class NotchController {
             width: notch.width,
             height: notch.height + Self.underhang
         )
+    }
+
+    /// Hit test for the global monitor. macOS clamps the cursor's y to the
+    /// screen's top edge, which is exactly `collapsedHitRect.maxY` — and
+    /// `NSRect.contains` treats the max edge as outside, so a click at the
+    /// very top of the notch fails the test. Extend past the top edge (and a
+    /// few points sideways) so that topmost row is reliably caught.
+    private func collapsedHitTestRect(on screen: NSScreen) -> NSRect {
+        let r = collapsedHitRect(on: screen)
+        return NSRect(x: r.minX - 4, y: r.minY, width: r.width + 8, height: r.height + 8)
     }
 
     private func applyFrame(expanded: Bool) {
