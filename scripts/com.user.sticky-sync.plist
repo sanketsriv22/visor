@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Pushes ~/StickyNotes to its remote every 5 minutes.
+     Install:
+       cp scripts/com.user.sticky-sync.plist ~/Library/LaunchAgents/
+       launchctl load ~/Library/LaunchAgents/com.user.sticky-sync.plist
+     Edit the script path below if the repo lives somewhere else. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.sticky-sync</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/sanketsrivastava/repos/visor/scripts/sync-stickies.sh</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>StandardErrorPath</key>
+    <string>/tmp/sticky-sync.err</string>
+</dict>
+</plist>
