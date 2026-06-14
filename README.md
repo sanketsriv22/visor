@@ -15,27 +15,37 @@ you — or just do it.
                  git sync ────► private repo ──► Devin (cloud)
 ```
 
-## The app
+## Install
 
 ```sh
-cd app
-swift build -c release
-.build/release/Visor        # runs as a background (accessory) app
+curl -fsSL https://raw.githubusercontent.com/sanketsriv22/visor/main/install.sh | bash
 ```
+
+Clones, builds, and installs `Visor.app` to `/Applications`. Requires git and a
+Swift toolchain (`xcode-select --install`). Or build from a local checkout:
+
+```sh
+./scripts/make-app.sh        # builds Visor.app and installs it to /Applications
+```
+
+## The app
 
 - Click the notch → the note slides down under it. Click the notch again
   (or press Esc) → it slides away. Until then it stays put.
-- Lines like `- [ ] send invoice` are tasks; `- [x]` means done. Everything
-  else is free text.
-- No Dock icon, no menu bar item, nothing visible while collapsed. A faint
-  line appears under the notch on hover so you know you're in the zone.
+- Tasks are checkboxes: type in the **Add a task…** field (Enter for the next),
+  click the circle to complete, hover a row to delete. On disk a task is just
+  `- [ ] …` / `- [x] …`, so agents read and write the same file.
+- A **menu-bar icon** (the only visible chrome) toggles the note and quits the
+  app. No Dock icon; nothing else visible while collapsed.
 - No notch (external display)? A 200pt-wide invisible strip at the top-center
   of the screen does the same job.
+- The note picks up external edits (MCP server, Devin, git) live, so writes
+  from those don't get clobbered.
 - `--expanded` starts with the note open; `--probe` prints detected notch
-  geometry and exits. Quit with `pkill Visor`.
+  geometry and exits.
 
-To launch at login, add the built binary in System Settings → General →
-Login Items, or wrap it in a LaunchAgent.
+To launch at login, add `/Applications/Visor.app` in System Settings → General →
+Login Items.
 
 ### Storage
 
