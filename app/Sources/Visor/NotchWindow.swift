@@ -26,11 +26,16 @@ final class UIState: ObservableObject {
 }
 
 final class NotchController {
-    private static let cardHeight: CGFloat = 260
-    private static let cardWidth: CGFloat = 420
+    static let cardHeight: CGFloat = 260
+    static let cardWidth: CGFloat = 420
     /// The cursor is invisible inside the notch, so people naturally click
     /// slightly below it. Extend the collapsed hit area this far beneath.
     private static let underhang: CGFloat = 8
+    /// Transparent breathing room around the card when expanded, so the card's
+    /// drop shadow fades out inside the window instead of being clipped to a
+    /// hard rectangle at the window edge.
+    private static let shadowPadX: CGFloat = 30
+    private static let shadowPadBottom: CGFloat = 38
 
     private let panel: NotchPanel
     private let store = NotesStore()
@@ -187,8 +192,9 @@ final class NotchController {
         let frame: NSRect
         if expanded {
             ui.notchSize = notch.size
-            let width = max(Self.cardWidth, notch.width)
-            let height = notch.height + Self.cardHeight
+            let cardW = max(Self.cardWidth, notch.width)
+            let width = cardW + Self.shadowPadX * 2
+            let height = notch.height + Self.cardHeight + Self.shadowPadBottom
             frame = NSRect(
                 x: notch.midX - width / 2,
                 y: screen.frame.maxY - height,

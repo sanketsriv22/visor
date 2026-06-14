@@ -96,12 +96,11 @@ private struct StickyCard: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 260)
+        .frame(width: NotchController.cardWidth, height: NotchController.cardHeight)
         .background(
             shape
                 .fill(Color.black)
-                .shadow(color: .black.opacity(0.55), radius: 20, y: 10)
+                .shadow(color: .black.opacity(0.5), radius: 18, y: 8)
         )
         .overlay(
             shape.strokeBorder(.white.opacity(0.14), lineWidth: 1)
