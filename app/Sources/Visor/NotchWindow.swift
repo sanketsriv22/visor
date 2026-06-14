@@ -32,10 +32,11 @@ final class NotchController {
     /// slightly below it. Extend the collapsed hit area this far beneath.
     private static let underhang: CGFloat = 8
     /// Transparent breathing room around the card when expanded, so the card's
-    /// drop shadow fades out inside the window instead of being clipped to a
-    /// hard rectangle at the window edge.
-    private static let shadowPadX: CGFloat = 30
-    private static let shadowPadBottom: CGFloat = 38
+    /// (minimal) drop shadow fades out inside the window instead of being
+    /// clipped to a hard rectangle at the window edge. Kept just big enough for
+    /// the shadow so the window covers as little underneath as possible.
+    private static let shadowPadX: CGFloat = 8
+    private static let shadowPadBottom: CGFloat = 10
 
     private let panel: NotchPanel
     private let store = NotesStore()

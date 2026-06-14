@@ -78,7 +78,7 @@ private struct StickyCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("STICKIES")
+                Text("VISOR")
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(2)
                     .foregroundStyle(.secondary)
@@ -100,7 +100,7 @@ private struct StickyCard: View {
         .background(
             shape
                 .fill(Color.black)
-                .shadow(color: .black.opacity(0.5), radius: 18, y: 8)
+                .shadow(color: .black.opacity(0.35), radius: 5, y: 2)
         )
         .overlay(
             shape.strokeBorder(.white.opacity(0.14), lineWidth: 1)
