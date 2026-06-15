@@ -19,12 +19,20 @@ struct NoteItem: Identifiable, Equatable {
 /// (`- [ ]` / `- [x]` for tasks, plain text otherwise) is the source of truth
 /// shared with the MCP server; the app reads and writes that same format.
 final class NotesStore: ObservableObject {
+    /// The note's name, stored on disk as a leading `# title` line. Empty when
+    /// the note is unnamed.
+    @Published var title: String = "" {
+        didSet { markDirty() }
+    }
+
     @Published var items: [NoteItem] = [] {
-        didSet {
-            guard !suppressDirty else { return }
-            dirty = true
-            scheduleSave()
-        }
+        didSet { markDirty() }
+    }
+
+    private func markDirty() {
+        guard !suppressDirty else { return }
+        dirty = true
+        scheduleSave()
     }
 
     private let fileURL: URL
@@ -111,12 +119,34 @@ final class NotesStore: ObservableObject {
         return items
     }
 
-    static func serialize(_ items: [NoteItem]) -> String {
-        items.map { $0.isTask ? "- [\($0.done ? "x" : " ")] \($0.text)" : $0.text }
-            .joined(separator: "\n") + "\n"
+    /// Split a document into its title (leading `# …` line, if any) and body
+    /// items.
+    static func parseDocument(_ s: String) -> (title: String, items: [NoteItem]) {
+        var lines = s.components(separatedBy: "\n")
+        var title = ""
+        if let first = lines.first,
+           let r = first.range(of: #"^#\s+"#, options: .regularExpression) {
+            title = String(first[r.upperBound...]).trimmingCharacters(in: .whitespaces)
+            lines.removeFirst()
+            if lines.first?.trimmingCharacters(in: .whitespaces).isEmpty == true {
+                lines.removeFirst() // drop the blank line after the title
+            }
+        }
+        return (title, parse(lines.joined(separator: "\n")))
     }
 
-    private var serialized: String { Self.serialize(items) }
+    static func serializeDocument(title: String, items: [NoteItem]) -> String {
+        var lines: [String] = []
+        let t = title.trimmingCharacters(in: .whitespaces)
+        if !t.isEmpty {
+            lines.append("# \(t)")
+            lines.append("")
+        }
+        lines += items.map { $0.isTask ? "- [\($0.done ? "x" : " ")] \($0.text)" : $0.text }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private var serialized: String { Self.serializeDocument(title: title, items: items) }
 
     /// Pick up edits made by the MCP server (or anything else) while the
     /// panel was collapsed. Skipped if there are unsaved local edits —
@@ -128,10 +158,11 @@ final class NotesStore: ObservableObject {
         lastMTime = mtime
         guard let data = try? Data(contentsOf: fileURL),
               let s = String(data: data, encoding: .utf8) else { return }
-        let parsed = Self.parse(s)
-        guard Self.serialize(parsed) != serialized else { return }
+        let (parsedTitle, parsedItems) = Self.parseDocument(s)
+        guard Self.serializeDocument(title: parsedTitle, items: parsedItems) != serialized else { return }
         suppressDirty = true
-        items = parsed
+        title = parsedTitle
+        items = parsedItems
         suppressDirty = false
     }
 
@@ -150,8 +181,9 @@ final class NotesStore: ObservableObject {
         suppressDirty = true
         if let data = try? Data(contentsOf: fileURL),
            let s = String(data: data, encoding: .utf8) {
-            items = Self.parse(s)
+            (title, items) = Self.parseDocument(s)
         } else {
+            title = ""
             items = []
         }
         suppressDirty = false

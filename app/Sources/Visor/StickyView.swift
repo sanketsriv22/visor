@@ -65,6 +65,7 @@ private struct StickyCard: View {
     @FocusState private var focused: UUID?
     @State private var newTask = ""
     private let addFieldID = UUID()
+    private let titleFieldID = UUID()
 
     private var shape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(
@@ -89,6 +90,13 @@ private struct StickyCard: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
+
+            TextField("Name this note…", text: $store.title)
+                .textFieldStyle(.plain)
+                .font(.system(size: 17, weight: .semibold))
+                .focused($focused, equals: titleFieldID)
+                .padding(.horizontal, 16)
+                .padding(.top, 1)
 
             taskList
 
