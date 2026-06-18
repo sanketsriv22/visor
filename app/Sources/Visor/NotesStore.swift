@@ -142,7 +142,12 @@ final class NotesStore: ObservableObject {
             lines.append("# \(t)")
             lines.append("")
         }
-        lines += items.map { $0.isTask ? "- [\($0.done ? "x" : " ")] \($0.text)" : $0.text }
+        // Each item is one markdown line; collapse any embedded newlines to
+        // spaces so a wrapped task can't split into bogus extra lines.
+        lines += items.map { item -> String in
+            let text = item.text.replacingOccurrences(of: "\n", with: " ")
+            return item.isTask ? "- [\(item.done ? "x" : " ")] \(text)" : text
+        }
         return lines.joined(separator: "\n") + "\n"
     }
 

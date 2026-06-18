@@ -3,6 +3,12 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.3 — 2026-06-18
+
+- Long tasks now wrap onto multiple lines instead of being cut off at the edge (#2).
+- Clicking the very top of the notch now closes the note while it's open (#5).
+- Smoother expand animation — the card no longer overshoots and drops too low (#1).
+
 ## 1.0-beta.2 — 2026-06-18
 
 - Version and What's New now display fully offline — Visor reaches the network only when you click "Check for Updates…".

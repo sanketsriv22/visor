@@ -101,10 +101,16 @@ final class NotchController {
             return event
         }
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
-            guard let self, !self.ui.expanded,
-                  let screen = self.targetScreen,
-                  self.collapsedHitTestRect(on: screen).contains(NSEvent.mouseLocation) else { return }
-            self.toggle()
+            guard let self, let screen = self.targetScreen else { return }
+            let loc = NSEvent.mouseLocation
+            if self.ui.expanded {
+                // Close when the notch is clicked. The very top of the notch
+                // routes to the menu bar, so the local monitor never sees it —
+                // this catches that strip up to the screen's top edge.
+                if self.notchHitRect(on: screen).contains(loc) { self.toggle() }
+            } else if self.collapsedHitTestRect(on: screen).contains(loc) {
+                self.toggle()
+            }
         }
 
         // Re-anchor under the notch when displays change (lid, monitors, resolution).
@@ -136,7 +142,9 @@ final class NotchController {
         } else {
             store.reloadFromDiskIfClean()
             applyFrame(expanded: true)
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            // Higher damping so the card settles at its resting spot instead
+            // of overshooting (dropping too low) before springing back.
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.95)) {
                 ui.expanded = true
             }
             panel.makeKeyAndOrderFront(nil)
@@ -184,6 +192,14 @@ final class NotchController {
     private func collapsedHitTestRect(on screen: NSScreen) -> NSRect {
         let r = collapsedHitRect(on: screen)
         return NSRect(x: r.minX - 4, y: r.minY, width: r.width + 8, height: r.height + 8)
+    }
+
+    /// When expanded, clicking the notch closes the card. This is the notch
+    /// strip extended past the screen's top edge (same half-open-interval
+    /// reason as above) so a click at the very top still registers a close.
+    private func notchHitRect(on screen: NSScreen) -> NSRect {
+        let notch = stripRect(on: screen)
+        return NSRect(x: notch.minX - 4, y: notch.minY, width: notch.width + 8, height: notch.height + 8)
     }
 
     private func applyFrame(expanded: Bool) {

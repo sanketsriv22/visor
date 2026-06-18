@@ -252,7 +252,9 @@ private struct NoteRow: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        // .top alignment keeps the checkbox and delete button on the first line
+        // when a long task wraps to multiple lines.
+        HStack(alignment: .top, spacing: 8) {
             if item.isTask {
                 Button(action: onToggle) {
                     Image(systemName: item.done ? "checkmark.circle.fill" : "circle")
@@ -262,9 +264,12 @@ private struct NoteRow: View {
                 .buttonStyle(.plain)
             }
 
-            TextField("", text: $item.text)
+            // axis: .vertical lets long text wrap onto new lines and the row
+            // grow, instead of truncating on a single line.
+            TextField("", text: $item.text, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
+                .lineLimit(1...6)
                 .strikethrough(item.isTask && item.done, color: .secondary)
                 .foregroundStyle(item.isTask && item.done ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                 .focused($focused, equals: item.id)
