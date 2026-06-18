@@ -43,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toggle.target = self
         menu.addItem(toggle)
 
-        let update = NSMenuItem(title: "Update Visor", action: #selector(updateApp), keyEquivalent: "")
+        let update = NSMenuItem(title: "Check for Updates…", action: #selector(updateApp), keyEquivalent: "")
         update.target = self
         menu.addItem(update)
         updateItem = update
@@ -55,6 +55,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         item.menu = menu
         statusItem = item
+
+        // Reflect update progress (after a click) in the menu item's title.
+        updater.onStatus = { [weak self] text in
+            DispatchQueue.main.async { self?.updateItem?.title = text }
+        }
     }
 
     /// "What's New" → a submenu listing this version's changelog bullets, plus
@@ -82,28 +87,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return i
     }
 
-    /// When the menu opens, quietly check whether a newer version exists and
-    /// reflect it in the Update item — so the menu always shows update state.
+    /// The menu is fully offline: it shows the installed version and changelog
+    /// from the app's own bundle. No network here — we only reach the network
+    /// when the user explicitly clicks "Check for Updates…". Just reset the
+    /// item label (e.g. after a previous check left a status on it).
     func menuWillOpen(_ menu: NSMenu) {
         guard !updater.isBusy else { return }
-        updater.fetchLatestVersion { [weak self] latest in
-            DispatchQueue.main.async {
-                guard let self, !self.updater.isBusy else { return }
-                guard let latest else { self.updateItem?.title = "Update Visor"; return }
-                self.updateItem?.title = latest == AppInfo.version
-                    ? "Up to date (\(AppInfo.version))"
-                    : "Update to \(latest)"
-            }
-        }
+        updateItem?.title = "Check for Updates…"
     }
 
     @objc private func openReleases() {
         NSWorkspace.shared.open(URL(string: "https://github.com/sanketsriv22/visor/releases")!)
-
-        // Reflect update progress in the menu item's title.
-        updater.onStatus = { [weak self] text in
-            DispatchQueue.main.async { self?.updateItem?.title = text }
-        }
     }
 
     @objc private func toggleNote() { controller?.toggle() }

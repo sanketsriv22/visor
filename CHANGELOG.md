@@ -13,6 +13,6 @@ First public beta.
 - "VISOR" and the open-task count sit in the shoulders beside the notch.
 - The note emerges from behind the notch, with no seam at the bottom lip.
 - "Send to Devin" runs the local Devin CLI on your open tasks.
-- Menu-bar icon with show/hide, update, and quit.
-- One-click self-update that downloads the latest build and relaunches.
+- Menu-bar icon shows the installed version and What's New fully offline; show/hide, check for updates, and quit.
+- "Check for Updates…" reaches the network only when clicked, then downloads the latest build and relaunches.
 - Minimal drop shadow; app identity com.kitalabs.visor.
