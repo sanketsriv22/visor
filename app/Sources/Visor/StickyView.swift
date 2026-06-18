@@ -7,16 +7,16 @@ struct StickyRootView: View {
     var onToggle: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            NotchStrip(
-                size: ui.notchSize,
-                expanded: ui.expanded
-            )
+        ZStack(alignment: .top) {
             if ui.expanded {
-                StickyCard(store: store, devin: devin, onClose: onToggle)
+                // The card extends up behind the notch (topInset) so the notch
+                // overlaps its top edge — the note looks like it slides out
+                // from *behind* the notch, not off its bottom lip.
+                StickyCard(store: store, devin: devin, topInset: ui.notchSize.height, onClose: onToggle)
                     .transition(.move(edge: .top).combined(with: .opacity))
+            } else {
+                NotchStrip(size: ui.notchSize, expanded: false)
             }
-            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(\.colorScheme, .dark)
@@ -60,6 +60,8 @@ private struct NotchStrip: View {
 private struct StickyCard: View {
     @ObservedObject var store: NotesStore
     @ObservedObject var devin: DevinRunner
+    /// Height of the notch the card tucks up behind; content starts below it.
+    var topInset: CGFloat
     var onClose: () -> Void
 
     @FocusState private var focused: UUID?
@@ -89,7 +91,7 @@ private struct StickyCard: View {
                     .foregroundStyle(store.openTaskCount > 0 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
             }
             .padding(.horizontal, 16)
-            .padding(.top, 12)
+            .padding(.top, topInset + 12)
 
             TextField("Name this note…", text: $store.title)
                 .textFieldStyle(.plain)
@@ -104,7 +106,7 @@ private struct StickyCard: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
         }
-        .frame(width: NotchController.cardWidth, height: NotchController.cardHeight)
+        .frame(width: NotchController.cardWidth, height: NotchController.cardHeight + topInset)
         .background(
             shape
                 .fill(Color.black)
