@@ -6,6 +6,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let updater = Updater()
     private var updateItem: NSMenuItem?
 
+    /// Posted by a second launch so the already-running instance shows its note.
+    private static let showNoteNotification = Notification.Name("com.kitalabs.visor.showNote")
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let args = ProcessInfo.processInfo.arguments
 
@@ -15,8 +18,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
 
+        // Single instance: if another Visor is already running, ask it to show
+        // its note and quit immediately — two instances would run competing
+        // file watchers that race and can clobber the note. This happens before
+        // any state or watcher is created.
+        if isAnotherInstanceRunning() {
+            DistributedNotificationCenter.default().postNotificationName(
+                Self.showNoteNotification, object: nil, userInfo: nil, deliverImmediately: true)
+            exit(0)
+        }
+
         controller = NotchController(startExpanded: args.contains("--expanded"))
         setUpStatusItem()
+
+        // Re-launching Visor (e.g. from Spotlight) brings the note down.
+        DistributedNotificationCenter.default().addObserver(
+            forName: Self.showNoteNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.controller?.showNote()
+        }
+    }
+
+    private func isAnotherInstanceRunning() -> Bool {
+        guard let bundleID = Bundle.main.bundleIdentifier else { return false }
+        let me = ProcessInfo.processInfo.processIdentifier
+        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+            .contains { $0.processIdentifier != me }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

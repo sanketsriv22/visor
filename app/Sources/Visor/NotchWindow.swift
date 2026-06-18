@@ -126,6 +126,13 @@ final class NotchController {
 
     func saveNow() { store.saveNow() }
 
+    /// Expand the note if it's collapsed; no-op if already showing. Used when
+    /// the app is re-launched while already running.
+    func showNote() {
+        guard !ui.expanded else { return }
+        toggle()
+    }
+
     func toggle() {
         if ui.expanded {
             store.saveNow()

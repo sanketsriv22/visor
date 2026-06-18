@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.4 — 2026-06-18
+
+- Single-instance lock: launching Visor while it's already running now brings the existing note down instead of starting a second copy. Prevents two copies from racing on the notes file and clobbering each other.
+
 ## 1.0-beta.3 — 2026-06-18
 
 - Long tasks now wrap onto multiple lines instead of being cut off at the edge (#2).
