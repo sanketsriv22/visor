@@ -141,6 +141,10 @@ private struct StickyCard: View {
                         onToggle: { store.cycle(item.id) },
                         onSubmit: { focusRow(store.insertTask(after: item.id)) },
                         onDelete: { store.remove(item.id) },
+                        onSend: {
+                            let t = item.text.trimmingCharacters(in: .whitespaces)
+                            if !t.isEmpty { devin.send(tasks: [t]) }
+                        },
                         onDropDragged: { draggedID in
                             withAnimation(.easeInOut(duration: 0.18)) {
                                 store.move(id: draggedID, toIndexOf: item.id)
@@ -253,6 +257,7 @@ private struct NoteRow: View {
     var onToggle: () -> Void
     var onSubmit: () -> Void
     var onDelete: () -> Void
+    var onSend: () -> Void
     var onDropDragged: (UUID) -> Void
 
     @State private var hovering = false
@@ -319,6 +324,16 @@ private struct NoteRow: View {
                 .onSubmit(onSubmit)
 
             if hovering {
+                if item.isTask && !item.done {
+                    Button(action: onSend) {
+                        Image(systemName: "paperplane")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Send just this task to Devin")
+                    .transition(.opacity)
+                }
                 Button(action: onDelete) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 12))
