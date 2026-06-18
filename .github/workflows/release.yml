@@ -20,7 +20,7 @@ jobs:
   build-and-release:
     runs-on: macos-latest   # Apple Silicon; matches the arm64 build
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build Visor.app
         run: bash scripts/make-app.sh --build-only   # $CI is set, so it won't install locally
