@@ -21,10 +21,13 @@ you — or just do it.
 curl -fsSL https://raw.githubusercontent.com/sanketsriv22/visor/main/install.sh | bash
 ```
 
-Clones, builds, and installs `Visor.app` to `/Applications`. Requires git and a
-Swift toolchain (`xcode-select --install`). Or build from a local checkout:
+Downloads the prebuilt `Visor.app` from the latest [release](https://github.com/sanketsriv22/visor/releases)
+and installs it to `/Applications` — no compiler or toolchain needed (Apple
+Silicon). To build from source instead (needs git + a Swift toolchain):
 
 ```sh
+VISOR_FROM_SOURCE=1 curl -fsSL https://raw.githubusercontent.com/sanketsriv22/visor/main/install.sh | bash
+# or, from a local checkout:
 ./scripts/make-app.sh        # builds Visor.app and installs it to /Applications
 ```
 
