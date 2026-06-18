@@ -20,7 +20,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key><string>Visor</string>
-    <key>CFBundleIdentifier</key><string>ai.trygravity.visor</string>
+    <key>CFBundleIdentifier</key><string>io.github.sanketsriv22.visor</string>
     <key>CFBundleName</key><string>Visor</string>
     <key>CFBundleDisplayName</key><string>Visor</string>
     <key>CFBundlePackageType</key><string>APPL</string>
