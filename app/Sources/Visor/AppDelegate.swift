@@ -3,6 +3,8 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: NotchController?
     private var statusItem: NSStatusItem?
+    private let updater = Updater()
+    private var updateItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let args = ProcessInfo.processInfo.arguments
@@ -31,6 +33,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let toggle = NSMenuItem(title: "Show / Hide Note", action: #selector(toggleNote), keyEquivalent: "")
         toggle.target = self
         menu.addItem(toggle)
+
+        let update = NSMenuItem(title: "Update Visor", action: #selector(updateApp), keyEquivalent: "")
+        update.target = self
+        menu.addItem(update)
+        updateItem = update
+
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Visor", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
@@ -38,10 +46,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         item.menu = menu
         statusItem = item
+
+        // Reflect update progress in the menu item's title.
+        updater.onStatus = { [weak self] text in
+            DispatchQueue.main.async { self?.updateItem?.title = text }
+        }
     }
 
     @objc private func toggleNote() { controller?.toggle() }
     @objc private func quitApp() { NSApp.terminate(nil) }
+
+    @objc private func updateApp() {
+        updateItem?.title = "Checking for update…"
+        updater.update()
+    }
 
     private static func printScreenProbe() {
         for (i, screen) in NSScreen.screens.enumerated() {

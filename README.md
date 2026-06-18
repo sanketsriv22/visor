@@ -36,8 +36,11 @@ VISOR_FROM_SOURCE=1 curl -fsSL https://raw.githubusercontent.com/sanketsriv22/vi
 - Tasks are checkboxes: type in the **Add a task…** field (Enter for the next),
   click the circle to complete, hover a row to delete. On disk a task is just
   `- [ ] …` / `- [x] …`, so agents read and write the same file.
-- A **menu-bar icon** (the only visible chrome) toggles the note and quits the
-  app. No Dock icon; nothing else visible while collapsed.
+- A **menu-bar icon** (the only visible chrome) toggles the note, self-updates,
+  and quits the app. No Dock icon; nothing else visible while collapsed.
+- **Update Visor** (menu bar) downloads the latest prebuilt app from the GitHub
+  release, swaps it into `/Applications`, and relaunches — no terminal needed.
+  Publish a new build for it to fetch with `./scripts/release.sh`.
 - No notch (external display)? A 200pt-wide invisible strip at the top-center
   of the screen does the same job.
 - The note picks up external edits (MCP server, Devin, git) live, so writes
