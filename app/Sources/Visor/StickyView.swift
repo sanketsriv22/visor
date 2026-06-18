@@ -3,7 +3,7 @@ import SwiftUI
 struct StickyRootView: View {
     @ObservedObject var store: NotesStore
     @ObservedObject var ui: UIState
-    @ObservedObject var devin: DevinRunner
+    @ObservedObject var ai: AIRunner
     var onToggle: () -> Void
 
     var body: some View {
@@ -12,7 +12,7 @@ struct StickyRootView: View {
                 // The card extends up behind the notch (topInset) so the notch
                 // overlaps its top edge — the note looks like it slides out
                 // from *behind* the notch, not off its bottom lip.
-                StickyCard(store: store, devin: devin, topInset: ui.notchSize.height, notchWidth: ui.notchSize.width, onClose: onToggle)
+                StickyCard(store: store, ai: ai, topInset: ui.notchSize.height, notchWidth: ui.notchSize.width, onClose: onToggle)
                     .transition(.move(edge: .top).combined(with: .opacity))
             } else {
                 NotchStrip(size: ui.notchSize, expanded: false)
@@ -59,7 +59,7 @@ private struct NotchStrip: View {
 
 private struct StickyCard: View {
     @ObservedObject var store: NotesStore
-    @ObservedObject var devin: DevinRunner
+    @ObservedObject var ai: AIRunner
     /// Height of the notch the card tucks up behind; content starts below it.
     var topInset: CGFloat
     /// Width of the notch, so the top band can flank it instead of overlapping.
@@ -143,7 +143,7 @@ private struct StickyCard: View {
                         onDelete: { store.remove(item.id) },
                         onSend: {
                             let t = item.text.trimmingCharacters(in: .whitespaces)
-                            if !t.isEmpty { devin.send(tasks: [t]) }
+                            if !t.isEmpty { ai.sendToDefault(tasks: [t]) }
                         },
                         onDropDragged: { draggedID in
                             withAnimation(.easeInOut(duration: 0.18)) {
@@ -187,65 +187,34 @@ private struct StickyCard: View {
         DispatchQueue.main.async { focused = id }
     }
 
-    private var footer: some View {
-        HStack(spacing: 8) {
-            statusLabel
-            Spacer(minLength: 8)
-            devinButton
-        }
-    }
-
+    // Sending is per-task (the ✈ on each row). The footer just reflects the
+    // last run's state; which agent it goes to is set in the menu-bar settings.
     @ViewBuilder
-    private var statusLabel: some View {
-        switch devin.status {
+    private var footer: some View {
+        switch ai.status {
         case .idle:
-            Text("click ○ to cycle: open · doing · blocked · done")
+            Text("hover a task → ✈ sends it to \(ai.defaultProviderName)")
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
         case .running:
-            Label("Devin working…", systemImage: "circle.dotted")
+            Label("\(ai.lastProviderName) working…", systemImage: "circle.dotted")
                 .font(.system(size: 10))
                 .foregroundStyle(.orange)
         case .done:
-            Button(action: devin.revealLog) {
-                Label("Devin finished — view log", systemImage: "checkmark.circle.fill")
+            Button(action: ai.revealLog) {
+                Label("\(ai.lastProviderName) finished — view log", systemImage: "checkmark.circle.fill")
                     .font(.system(size: 10))
                     .foregroundStyle(.green)
             }
             .buttonStyle(.plain)
         case .failed(let why):
-            Button(action: devin.revealLog) {
-                Label("Devin failed (\(why))", systemImage: "exclamationmark.triangle.fill")
+            Button(action: ai.revealLog) {
+                Label("\(ai.lastProviderName) failed (\(why))", systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 10))
                     .foregroundStyle(.red)
             }
             .buttonStyle(.plain)
         }
-    }
-
-    private var devinButton: some View {
-        let busy = devin.status == .running
-        let enabled = store.openTaskCount > 0 && !busy
-        return Button {
-            devin.send(tasks: store.openTasks)
-        } label: {
-            HStack(spacing: 5) {
-                if busy {
-                    ProgressView().controlSize(.small).tint(.black)
-                } else {
-                    Image(systemName: "paperplane.fill")
-                }
-                Text(busy ? "Sending" : "Send to Devin")
-            }
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.black)
-            .padding(.horizontal, 11)
-            .padding(.vertical, 5)
-            .background(Capsule().fill(enabled ? Color.orange : Color.white.opacity(0.18)))
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        .help(store.openTaskCount == 0 ? "No open tasks to send" : "Send open tasks to Devin")
     }
 }
 

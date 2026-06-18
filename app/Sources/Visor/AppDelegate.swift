@@ -4,7 +4,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var controller: NotchController?
     private var statusItem: NSStatusItem?
     private let updater = Updater()
+    private let ai = AIRunner()
     private var updateItem: NSMenuItem?
+    private var sendToMenu: NSMenu?
 
     /// Posted by a second launch so the already-running instance shows its note.
     private static let showNoteNotification = Notification.Name("com.kitalabs.visor.showNote")
@@ -28,7 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             exit(0)
         }
 
-        controller = NotchController(startExpanded: args.contains("--expanded"))
+        controller = NotchController(startExpanded: args.contains("--expanded"), ai: ai)
         setUpStatusItem()
 
         // Re-launching Visor (e.g. from Spotlight) brings the note down.
@@ -69,6 +71,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let toggle = NSMenuItem(title: "Show / Hide Note", action: #selector(toggleNote), keyEquivalent: "")
         toggle.target = self
         menu.addItem(toggle)
+
+        // Settings: which agent the ✈ send buttons target.
+        let sendTo = NSMenuItem(title: "Send tasks to", action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        sendToMenu = sub
+        rebuildSendToMenu()
+        sendTo.submenu = sub
+        menu.addItem(sendTo)
+
+        menu.addItem(.separator())
 
         let update = NSMenuItem(title: "Check for Updates…", action: #selector(updateApp), keyEquivalent: "")
         update.target = self
@@ -135,13 +147,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// when the user explicitly clicks "Check for Updates…". Just reset the
     /// item label (e.g. after a previous check left a status on it).
     func menuWillOpen(_ menu: NSMenu) {
-        guard !updater.isBusy else { return }
-        updateItem?.title = "Check for Updates…"
+        rebuildSendToMenu()
+        if !updater.isBusy { updateItem?.title = "Check for Updates…" }
     }
 
     @objc private func openReleases() {
         NSWorkspace.shared.open(URL(string: "https://github.com/sanketsriv22/visor/releases")!)
     }
+
+    /// Build the "Send tasks to" submenu: one item per agent, a checkmark on
+    /// the active one, plus a link to edit the providers file.
+    private func rebuildSendToMenu() {
+        guard let sub = sendToMenu else { return }
+        sub.removeAllItems()
+        for provider in ai.providers {
+            let it = NSMenuItem(title: provider.name, action: #selector(selectProvider(_:)), keyEquivalent: "")
+            it.target = self
+            it.representedObject = provider.name
+            it.state = (provider.name == ai.defaultProviderName) ? .on : .off
+            sub.addItem(it)
+        }
+        sub.addItem(.separator())
+        let edit = NSMenuItem(title: "Edit AI providers…", action: #selector(editProviders), keyEquivalent: "")
+        edit.target = self
+        sub.addItem(edit)
+    }
+
+    @objc private func selectProvider(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
+        ai.setDefault(name)
+        rebuildSendToMenu()
+    }
+
+    @objc private func editProviders() { ai.editConfig() }
 
     @objc private func toggleNote() { controller?.toggle() }
     @objc private func quitApp() { NSApp.terminate(nil) }

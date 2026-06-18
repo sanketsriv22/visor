@@ -3,6 +3,11 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.8 — 2026-06-18
+
+- Choose your AI agent in settings: the menu-bar "Send tasks to" submenu picks Devin or Claude Code (add your own in `~/StickyNotes/ai-providers.json`). The per-task ✈ button sends that task to whichever agent you've chosen (#4).
+- Sending is now per-task via the ✈ on each row; the old bulk "Send to Devin" button was removed.
+
 ## 1.0-beta.7 — 2026-06-18
 
 - Send a single task to Devin: hover a task and click the ↗ to send just that one. The "Send to Devin" button still sends all open tasks (#3).
