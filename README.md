@@ -36,13 +36,22 @@ VISOR_FROM_SOURCE=1 curl -fsSL https://raw.githubusercontent.com/sanketsriv22/vi
 - Tasks are checkboxes: type in the **Add a task…** field (Enter for the next),
   click the circle to complete, hover a row to delete. On disk a task is just
   `- [ ] …` / `- [x] …`, so agents read and write the same file.
-- A **menu-bar icon** (the only visible chrome) toggles the note, self-updates,
-  and quits the app. No Dock icon; nothing else visible while collapsed.
-- **Update Visor** (menu bar) downloads the latest prebuilt app from the GitHub
-  release, swaps it into `/Applications`, and relaunches — no terminal needed.
-  Every push to `main` auto-rebuilds and refreshes that release via GitHub
-  Actions (`.github/workflows/release.yml`), so the button always gets current
-  `main`. To publish from your machine instead, run `./scripts/release.sh`.
+- A **menu-bar icon** (the only visible chrome) shows the version + what's new,
+  toggles the note, self-updates, and quits. No Dock icon; nothing else visible
+  while collapsed.
+- The dropdown shows the running **version**, a **What's New** submenu (this
+  version's changelog), and whether you're **up to date** vs an update being
+  available. **Update Visor** downloads the latest release, swaps it into
+  `/Applications`, and relaunches — no terminal needed.
+
+### Versioning
+
+The version lives in [`VERSION`](VERSION); changes are logged in
+[`CHANGELOG.md`](CHANGELOG.md). Every push to `main` rebuilds and publishes a
+release tagged from `VERSION` (notes = that version's changelog section) via
+GitHub Actions, so the Update button always serves current `main`. To cut a new
+version, bump `VERSION` and add a `CHANGELOG.md` entry. Publish from your
+machine with `./scripts/release.sh`.
 - No notch (external display)? A 200pt-wide invisible strip at the top-center
   of the screen does the same job.
 - The note picks up external edits (MCP server, Devin, git) live, so writes

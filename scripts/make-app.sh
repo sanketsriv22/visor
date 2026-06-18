@@ -8,7 +8,9 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$REPO/dist/Visor.app"
-VERSION="0.1.0"
+VERSION="$(tr -d '[:space:]' < "$REPO/VERSION" 2>/dev/null)"
+[ -n "$VERSION" ] || VERSION="0.0.0"
+BUILD="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo "0")"
 
 BUILD_ONLY=""
 [ "${1:-}" = "--build-only" ] && BUILD_ONLY=1
@@ -32,7 +34,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleDisplayName</key><string>Visor</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>${VERSION}</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleVersion</key><string>${BUILD}</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSUIElement</key><true/>
@@ -56,6 +58,9 @@ elif swift "$REPO/scripts/render-icon.swift" /tmp/visor-icon-1024.png; then
 else
     echo "warning: icon generation failed, building without icon" >&2
 fi
+
+# Bundle the changelog so the app can show "What's New" offline.
+cp "$REPO/CHANGELOG.md" "$APP/Contents/Resources/CHANGELOG.md" 2>/dev/null || true
 
 codesign --force --sign - "$APP"
 

@@ -12,6 +12,40 @@ final class Updater {
     /// Reports human-readable progress for the menu item title.
     var onStatus: ((String) -> Void)?
     private var busy = false
+    var isBusy: Bool { busy }
+
+    private static let latestAPI = URL(string: "https://api.github.com/repos/sanketsriv22/visor/releases/latest")!
+
+    /// Fetch the latest published version (release tag, "v" stripped). nil on failure.
+    func fetchLatestVersion(_ completion: @escaping (String?) -> Void) {
+        var req = URLRequest(url: Self.latestAPI)
+        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            let tag = (try? JSONSerialization.jsonObject(with: data ?? Data())) as? [String: Any]
+            let name = tag?["tag_name"] as? String
+            completion(name.map { $0.hasPrefix("v") ? String($0.dropFirst()) : $0 })
+        }.resume()
+    }
+
+    /// Check the latest version first; only download+install if it differs from
+    /// what's running, so the user gets clear feedback either way.
+    func checkThenUpdate() {
+        guard !busy else { return }
+        onStatus?("Checking for updates…")
+        fetchLatestVersion { [weak self] latest in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard let latest else { self.onStatus?("Couldn't reach update server"); return }
+                if latest == AppInfo.version {
+                    self.onStatus?("You're on the latest (\(AppInfo.version))")
+                } else {
+                    self.onStatus?("Updating to \(latest)…")
+                    self.update()
+                }
+            }
+        }
+    }
 
     func update() {
         guard !busy else { return }

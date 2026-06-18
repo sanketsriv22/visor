@@ -1,6 +1,6 @@
 import AppKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var controller: NotchController?
     private var statusItem: NSStatusItem?
     private let updater = Updater()
@@ -30,6 +30,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.image = NSImage(systemSymbolName: "checklist", accessibilityDescription: "Visor")
 
         let menu = NSMenu()
+        menu.delegate = self
+
+        // Version header + what changed in this version.
+        let header = NSMenuItem(title: "Visor \(AppInfo.version)", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+        menu.addItem(whatsNewItem())
+        menu.addItem(.separator())
+
         let toggle = NSMenuItem(title: "Show / Hide Note", action: #selector(toggleNote), keyEquivalent: "")
         toggle.target = self
         menu.addItem(toggle)
@@ -46,6 +55,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         item.menu = menu
         statusItem = item
+    }
+
+    /// "What's New" → a submenu listing this version's changelog bullets, plus
+    /// a link to the full release history.
+    private func whatsNewItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "What's New", action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        let bullets = AppInfo.latestChangelog
+        if bullets.isEmpty {
+            sub.addItem(disabledItem("No release notes"))
+        } else {
+            for b in bullets.prefix(15) { sub.addItem(disabledItem("• \(b)")) }
+        }
+        sub.addItem(.separator())
+        let all = NSMenuItem(title: "View all releases…", action: #selector(openReleases), keyEquivalent: "")
+        all.target = self
+        sub.addItem(all)
+        item.submenu = sub
+        return item
+    }
+
+    private func disabledItem(_ title: String) -> NSMenuItem {
+        let i = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        i.isEnabled = false
+        return i
+    }
+
+    /// When the menu opens, quietly check whether a newer version exists and
+    /// reflect it in the Update item — so the menu always shows update state.
+    func menuWillOpen(_ menu: NSMenu) {
+        guard !updater.isBusy else { return }
+        updater.fetchLatestVersion { [weak self] latest in
+            DispatchQueue.main.async {
+                guard let self, !self.updater.isBusy else { return }
+                guard let latest else { self.updateItem?.title = "Update Visor"; return }
+                self.updateItem?.title = latest == AppInfo.version
+                    ? "Up to date (\(AppInfo.version))"
+                    : "Update to \(latest)"
+            }
+        }
+    }
+
+    @objc private func openReleases() {
+        NSWorkspace.shared.open(URL(string: "https://github.com/sanketsriv22/visor/releases")!)
 
         // Reflect update progress in the menu item's title.
         updater.onStatus = { [weak self] text in
@@ -57,8 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func quitApp() { NSApp.terminate(nil) }
 
     @objc private func updateApp() {
-        updateItem?.title = "Checking for update…"
-        updater.update()
+        updater.checkThenUpdate()
     }
 
     private static func printScreenProbe() {
