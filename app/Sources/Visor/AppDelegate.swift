@@ -67,11 +67,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func whatsNewItem() -> NSMenuItem {
         let item = NSMenuItem(title: "What's New", action: nil, keyEquivalent: "")
         let sub = NSMenu()
-        let bullets = AppInfo.latestChangelog
-        if bullets.isEmpty {
+        let releases = AppInfo.releases
+        if releases.isEmpty {
             sub.addItem(disabledItem("No release notes"))
         } else {
-            for b in bullets.prefix(15) { sub.addItem(disabledItem("• \(b)")) }
+            // Each release is its own labeled group, separated — never merged.
+            for (i, release) in releases.prefix(5).enumerated() {
+                if i > 0 { sub.addItem(.separator()) }
+                sub.addItem(headerItem(release.title))
+                for b in release.bullets.prefix(12) { sub.addItem(disabledItem("    • \(b)")) }
+            }
         }
         sub.addItem(.separator())
         let all = NSMenuItem(title: "View all releases…", action: #selector(openReleases), keyEquivalent: "")
@@ -84,6 +89,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func disabledItem(_ title: String) -> NSMenuItem {
         let i = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         i.isEnabled = false
+        return i
+    }
+
+    /// A bold, disabled version heading that groups the bullets beneath it.
+    private func headerItem(_ title: String) -> NSMenuItem {
+        let i = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        i.isEnabled = false
+        i.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [.font: NSFont.boldSystemFont(ofSize: NSFont.smallSystemFontSize)]
+        )
         return i
     }
 
