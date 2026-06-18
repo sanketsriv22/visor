@@ -12,7 +12,7 @@ struct StickyRootView: View {
                 // The card extends up behind the notch (topInset) so the notch
                 // overlaps its top edge — the note looks like it slides out
                 // from *behind* the notch, not off its bottom lip.
-                StickyCard(store: store, devin: devin, topInset: ui.notchSize.height, onClose: onToggle)
+                StickyCard(store: store, devin: devin, topInset: ui.notchSize.height, notchWidth: ui.notchSize.width, onClose: onToggle)
                     .transition(.move(edge: .top).combined(with: .opacity))
             } else {
                 NotchStrip(size: ui.notchSize, expanded: false)
@@ -62,6 +62,8 @@ private struct StickyCard: View {
     @ObservedObject var devin: DevinRunner
     /// Height of the notch the card tucks up behind; content starts below it.
     var topInset: CGFloat
+    /// Width of the notch, so the top band can flank it instead of overlapping.
+    var notchWidth: CGFloat
     var onClose: () -> Void
 
     @FocusState private var focused: UUID?
@@ -79,26 +81,15 @@ private struct StickyCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("VISOR")
-                    .font(.system(size: 11, weight: .semibold))
-                    .tracking(2)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("\(store.openTaskCount) open")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(store.openTaskCount > 0 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, topInset + 12)
+        VStack(alignment: .leading, spacing: 4) {
+            notchBand
 
             TextField("Name this note…", text: $store.title)
                 .textFieldStyle(.plain)
                 .font(.system(size: 17, weight: .semibold))
                 .focused($focused, equals: titleFieldID)
                 .padding(.horizontal, 16)
-                .padding(.top, 1)
+                .padding(.top, 2)
 
             taskList
 
@@ -116,6 +107,28 @@ private struct StickyCard: View {
             shape.strokeBorder(.white.opacity(0.14), lineWidth: 1)
         )
         .onExitCommand(perform: onClose)
+    }
+
+    /// The strip at notch height: VISOR in the left shoulder, open-count in the
+    /// right shoulder, with a gap in the middle cleared for the physical notch.
+    private var notchBand: some View {
+        let gap = notchWidth + 18 // notch + a little clearance on each side
+        let shoulder = max(0, (NotchController.cardWidth - gap) / 2)
+        return HStack(spacing: 0) {
+            Text("VISOR")
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(2)
+                .foregroundStyle(.secondary)
+                .padding(.leading, 16)
+                .frame(width: shoulder, alignment: .leading)
+            Spacer(minLength: 0).frame(width: gap)
+            Text("\(store.openTaskCount) open")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(store.openTaskCount > 0 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                .padding(.trailing, 16)
+                .frame(width: shoulder, alignment: .trailing)
+        }
+        .frame(height: topInset)
     }
 
     private var taskList: some View {
