@@ -10,9 +10,7 @@ you — or just do it.
 ```
 ~/StickyNotes/sticky.md   ← single source of truth (plain markdown)
         ▲            ▲
-   notch app     MCP server ──► local agents (Claude Code, …)
-                      │
-                 git sync ────► private repo ──► Devin (cloud)
+   notch app     MCP server ──► local agents (Claude Code, Devin CLI, …)
 ```
 
 ## Install
@@ -115,10 +113,9 @@ cp ~/repos/visor/scripts/com.user.devin-check.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.user.devin-check.plist   # weekdays 9:30
 ```
 
-> The git-sync scripts (`sync-stickies.sh`, `com.user.sticky-sync.plist`) are
-> now **optional** — only needed if you also want a *cloud* Devin session (or
-> another machine) to read the notes over GitHub. The local CLI path above
-> doesn't use them.
+> This is the only background agent Visor uses, and it's **opt-in** — install it
+> only if you want the scheduled nudge. The on-demand "Send to Devin" button
+> needs nothing running in the background.
 
 ## Known limitations (v1)
 
