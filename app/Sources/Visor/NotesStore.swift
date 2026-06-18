@@ -96,6 +96,17 @@ final class NotesStore: ObservableObject {
         items.removeAll { $0.id == id }
     }
 
+    /// Move the dragged item to just above the dropped-on item — matching the
+    /// insertion line drawn at the top of the target row.
+    func move(id draggedID: UUID, toIndexOf targetID: UUID) {
+        guard draggedID != targetID,
+              let from = items.firstIndex(where: { $0.id == draggedID }),
+              let to = items.firstIndex(where: { $0.id == targetID }) else { return }
+        // toOffset is the original index to insert *before*, so `to` lands the
+        // item right above the target in both directions.
+        items.move(fromOffsets: IndexSet(integer: from), toOffset: to)
+    }
+
     // MARK: - Persistence
 
     private static let taskRE = try! NSRegularExpression(pattern: #"^\s*-\s*\[( |x|X)\]\s?(.*)$"#)

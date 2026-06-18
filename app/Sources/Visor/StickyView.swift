@@ -140,7 +140,12 @@ private struct StickyCard: View {
                         focused: $focused,
                         onToggle: { store.toggle(item.id) },
                         onSubmit: { focusRow(store.insertTask(after: item.id)) },
-                        onDelete: { store.remove(item.id) }
+                        onDelete: { store.remove(item.id) },
+                        onDropDragged: { draggedID in
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                store.move(id: draggedID, toIndexOf: item.id)
+                            }
+                        }
                     )
                 }
                 addRow
@@ -248,13 +253,23 @@ private struct NoteRow: View {
     var onToggle: () -> Void
     var onSubmit: () -> Void
     var onDelete: () -> Void
+    var onDropDragged: (UUID) -> Void
 
     @State private var hovering = false
+    @State private var dropTargeted = false
 
     var body: some View {
-        // .top alignment keeps the checkbox and delete button on the first line
-        // when a long task wraps to multiple lines.
+        // .top alignment keeps the handle, checkbox and delete button on the
+        // first line when a long task wraps to multiple lines.
         HStack(alignment: .top, spacing: 8) {
+            // Drag handle — only this grabs for reordering, so dragging never
+            // fights with editing the task text.
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .opacity(hovering ? 0.7 : 0.22)
+                .draggable(item.id.uuidString)
+
             if item.isTask {
                 Button(action: onToggle) {
                     Image(systemName: item.done ? "checkmark.circle.fill" : "circle")
@@ -285,7 +300,19 @@ private struct NoteRow: View {
                 .transition(.opacity)
             }
         }
-        .padding(.vertical, 1)
+        .padding(.vertical, 2)
+        .overlay(alignment: .top) {
+            // Insertion indicator while a drag hovers this row.
+            if dropTargeted {
+                Rectangle().fill(.orange).frame(height: 2).offset(y: -2)
+            }
+        }
+        .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        .dropDestination(for: String.self) { ids, _ in
+            guard let id = ids.first.flatMap(UUID.init) else { return false }
+            onDropDragged(id)
+            return true
+        } isTargeted: { dropTargeted = $0 }
     }
 }
