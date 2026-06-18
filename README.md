@@ -40,7 +40,9 @@ VISOR_FROM_SOURCE=1 curl -fsSL https://raw.githubusercontent.com/sanketsriv22/vi
   and quits the app. No Dock icon; nothing else visible while collapsed.
 - **Update Visor** (menu bar) downloads the latest prebuilt app from the GitHub
   release, swaps it into `/Applications`, and relaunches — no terminal needed.
-  Publish a new build for it to fetch with `./scripts/release.sh`.
+  Every push to `main` auto-rebuilds and refreshes that release via GitHub
+  Actions (`.github/workflows/release.yml`), so the button always gets current
+  `main`. To publish from your machine instead, run `./scripts/release.sh`.
 - No notch (external display)? A 200pt-wide invisible strip at the top-center
   of the screen does the same job.
 - The note picks up external edits (MCP server, Devin, git) live, so writes

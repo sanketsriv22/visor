@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
-# Build Visor.app and install it to /Applications.
+# Build Visor.app (into dist/) and install it to /Applications.
 # Re-run after any code change to update the installed app.
+#
+# Pass --build-only (or run in CI, where $CI is set) to just build dist/Visor.app
+# without installing to /Applications — used by the release workflow.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$REPO/dist/Visor.app"
 VERSION="0.1.0"
+
+BUILD_ONLY=""
+[ "${1:-}" = "--build-only" ] && BUILD_ONLY=1
+[ -n "${CI:-}" ] && BUILD_ONLY=1
 
 cd "$REPO/app"
 swift build -c release
@@ -34,8 +41,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# App icon: render a 1024pt master, then build the .icns
-if swift "$REPO/scripts/render-icon.swift" /tmp/visor-icon-1024.png; then
+# App icon: use the committed .icns (so CI needs no GUI). Fall back to
+# rendering one locally if it's missing.
+if [ -f "$REPO/scripts/AppIcon.icns" ]; then
+    cp "$REPO/scripts/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+elif swift "$REPO/scripts/render-icon.swift" /tmp/visor-icon-1024.png; then
     ICONSET=/tmp/Visor.iconset
     rm -rf "$ICONSET" && mkdir "$ICONSET"
     for s in 16 32 128 256 512; do
@@ -44,10 +54,15 @@ if swift "$REPO/scripts/render-icon.swift" /tmp/visor-icon-1024.png; then
     done
     iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 else
-    echo "warning: icon generation failed, installing without icon" >&2
+    echo "warning: icon generation failed, building without icon" >&2
 fi
 
 codesign --force --sign - "$APP"
+
+if [ -n "$BUILD_ONLY" ]; then
+    echo "Built $APP (v${VERSION})"
+    exit 0
+fi
 
 # Replace any running copy, then install
 pkill -x Visor 2>/dev/null || true
