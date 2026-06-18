@@ -4,9 +4,10 @@ import Foundation
 /// One AI target: a CLI command the tasks are handed to. The prompt is
 /// appended as the final argument (e.g. Devin: `devin … -p "<prompt>"`).
 struct AIProvider: Codable, Identifiable, Equatable {
-    var name: String       // shown in the UI, e.g. "Devin"
-    var command: String    // executable name or absolute path, e.g. "devin"
-    var args: [String]     // fixed args; the prompt is appended after these
+    var name: String          // shown in the UI, e.g. "Devin"
+    var command: String       // executable name or absolute path, e.g. "devin"
+    var args: [String]        // fixed args; the prompt is appended after these
+    var apiKeyEnv: String?    // env var the CLI reads its key from, if any (e.g. "OPENAI_API_KEY")
     var id: String { name }
 }
 
@@ -95,6 +96,10 @@ final class AIRunner: ObservableObject {
         var env = ProcessInfo.processInfo.environment
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         env["PATH"] = "\(home)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:" + (env["PATH"] ?? "")
+        // If this agent authenticates via an API key, inject it from the Keychain.
+        if let keyEnv = provider.apiKeyEnv, let key = Keychain.get(provider.name) {
+            env[keyEnv] = key
+        }
         process.environment = env
 
         FileManager.default.createFile(atPath: logURL.path, contents: nil)
@@ -128,6 +133,41 @@ final class AIRunner: ObservableObject {
     func editConfig() {
         if !FileManager.default.fileExists(atPath: configURL.path) { saveConfig(Self.defaults) }
         NSWorkspace.shared.open(configURL)
+    }
+
+    // MARK: - Editing providers + keys (used by the Settings window)
+
+    /// Add or replace a provider (matched by name) and persist.
+    func upsert(_ provider: AIProvider) {
+        if let i = providers.firstIndex(where: { $0.name == provider.name }) {
+            providers[i] = provider
+        } else {
+            providers.append(provider)
+        }
+        persist()
+    }
+
+    func remove(_ provider: AIProvider) {
+        providers.removeAll { $0.name == provider.name }
+        Keychain.delete(provider.name)
+        if defaultProviderName == provider.name { defaultProviderName = providers.first?.name ?? "" }
+        persist()
+    }
+
+    /// Whether a key has been stored for an agent that needs one.
+    func hasKey(_ provider: AIProvider) -> Bool {
+        provider.apiKeyEnv != nil && Keychain.has(provider.name)
+    }
+
+    /// Save (or clear, if empty) an agent's API key in the Keychain.
+    func setKey(_ value: String, for provider: AIProvider) {
+        Keychain.set(value.trimmingCharacters(in: .whitespacesAndNewlines), account: provider.name)
+        objectWillChange.send()
+    }
+
+    private func persist() {
+        saveConfig(ProvidersConfig(default: defaultProviderName, providers: providers))
+        objectWillChange.send()
     }
 
     // MARK: - Config

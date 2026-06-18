@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var controller: NotchController?
@@ -7,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let ai = AIRunner()
     private var updateItem: NSMenuItem?
     private var sendToMenu: NSMenu?
+    private var settingsWindow: NSWindow?
 
     /// Posted by a second launch so the already-running instance shows its note.
     private static let showNoteNotification = Notification.Name("com.kitalabs.visor.showNote")
@@ -39,6 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ) { [weak self] _ in
             self?.controller?.showNote()
         }
+
+        if args.contains("--settings") { openSettings() }
     }
 
     private func isAnotherInstanceRunning() -> Bool {
@@ -79,6 +83,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rebuildSendToMenu()
         sendTo.submenu = sub
         menu.addItem(sendTo)
+
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
 
         menu.addItem(.separator())
 
@@ -168,9 +176,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             sub.addItem(it)
         }
         sub.addItem(.separator())
-        let edit = NSMenuItem(title: "Edit AI providers…", action: #selector(editProviders), keyEquivalent: "")
-        edit.target = self
-        sub.addItem(edit)
+        let manage = NSMenuItem(title: "Manage agents…", action: #selector(openSettings), keyEquivalent: "")
+        manage.target = self
+        sub.addItem(manage)
     }
 
     @objc private func selectProvider(_ sender: NSMenuItem) {
@@ -179,7 +187,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rebuildSendToMenu()
     }
 
-    @objc private func editProviders() { ai.editConfig() }
+    @objc private func openSettings() {
+        if settingsWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 500, height: 480),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Visor Settings"
+            window.contentView = NSHostingView(rootView: SettingsView(ai: ai))
+            window.isReleasedWhenClosed = false
+            window.center()
+            settingsWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true) // accessory app must activate to take focus
+        settingsWindow?.makeKeyAndOrderFront(nil)
+    }
 
     @objc private func toggleNote() { controller?.toggle() }
     @objc private func quitApp() { NSApp.terminate(nil) }
