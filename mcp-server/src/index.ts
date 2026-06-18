@@ -40,18 +40,33 @@ async function readMeta(): Promise<Meta> {
   }
 }
 
+type TaskStatus = "open" | "doing" | "blocked" | "done";
+
 interface Task {
   text: string;
+  status: TaskStatus;
   done: boolean;
   line: number;
 }
 
-const TASK_RE = /^\s*-\s*\[( |x|X)\]\s*(.*)$/;
+// Checkbox markers: ' ' open, '/' doing, '!' blocked, 'x' done (matches the app).
+const TASK_RE = /^\s*-\s*\[([ xX/!\-])\]\s?(.*)$/;
+
+function statusFromMarker(marker: string): TaskStatus {
+  switch (marker.toLowerCase()) {
+    case "x": return "done";
+    case "/": return "doing";
+    case "!": return "blocked";
+    default: return "open";
+  }
+}
 
 function parseTasks(content: string): Task[] {
   return content.split("\n").flatMap((raw, i) => {
     const m = raw.match(TASK_RE);
-    return m ? [{ text: m[2].trim(), done: m[1].toLowerCase() === "x", line: i }] : [];
+    if (!m) return [];
+    const status = statusFromMarker(m[1]);
+    return [{ text: m[2].trim(), status, done: status === "done", line: i }];
   });
 }
 
@@ -206,7 +221,7 @@ server.registerTool(
       return text(`"${match}" is ambiguous; it matches:\n${hits.map((t) => `- ${t.text}`).join("\n")}\nBe more specific.`);
     }
     const lines = content.split("\n");
-    lines[hits[0].line] = lines[hits[0].line].replace(/\[( )\]/, "[x]");
+    lines[hits[0].line] = lines[hits[0].line].replace(/\[[ /!\-]\]/, "[x]");
     await writeNotes(lines.join("\n"));
     return text(`Completed: ${hits[0].text}`);
   })

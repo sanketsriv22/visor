@@ -138,7 +138,7 @@ private struct StickyCard: View {
                     NoteRow(
                         item: $item,
                         focused: $focused,
-                        onToggle: { store.toggle(item.id) },
+                        onToggle: { store.cycle(item.id) },
                         onSubmit: { focusRow(store.insertTask(after: item.id)) },
                         onDelete: { store.remove(item.id) },
                         onDropDragged: { draggedID in
@@ -195,7 +195,7 @@ private struct StickyCard: View {
     private var statusLabel: some View {
         switch devin.status {
         case .idle:
-            Text("click ○ to complete")
+            Text("click ○ to cycle: open · doing · blocked · done")
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
         case .running:
@@ -258,6 +258,33 @@ private struct NoteRow: View {
     @State private var hovering = false
     @State private var dropTargeted = false
 
+    static func glyph(_ s: TaskStatus) -> String {
+        switch s {
+        case .open: return "circle"
+        case .doing: return "circle.lefthalf.filled"
+        case .blocked: return "exclamationmark.circle.fill"
+        case .done: return "checkmark.circle.fill"
+        }
+    }
+
+    static func tint(_ s: TaskStatus) -> AnyShapeStyle {
+        switch s {
+        case .open: return AnyShapeStyle(.secondary)
+        case .doing: return AnyShapeStyle(.blue)
+        case .blocked: return AnyShapeStyle(.red)
+        case .done: return AnyShapeStyle(.green)
+        }
+    }
+
+    static func label(_ s: TaskStatus) -> String {
+        switch s {
+        case .open: return "Open"
+        case .doing: return "Doing"
+        case .blocked: return "Blocked"
+        case .done: return "Done"
+        }
+    }
+
     var body: some View {
         // .top alignment keeps the handle, checkbox and delete button on the
         // first line when a long task wraps to multiple lines.
@@ -272,11 +299,12 @@ private struct NoteRow: View {
 
             if item.isTask {
                 Button(action: onToggle) {
-                    Image(systemName: item.done ? "checkmark.circle.fill" : "circle")
+                    Image(systemName: Self.glyph(item.status))
                         .font(.system(size: 14))
-                        .foregroundStyle(item.done ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
+                        .foregroundStyle(Self.tint(item.status))
                 }
                 .buttonStyle(.plain)
+                .help(Self.label(item.status) + " — click to change")
             }
 
             // axis: .vertical lets long text wrap onto new lines and the row

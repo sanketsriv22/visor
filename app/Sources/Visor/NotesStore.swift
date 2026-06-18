@@ -1,17 +1,55 @@
 import Foundation
 
+/// A task's state. Clicking the checkbox cycles through these in order.
+/// On disk each maps to a single character inside the markdown checkbox.
+enum TaskStatus: Equatable {
+    case open      // [ ]
+    case doing     // [/]
+    case blocked   // [!]
+    case done      // [x]
+
+    var marker: String {
+        switch self {
+        case .open: return " "
+        case .doing: return "/"
+        case .blocked: return "!"
+        case .done: return "x"
+        }
+    }
+
+    static func from(marker: Character) -> TaskStatus {
+        switch Character(marker.lowercased()) {
+        case "x": return .done
+        case "/": return .doing
+        case "!": return .blocked
+        default: return .open
+        }
+    }
+
+    var next: TaskStatus {
+        switch self {
+        case .open: return .doing
+        case .doing: return .blocked
+        case .blocked: return .done
+        case .done: return .open
+        }
+    }
+}
+
 /// One line of the note: a checkbox task, or a plain line of text.
 struct NoteItem: Identifiable, Equatable {
     let id: UUID
     var text: String
     var isTask: Bool
-    var done: Bool
+    var status: TaskStatus
 
-    init(id: UUID = UUID(), text: String, isTask: Bool, done: Bool = false) {
+    var done: Bool { status == .done }
+
+    init(id: UUID = UUID(), text: String, isTask: Bool, status: TaskStatus = .open) {
         self.id = id
         self.text = text
         self.isTask = isTask
-        self.done = done
+        self.status = status
     }
 }
 
@@ -69,9 +107,10 @@ final class NotesStore: ObservableObject {
 
     // MARK: - Mutations
 
-    func toggle(_ id: UUID) {
+    /// Advance a task to its next state: open → doing → blocked → done → open.
+    func cycle(_ id: UUID) {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
-        items[i].done.toggle()
+        items[i].status = items[i].status.next
     }
 
     @discardableResult
@@ -109,7 +148,7 @@ final class NotesStore: ObservableObject {
 
     // MARK: - Persistence
 
-    private static let taskRE = try! NSRegularExpression(pattern: #"^\s*-\s*\[( |x|X)\]\s?(.*)$"#)
+    private static let taskRE = try! NSRegularExpression(pattern: #"^\s*-\s*\[([ xX/!\-])\]\s?(.*)$"#)
 
     static func parse(_ s: String) -> [NoteItem] {
         var items = s.split(separator: "\n", omittingEmptySubsequences: false).map { sub -> NoteItem in
@@ -118,7 +157,8 @@ final class NotesStore: ObservableObject {
             if let m = taskRE.firstMatch(in: line, range: range),
                let markR = Range(m.range(at: 1), in: line),
                let textR = Range(m.range(at: 2), in: line) {
-                return NoteItem(text: String(line[textR]), isTask: true, done: line[markR].lowercased() == "x")
+                let marker = line[markR].first ?? " "
+                return NoteItem(text: String(line[textR]), isTask: true, status: .from(marker: marker))
             }
             return NoteItem(text: line, isTask: false)
         }
@@ -157,7 +197,7 @@ final class NotesStore: ObservableObject {
         // spaces so a wrapped task can't split into bogus extra lines.
         lines += items.map { item -> String in
             let text = item.text.replacingOccurrences(of: "\n", with: " ")
-            return item.isTask ? "- [\(item.done ? "x" : " ")] \(text)" : text
+            return item.isTask ? "- [\(item.status.marker)] \(text)" : text
         }
         return lines.joined(separator: "\n") + "\n"
     }
