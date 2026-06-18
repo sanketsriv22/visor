@@ -3,6 +3,11 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.2 — 2026-06-18
+
+- Version and What's New now display fully offline — Visor reaches the network only when you click "Check for Updates…".
+- "What's New" groups changes by release instead of one merged list.
+
 ## 1.0-beta.1 — 2026-06-18
 
 First public beta.
@@ -13,6 +18,6 @@ First public beta.
 - "VISOR" and the open-task count sit in the shoulders beside the notch.
 - The note emerges from behind the notch, with no seam at the bottom lip.
 - "Send to Devin" runs the local Devin CLI on your open tasks.
-- Menu-bar icon shows the installed version and What's New fully offline; show/hide, check for updates, and quit.
-- "Check for Updates…" reaches the network only when clicked, then downloads the latest build and relaunches.
+- Menu-bar icon: show/hide, version and What's New, check for updates, and quit.
+- One-click self-update that downloads the latest build and relaunches.
 - Minimal drop shadow; app identity com.kitalabs.visor.
