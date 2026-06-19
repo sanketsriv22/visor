@@ -413,12 +413,15 @@ private struct NoteRow: View {
                 .onSubmit(onSubmit)
 
         }
+        // Float the actions over the row's trailing edge so they never push or
+        // wrap the task text; a fade keeps them legible over any text under them.
+        // NOTE: overlay must be applied BEFORE .onHover so the buttons are part
+        // of the hovered subtree — otherwise moving onto a button flips hover
+        // off (the button becomes the topmost view) and it vanishes mid-click.
+        .overlay(alignment: .trailing) { trailingActions }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
         .onHover { h in withAnimation(.easeInOut(duration: 0.12)) { hovering = h } }
-        // Float the actions over the row's trailing edge so they never push or
-        // wrap the task text; a fade keeps them legible over any text under them.
-        .overlay(alignment: .trailing) { trailingActions }
         .contextMenu {
             if otherNotes.isEmpty {
                 Button("Move to…") {}.disabled(true)
