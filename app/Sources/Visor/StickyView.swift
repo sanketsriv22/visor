@@ -166,12 +166,13 @@ private struct StickyCard: View {
                         item: $item,
                         focused: $focused,
                         suppressHover: suppressHover,
+                        isSending: ai.isRunning(item.id),
                         onToggle: { store.cycle(item.id) },
                         onSubmit: { focusRow(store.insertTask(after: item.id)) },
                         onDelete: { store.remove(item.id) },
                         onSend: {
                             let t = item.text.trimmingCharacters(in: .whitespaces)
-                            if !t.isEmpty { ai.sendToDefault(tasks: [t]) }
+                            if !t.isEmpty { ai.sendToDefault(tasks: [t], taskIDs: [item.id]) }
                         },
                         onDropDragged: { draggedID in
                             withAnimation(.easeInOut(duration: 0.18)) {
@@ -256,6 +257,7 @@ private struct NoteRow: View {
     @Binding var item: NoteItem
     @FocusState.Binding var focused: UUID?
     var suppressHover: Bool
+    var isSending: Bool
     var onToggle: () -> Void
     var onSubmit: () -> Void
     var onDelete: () -> Void
@@ -325,15 +327,22 @@ private struct NoteRow: View {
                 .focused($focused, equals: item.id)
                 .onSubmit(onSubmit)
 
+            // An agent is running for this task — show a spinner regardless of hover.
+            if item.isTask && isSending {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.orange)
+                    .help("An agent is working on this task")
+            }
             if hovering && !suppressHover {
-                if item.isTask && !item.done {
+                if item.isTask && !item.done && !isSending {
                     Button(action: onSend) {
                         Image(systemName: "paperplane")
                             .font(.system(size: 11))
                             .foregroundStyle(.orange)
                     }
                     .buttonStyle(.plain)
-                    .help("Send just this task to Devin")
+                    .help("Send just this task to the chosen agent")
                     .transition(.opacity)
                 }
                 Button(action: onDelete) {

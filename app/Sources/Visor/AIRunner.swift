@@ -23,8 +23,12 @@ final class AIRunner: ObservableObject {
 
     /// How many agent runs are in flight (multiple tasks can run at once).
     @Published private(set) var runningCount = 0
+    /// In-flight run count per task id, for the per-row "agent running" spinner.
+    @Published private(set) var runningTaskIDs: [UUID: Int] = [:]
     /// Outcome of the most recently finished run.
     @Published private(set) var lastResult: RunResult = .none
+
+    func isRunning(_ id: UUID) -> Bool { (runningTaskIDs[id] ?? 0) > 0 }
     @Published private(set) var providers: [AIProvider] = []
     @Published private(set) var defaultProviderName = ""
     /// Name of the provider for the most recent run, for status labels.
@@ -64,12 +68,12 @@ final class AIRunner: ObservableObject {
         UserDefaults.standard.set(name, forKey: defaultKey)
     }
 
-    func sendToDefault(tasks: [String]) {
+    func sendToDefault(tasks: [String], taskIDs: [UUID] = []) {
         guard let provider = defaultProvider else { return }
-        send(tasks: tasks, provider: provider)
+        send(tasks: tasks, provider: provider, taskIDs: taskIDs)
     }
 
-    func send(tasks: [String], provider: AIProvider) {
+    func send(tasks: [String], provider: AIProvider, taskIDs: [UUID] = []) {
         guard !tasks.isEmpty else { return } // no single-run guard: runs are concurrent
         guard let exe = resolveExecutable(provider.command) else {
             lastProviderName = provider.name
@@ -122,6 +126,10 @@ final class AIRunner: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.runningCount = max(0, self.runningCount - 1)
+                for id in taskIDs {
+                    let n = (self.runningTaskIDs[id] ?? 0) - 1
+                    if n <= 0 { self.runningTaskIDs[id] = nil } else { self.runningTaskIDs[id] = n }
+                }
                 self.lastResult = proc.terminationStatus == 0 ? .done : .failed("exit \(proc.terminationStatus)")
                 self.lastProviderName = provider.name
                 self.lastLogURL = logURL
@@ -131,6 +139,7 @@ final class AIRunner: ObservableObject {
         do {
             try process.run()
             runningCount += 1
+            for id in taskIDs { runningTaskIDs[id, default: 0] += 1 }
             lastLogURL = logURL
         } catch {
             lastResult = .failed(error.localizedDescription)

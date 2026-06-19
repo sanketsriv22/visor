@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.16 — 2026-06-18
+
+- Per-task agent indicator: while an agent is running for a task, that row shows a spinner — so with concurrent sends you can see exactly which tasks are in flight, not just the total in the footer.
+
 ## 1.0-beta.15 — 2026-06-18
 
 - Concurrent sends: you can now fire a task at an agent while earlier ones are still running, instead of waiting for each to finish. The footer shows how many agents are working, and every run keeps its own log.
