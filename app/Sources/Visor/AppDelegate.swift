@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             exit(0)
         }
 
+        setUpMainMenu()
         controller = NotchController(startExpanded: args.contains("--expanded"), ai: ai)
         setUpStatusItem()
 
@@ -51,6 +52,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         if args.contains("--settings") { openSettings() }
+    }
+
+    /// Install a main menu with a standard Edit menu so ⌘X/⌘C/⌘V/⌘A/⌘Z reach
+    /// the focused text field. Without it, those shortcuts have nothing to
+    /// dispatch them (the menu bar stays hidden — this is just for key equivalents).
+    private func setUpMainMenu() {
+        let mainMenu = NSMenu()
+
+        let appItem = NSMenuItem()
+        mainMenu.addItem(appItem)
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Quit Visor", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+
+        let editItem = NSMenuItem()
+        mainMenu.addItem(editItem)
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+
+        NSApp.mainMenu = mainMenu
     }
 
     private func isAnotherInstanceRunning() -> Bool {

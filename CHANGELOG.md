@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.14 — 2026-06-18
+
+- Keyboard shortcuts now work in the note: ⌘C / ⌘V / ⌘X / ⌘A / ⌘Z (copy, paste, cut, select-all, undo). As a menu-bar app Visor had no Edit menu to route them — added one.
+
 ## 1.0-beta.13 — 2026-06-18
 
 - Sturdier autosave: edits save 0.35s after you stop typing, unsaved edits are flushed every ~1.5s even during continuous typing, and the note saves whenever the app loses focus — so an accidental or forced quit loses as little as possible.
