@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## Unreleased
+
+- Easier drag-to-reorder: the drag handle now has a generous grab zone around the ≡ glyph, so you can start a drag from the general area instead of having to land your cursor exactly on the three lines.
+
 ## 1.0-beta.22 — 2026-06-19
 
 - Right-click a task to move it to another note (or delete it).

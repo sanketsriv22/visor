@@ -375,7 +375,9 @@ private struct NoteRow: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
                 .opacity((hovering || isDragging) && !suppressHover ? 0.95 : 0.45)
-                .padding(.trailing, 2)
+                // Generous invisible grab zone around the glyph, so you can grab
+                // the general area instead of pixel-aiming the three lines.
+                .frame(width: 26, height: 26)
                 .contentShape(Rectangle())
                 .gesture(
                     // Global coordinate space: the row's own offset (it follows
