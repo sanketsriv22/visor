@@ -128,6 +128,12 @@ final class NotesStore: ObservableObject {
         items[i].status = items[i].status.next
     }
 
+    /// Jump straight to done (or back to open if already done) — for a long-press.
+    func toggleDone(_ id: UUID) {
+        guard let i = items.firstIndex(where: { $0.id == id }) else { return }
+        items[i].status = items[i].status == .done ? .open : .done
+    }
+
     @discardableResult
     func addTask(_ text: String = "") -> UUID {
         let item = NoteItem(text: text, isTask: true)

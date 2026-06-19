@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.21 — 2026-06-18
+
+- Press-and-hold a task's checkbox to jump straight to done (hold again to reopen) — no more clicking through doing/blocked to complete something. A quick tap still cycles the states.
+
 ## 1.0-beta.20 — 2026-06-18
 
 - Drag-to-reorder is responsive again: after dropping a task you can immediately grab another. The reorder/settle animation had a slow bouncy tail that kept the list "animating" and blocked the next grab; it's now a quick, critically-damped settle.

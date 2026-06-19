@@ -181,6 +181,7 @@ private struct StickyCard: View {
                         isSending: ai.isRunning(item.id),
                         isDragging: draggingID == item.id,
                         onToggle: { store.cycle(item.id) },
+                        onComplete: { store.toggleDone(item.id) },
                         onSubmit: { focusRow(store.insertTask(after: item.id)) },
                         onDelete: { withAnimation(reorderSpring) { store.remove(item.id) } },
                         onSend: {
@@ -312,6 +313,7 @@ private struct NoteRow: View {
     var isSending: Bool
     var isDragging: Bool
     var onToggle: () -> Void
+    var onComplete: () -> Void
     var onSubmit: () -> Void
     var onDelete: () -> Void
     var onSend: () -> Void
@@ -348,6 +350,14 @@ private struct NoteRow: View {
         }
     }
 
+    /// Quick scale "pop" when the checkbox is tapped or held.
+    private func bump() {
+        withAnimation(.spring(response: 0.16, dampingFraction: 0.45)) { checkboxBump = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.13) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { checkboxBump = false }
+        }
+    }
+
     var body: some View {
         // .top alignment keeps the handle, checkbox and delete button on the
         // first line when a long task wraps to multiple lines.
@@ -371,21 +381,18 @@ private struct NoteRow: View {
                 )
 
             if item.isTask {
-                Button {
-                    withAnimation(.spring(response: 0.16, dampingFraction: 0.45)) { checkboxBump = true }
-                    onToggle()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.13) {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { checkboxBump = false }
-                    }
-                } label: {
-                    Image(systemName: Self.glyph(item.status))
-                        .font(.system(size: 14))
-                        .foregroundStyle(Self.tint(item.status))
-                        .scaleEffect(checkboxBump ? 1.3 : 1.0)
-                        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: item.status)
-                }
-                .buttonStyle(.plain)
-                .help(Self.label(item.status) + " — click to change")
+                // Tap cycles open → doing → blocked → done; press-and-hold jumps
+                // straight to done (or back to open) without clicking through.
+                Image(systemName: Self.glyph(item.status))
+                    .font(.system(size: 14))
+                    .foregroundStyle(Self.tint(item.status))
+                    .scaleEffect(checkboxBump ? 1.3 : 1.0)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.6), value: item.status)
+                    .padding(3)
+                    .contentShape(Rectangle())
+                    .onTapGesture { bump(); onToggle() }
+                    .onLongPressGesture(minimumDuration: 0.3) { bump(); onComplete() }
+                    .help(Self.label(item.status) + " — tap to change, hold to complete")
             }
 
             // axis: .vertical lets long text wrap onto new lines and the row
