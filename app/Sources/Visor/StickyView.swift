@@ -188,6 +188,10 @@ private struct StickyCard: View {
                             let t = item.text.trimmingCharacters(in: .whitespaces)
                             if !t.isEmpty { ai.sendToDefault(tasks: [t], taskIDs: [item.id]) }
                         },
+                        otherNotes: store.noteNames.filter { $0 != store.activeName },
+                        onMove: { name in
+                            withAnimation(reorderSpring) { store.moveTask(item.id, toNote: name) }
+                        },
                         onDragChanged: { dy in dragChanged(item.id, dy) },
                         onDragEnded: { dragEnded() }
                     )
@@ -317,6 +321,8 @@ private struct NoteRow: View {
     var onSubmit: () -> Void
     var onDelete: () -> Void
     var onSend: () -> Void
+    var otherNotes: [String]
+    var onMove: (String) -> Void
     var onDragChanged: (CGFloat) -> Void
     var onDragEnded: () -> Void
 
@@ -413,6 +419,19 @@ private struct NoteRow: View {
         // Float the actions over the row's trailing edge so they never push or
         // wrap the task text; a fade keeps them legible over any text under them.
         .overlay(alignment: .trailing) { trailingActions }
+        .contextMenu {
+            if otherNotes.isEmpty {
+                Button("Move to…") {}.disabled(true)
+            } else {
+                Menu("Move to") {
+                    ForEach(otherNotes, id: \.self) { name in
+                        Button(name) { onMove(name) }
+                    }
+                }
+            }
+            Divider()
+            Button("Delete", role: .destructive, action: onDelete)
+        }
     }
 
     @ViewBuilder
