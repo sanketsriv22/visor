@@ -419,35 +419,41 @@ private struct NoteRow: View {
     private var trailingActions: some View {
         let showButtons = hovering && !suppressHover
         if isSending || showButtons {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 if item.isTask && isSending {
                     ProgressView().controlSize(.small).tint(.orange)
+                        .frame(width: 22, height: 22)
                         .help("An agent is working on this task")
                 }
                 if showButtons {
                     if item.isTask && !item.done && !isSending {
                         Button(action: onSend) {
-                            Image(systemName: "paperplane").font(.system(size: 11)).foregroundStyle(.orange)
+                            Image(systemName: "paperplane.fill").font(.system(size: 12)).foregroundStyle(.orange)
+                                .frame(width: 24, height: 24)   // solid, reliable hit target
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .help("Send just this task to the chosen agent")
                     }
                     Button(action: onDelete) {
-                        Image(systemName: "xmark.circle.fill").font(.system(size: 12)).foregroundStyle(.tertiary)
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .help("Delete task")
                 }
             }
-            .padding(.leading, 30)
+            .padding(.leading, 28)
             .padding(.trailing, 2)
-            .frame(maxHeight: .infinity)
             .background(
+                // Non-interactive fade so only the buttons capture clicks.
                 LinearGradient(
                     stops: [.init(color: .black.opacity(0), location: 0),
-                            .init(color: .black, location: 0.6)],
+                            .init(color: .black, location: 0.55)],
                     startPoint: .leading, endPoint: .trailing
                 )
+                .allowsHitTesting(false)
             )
             .transition(.opacity)
         }
