@@ -86,12 +86,37 @@ private struct StickyCard: View {
         VStack(alignment: .leading, spacing: 4) {
             notchBand
 
-            TextField("Name this note…", text: $store.title)
-                .textFieldStyle(.plain)
-                .font(.system(size: 17, weight: .semibold))
-                .focused($focused, equals: titleFieldID)
-                .padding(.horizontal, 16)
-                .padding(.top, 2)
+            HStack(spacing: 8) {
+                Menu {
+                    ForEach(store.noteNames, id: \.self) { name in
+                        Button { store.switchTo(name) } label: {
+                            if name == store.activeName {
+                                Label(name, systemImage: "checkmark")
+                            } else {
+                                Text(name)
+                            }
+                        }
+                    }
+                    Divider()
+                    Button("New note", action: store.newNote)
+                } label: {
+                    Image(systemName: "rectangle.stack")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Switch or create notes")
+
+                TextField("Name this note…", text: $store.title)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 17, weight: .semibold))
+                    .focused($focused, equals: titleFieldID)
+                    .onSubmit { store.commitTitle() }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 2)
 
             taskList
 

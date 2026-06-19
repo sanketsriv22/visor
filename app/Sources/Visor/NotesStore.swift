@@ -53,19 +53,23 @@ struct NoteItem: Identifiable, Equatable {
     }
 }
 
-/// Owns the note as a list of items. The markdown file on disk
-/// (`- [ ]` / `- [x]` for tasks, plain text otherwise) is the source of truth
-/// shared with the MCP server; the app reads and writes that same format.
+/// Owns notes as Markdown files in ~/Documents/Visor — one file per note, named
+/// by its title. The active note is mirrored to ~/StickyNotes/sticky.md (a
+/// symlink) so the MCP server and agents always read the current note.
 final class NotesStore: ObservableObject {
-    /// The note's name, stored on disk as a leading `# title` line. Empty when
-    /// the note is unnamed.
+    /// The note's name (also its filename). Stored as a leading `# title` line.
     @Published var title: String = "" {
-        didSet { markDirty() }
+        didSet { markDirty(); scheduleRename() }
     }
 
     @Published var items: [NoteItem] = [] {
         didSet { markDirty() }
     }
+
+    /// Names of all saved notes, for the switcher.
+    @Published private(set) var noteNames: [String] = []
+    /// Filename stem of the note currently shown.
+    @Published private(set) var activeName: String = "Untitled"
 
     private func markDirty() {
         guard !suppressDirty else { return }
@@ -73,12 +77,17 @@ final class NotesStore: ObservableObject {
         scheduleSave()
     }
 
-    private let fileURL: URL
+    private let folder: URL   // ~/Documents/Visor
+    private let mirror: URL   // ~/StickyNotes/sticky.md (symlink → active note)
+    private let activeKey = "visor.activeNote"
     private var dirty = false
     private var suppressDirty = false
     private var saveTask: DispatchWorkItem?
+    private var renameTask: DispatchWorkItem?
     private var watchTimer: Timer?
     private var lastMTime: Date?
+
+    private var activeURL: URL { folder.appendingPathComponent("\(activeName).md") }
 
     var openTasks: [String] {
         items.filter { $0.isTask && !$0.done }
@@ -89,17 +98,21 @@ final class NotesStore: ObservableObject {
     var openTaskCount: Int { openTasks.count }
 
     init() {
+        folder = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents/Visor", isDirectory: true)
         if let env = ProcessInfo.processInfo.environment["STICKY_NOTES_FILE"] {
-            fileURL = URL(fileURLWithPath: (env as NSString).expandingTildeInPath)
+            mirror = URL(fileURLWithPath: (env as NSString).expandingTildeInPath)
         } else {
-            fileURL = FileManager.default.homeDirectoryForCurrentUser
+            mirror = FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent("StickyNotes/sticky.md")
         }
-        loadOrCreate()
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(
+            at: mirror.deletingLastPathComponent(), withIntermediateDirectories: true)
+        bootstrap()
 
-        // Poll for external edits (MCP server, Devin, git) so we reflect them
-        // live and never save a stale copy over a newer write. Reloads only
-        // when there are no unsaved local edits.
+        // Poll for external edits (MCP server, agents) so we reflect them live
+        // and never save a stale copy over a newer write.
         watchTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             self?.reloadFromDiskIfClean()
         }
@@ -204,15 +217,14 @@ final class NotesStore: ObservableObject {
 
     private var serialized: String { Self.serializeDocument(title: title, items: items) }
 
-    /// Pick up edits made by the MCP server (or anything else) while the
-    /// panel was collapsed. Skipped if there are unsaved local edits —
-    /// last writer wins, and the user's in-progress typing wins locally.
+    /// Pick up edits made by the MCP server (or anything else). Skipped if
+    /// there are unsaved local edits — the user's in-progress typing wins.
     func reloadFromDiskIfClean() {
         guard !dirty else { return }
-        let mtime = (try? FileManager.default.attributesOfItem(atPath: fileURL.path))?[.modificationDate] as? Date
-        if let mtime, mtime == lastMTime { return } // unchanged since we last saw it
-        lastMTime = mtime
-        guard let data = try? Data(contentsOf: fileURL),
+        let m = mtime(activeURL)
+        if let m, m == lastMTime { return }
+        lastMTime = m
+        guard let data = try? Data(contentsOf: activeURL),
               let s = String(data: data, encoding: .utf8) else { return }
         let (parsedTitle, parsedItems) = Self.parseDocument(s)
         guard Self.serializeDocument(title: parsedTitle, items: parsedItems) != serialized else { return }
@@ -224,30 +236,147 @@ final class NotesStore: ObservableObject {
 
     func saveNow() {
         saveTask?.cancel()
-        guard dirty || !FileManager.default.fileExists(atPath: fileURL.path) else { return }
-        try? serialized.data(using: .utf8)?.write(to: fileURL, options: .atomic)
+        guard dirty || !FileManager.default.fileExists(atPath: activeURL.path) else { return }
+        try? serialized.data(using: .utf8)?.write(to: activeURL, options: .atomic)
         dirty = false
-        lastMTime = (try? FileManager.default.attributesOfItem(atPath: fileURL.path))?[.modificationDate] as? Date
+        lastMTime = mtime(activeURL)
+        ensureMirrorSymlink()
     }
 
-    private func loadOrCreate() {
-        let dir = fileURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    // MARK: - Notes (switch / create)
 
+    /// Save the current note, then switch to another saved note.
+    func switchTo(_ name: String) {
+        guard name != activeName else { return }
+        commitRenameNow()
+        saveNow()
+        activeName = name
+        loadActive()
+        UserDefaults.standard.set(activeName, forKey: activeKey)
+        ensureMirrorSymlink()
+        refreshNoteNames()
+    }
+
+    /// Create a fresh, empty note and switch to it.
+    func newNote() {
+        commitRenameNow()
+        saveNow()
+        activeName = uniqueName("Untitled")
+        suppressDirty = true; title = ""; items = []; suppressDirty = false
+        dirty = true
+        saveNow()
+        UserDefaults.standard.set(activeName, forKey: activeKey)
+        refreshNoteNames()
+    }
+
+    /// Rename the active file to match the title now (e.g. on Return).
+    func commitTitle() { commitRenameNow() }
+
+    // MARK: - Internals
+
+    private func bootstrap() {
+        refreshNoteNames()
+        if noteNames.isEmpty {
+            // First run: migrate an existing single note if there is one.
+            if let data = try? Data(contentsOf: mirror),
+               let s = String(data: data, encoding: .utf8),
+               !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let (t, it) = Self.parseDocument(s)
+                suppressDirty = true; title = t.isEmpty ? "Sticky" : t; items = it; suppressDirty = false
+                activeName = sanitize(title)
+            } else {
+                activeName = "Untitled"
+                suppressDirty = true; title = ""; items = []; suppressDirty = false
+            }
+            dirty = true
+            saveNow()
+            refreshNoteNames()
+        } else {
+            let saved = UserDefaults.standard.string(forKey: activeKey)
+            activeName = (saved != nil && noteNames.contains(saved!)) ? saved! : noteNames[0]
+            loadActive()
+        }
+        UserDefaults.standard.set(activeName, forKey: activeKey)
+        ensureMirrorSymlink()
+    }
+
+    private func loadActive() {
         suppressDirty = true
-        if let data = try? Data(contentsOf: fileURL),
+        if let data = try? Data(contentsOf: activeURL),
            let s = String(data: data, encoding: .utf8) {
             (title, items) = Self.parseDocument(s)
         } else {
-            title = ""
-            items = []
+            title = ""; items = []
         }
         suppressDirty = false
+        lastMTime = mtime(activeURL)
+    }
 
-        if !FileManager.default.fileExists(atPath: fileURL.path) {
-            dirty = true
-            saveNow()
+    private func refreshNoteNames() {
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: folder, includingPropertiesForKeys: nil)) ?? []
+        noteNames = urls.filter { $0.pathExtension == "md" }
+            .map { $0.deletingPathExtension().lastPathComponent }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func sanitize(_ s: String) -> String {
+        let cleaned = s.components(separatedBy: CharacterSet(charactersIn: "/\\:"))
+            .joined(separator: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? "Untitled" : cleaned
+    }
+
+    private func uniqueName(_ base: String) -> String {
+        guard noteNames.contains(base) else { return base }
+        var n = 2
+        while noteNames.contains("\(base) \(n)") { n += 1 }
+        return "\(base) \(n)"
+    }
+
+    /// Rename the active file to match the title (debounced so typing the name
+    /// doesn't churn through intermediate files).
+    private func scheduleRename() {
+        guard !suppressDirty else { return }
+        renameTask?.cancel()
+        let task = DispatchWorkItem { [weak self] in self?.commitRenameNow() }
+        renameTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: task)
+    }
+
+    private func commitRenameNow() {
+        renameTask?.cancel()
+        let desired = sanitize(title)
+        guard desired != activeName else { return }
+        saveNow() // flush content under the old name first
+        let target = uniqueName(desired) // never clobber another note
+        let newURL = folder.appendingPathComponent("\(target).md")
+        if FileManager.default.fileExists(atPath: activeURL.path) {
+            try? FileManager.default.moveItem(at: activeURL, to: newURL)
         }
+        activeName = target
+        UserDefaults.standard.set(activeName, forKey: activeKey)
+        lastMTime = mtime(activeURL)
+        ensureMirrorSymlink()
+        refreshNoteNames()
+    }
+
+    private func mtime(_ url: URL) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+    }
+
+    /// Point the mirror (~/StickyNotes/sticky.md) at the active note so the MCP
+    /// server and agents read whatever note is showing.
+    private func ensureMirrorSymlink() {
+        let fm = FileManager.default
+        if let type = (try? fm.attributesOfItem(atPath: mirror.path))?[.type] as? FileAttributeType {
+            if type == FileAttributeType.typeSymbolicLink,
+               (try? fm.destinationOfSymbolicLink(atPath: mirror.path)) == activeURL.path {
+                return // already pointing at the active note
+            }
+            try? fm.removeItem(at: mirror)
+        }
+        try? fm.createSymbolicLink(at: mirror, withDestinationURL: activeURL)
     }
 
     private func scheduleSave() {

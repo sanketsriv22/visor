@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.12 — 2026-06-18
+
+- Multiple notes: each note is now its own file in `~/Documents/Visor/`, named by its title. Use the ⧉ menu beside the title to switch between notes or create a new one. The active note is mirrored to the agent path, so the MCP server / agents always read whichever note is showing. Your existing note is migrated in automatically.
+
 ## 1.0-beta.11 — 2026-06-18
 
 - Smoother open: the per-row hover icons (✈ send, × delete, drag handle) no longer flash for a split second as the note slides down. Hover affordances are suppressed until the open animation settles.
