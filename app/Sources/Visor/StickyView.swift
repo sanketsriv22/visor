@@ -365,16 +365,16 @@ private struct NoteRow: View {
     }
 
     var body: some View {
-        // .firstTextBaseline aligns the handle/checkbox to the text's first
-        // line (so they sit on the line, and stay on line 1 when text wraps).
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        // .center vertically aligns the handle, checkbox and text so they sit
+        // on one line together.
+        HStack(alignment: .center, spacing: 8) {
             // Drag handle — only this grabs for reordering, so dragging never
             // fights with editing the task text. A gesture-driven live reorder
             // (rows part as you drag) rather than a system drag-and-drop.
             Image(systemName: "line.3.horizontal")
-                .font(.system(size: 11))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
-                .opacity((hovering || isDragging) && !suppressHover ? 0.8 : 0.22)
+                .opacity((hovering || isDragging) && !suppressHover ? 0.95 : 0.45)
                 .padding(.trailing, 2)
                 .contentShape(Rectangle())
                 .gesture(
