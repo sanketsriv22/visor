@@ -283,6 +283,15 @@ private struct StickyCard: View {
         DispatchQueue.main.async { focused = id }
     }
 
+    private var sendHint: String {
+        if ai.defaultProvider?.isDevinCloud == true {
+            return "hover a task → ✈ starts a \(ai.defaultProviderName) session"
+        }
+        return ai.runMode == .terminal
+            ? "hover a task → ✈ opens it in \(ai.defaultProviderName) (Terminal)"
+            : "hover a task → ✈ sends it to \(ai.defaultProviderName)"
+    }
+
     // Sending is per-task (the ✈ on each row), and runs are concurrent. The
     // footer shows how many are running, else the last run's result. Which
     // agent it goes to is set in the menu-bar settings.
@@ -296,14 +305,15 @@ private struct StickyCard: View {
         } else {
             switch ai.lastResult {
             case .none:
-                Text(ai.runMode == .terminal
-                     ? "hover a task → ✈ opens it in \(ai.defaultProviderName) (Terminal)"
-                     : "hover a task → ✈ sends it to \(ai.defaultProviderName)")
+                Text(sendHint)
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
             case .done:
                 Button(action: ai.revealLog) {
-                    Label("\(ai.lastProviderName) finished — view log", systemImage: "checkmark.circle.fill")
+                    Label(ai.lastSessionURL != nil
+                          ? "\(ai.lastProviderName) session created — open in Devin"
+                          : "\(ai.lastProviderName) finished — view log",
+                          systemImage: "checkmark.circle.fill")
                         .font(.system(size: 10))
                         .foregroundStyle(.green)
                 }

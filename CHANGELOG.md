@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## Unreleased
+
+- New "Devin (Cloud)" agent: instead of running a local CLI, it creates a Devin cloud session through the Devin REST API and opens the session in your browser / the Devin desktop app so you can watch and steer it. Add your Devin API key (Personal key `apk_user_…`) under Settings → AI Agents → Devin (Cloud); it's stored in the Keychain. Pick it from the menu-bar "Send tasks to" list, then the ✈ on a task starts a session.
+
 ## 1.0-beta.23 — 2026-06-19
 
 - Run agents in a Terminal window you can watch (new default), instead of silently in the background. Toggle it under the menu bar → "Run agents in" (or Settings). Terminal mode opens each send in its own window, streams the agent live, and stays open after it finishes; Background still runs it quietly and captures output to a log. Any API key you've stored is injected the same way in both modes.
