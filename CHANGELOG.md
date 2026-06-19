@@ -6,6 +6,7 @@ the menu-bar dropdown, and published as the release notes for each version.
 ## Unreleased
 
 - Drag handle (≡) is now vertically aligned with the task line instead of riding high above it.
+- Hovering a one-line task no longer makes it wrap: the send/delete actions float over the row's trailing edge with a fade instead of taking layout space.
 
 ## 1.0-beta.21 — 2026-06-18
 

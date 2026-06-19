@@ -406,35 +406,50 @@ private struct NoteRow: View {
                 .focused($focused, equals: item.id)
                 .onSubmit(onSubmit)
 
-            // An agent is running for this task — show a spinner regardless of hover.
-            if item.isTask && isSending {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.orange)
-                    .help("An agent is working on this task")
-            }
-            if hovering && !suppressHover {
-                if item.isTask && !item.done && !isSending {
-                    Button(action: onSend) {
-                        Image(systemName: "paperplane")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.orange)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Send just this task to the chosen agent")
-                    .transition(.opacity)
-                }
-                Button(action: onDelete) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity)
-            }
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
+        .onHover { h in withAnimation(.easeInOut(duration: 0.12)) { hovering = h } }
+        // Float the actions over the row's trailing edge so they never push or
+        // wrap the task text; a fade keeps them legible over any text under them.
+        .overlay(alignment: .trailing) { trailingActions }
+    }
+
+    @ViewBuilder
+    private var trailingActions: some View {
+        let showButtons = hovering && !suppressHover
+        if isSending || showButtons {
+            HStack(spacing: 8) {
+                if item.isTask && isSending {
+                    ProgressView().controlSize(.small).tint(.orange)
+                        .help("An agent is working on this task")
+                }
+                if showButtons {
+                    if item.isTask && !item.done && !isSending {
+                        Button(action: onSend) {
+                            Image(systemName: "paperplane").font(.system(size: 11)).foregroundStyle(.orange)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Send just this task to the chosen agent")
+                    }
+                    Button(action: onDelete) {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 12)).foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Delete task")
+                }
+            }
+            .padding(.leading, 30)
+            .padding(.trailing, 2)
+            .frame(maxHeight: .infinity)
+            .background(
+                LinearGradient(
+                    stops: [.init(color: .black.opacity(0), location: 0),
+                            .init(color: .black, location: 0.6)],
+                    startPoint: .leading, endPoint: .trailing
+                )
+            )
+            .transition(.opacity)
+        }
     }
 }
