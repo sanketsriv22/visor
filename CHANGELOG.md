@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.18 — 2026-06-18
+
+- Fixed the buggy drag-to-reorder. Rewrote it with a correct neighbor-swap algorithm: the dragged row stays glued to the cursor while the others slide cleanly into place. (The previous version double-counted the drag distance, causing the chaos.)
+
 ## 1.0-beta.17 — 2026-06-18
 
 - Premium drag-to-reorder: dragging a task's handle is now a live reorder — the dragged row lifts (scale + shadow) and follows your cursor while the others smoothly slide aside. Replaces the old drop-target + orange-line interaction.

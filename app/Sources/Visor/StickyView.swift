@@ -73,11 +73,14 @@ private struct StickyCard: View {
     private let addFieldID = UUID()
     private let titleFieldID = UUID()
 
-    // Live drag-to-reorder state.
-    @State private var dragging: UUID?
+    // Live drag-to-reorder state. dragOffset is the dragged row's offset from
+    // its *current* slot (kept small via neighbor swaps); lastDY tracks the
+    // gesture's cumulative translation so we add only the per-frame delta.
+    @State private var draggingID: UUID?
     @State private var dragOffset: CGFloat = 0
+    @State private var lastDY: CGFloat = 0
     private let rowHeight: CGFloat = 27
-    private var reorderSpring: Animation { .spring(response: 0.32, dampingFraction: 0.82) }
+    private var reorderSpring: Animation { .spring(response: 0.3, dampingFraction: 0.82) }
 
     private var shape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(
@@ -173,7 +176,7 @@ private struct StickyCard: View {
                         focused: $focused,
                         suppressHover: suppressHover,
                         isSending: ai.isRunning(item.id),
-                        isDragging: dragging == item.id,
+                        isDragging: draggingID == item.id,
                         onToggle: { store.cycle(item.id) },
                         onSubmit: { focusRow(store.insertTask(after: item.id)) },
                         onDelete: { withAnimation(reorderSpring) { store.remove(item.id) } },
@@ -184,42 +187,54 @@ private struct StickyCard: View {
                         onDragChanged: { dy in dragChanged(item.id, dy) },
                         onDragEnded: { dragEnded() }
                     )
-                    // The dragged row lifts (scale + shadow) and follows the
-                    // cursor; the others animate aside via the spring below.
-                    .scaleEffect(dragging == item.id ? 1.03 : 1, anchor: .leading)
-                    .shadow(color: .black.opacity(dragging == item.id ? 0.5 : 0),
-                            radius: dragging == item.id ? 10 : 0, y: 4)
-                    .offset(y: dragging == item.id ? dragOffset : 0)
-                    .zIndex(dragging == item.id ? 1 : 0)
+                    // The dragged row lifts and tracks the cursor with NO
+                    // animation (its slot jumps are cancelled by dragOffset);
+                    // every other row springs to its new slot.
+                    .scaleEffect(draggingID == item.id ? 1.03 : 1, anchor: .leading)
+                    .shadow(color: .black.opacity(draggingID == item.id ? 0.5 : 0),
+                            radius: draggingID == item.id ? 10 : 0, y: 4)
+                    .offset(y: draggingID == item.id ? dragOffset : 0)
+                    .zIndex(draggingID == item.id ? 1 : 0)
                     .transition(.opacity.combined(with: .move(edge: .top)))
+                    .animation(draggingID == item.id ? nil : reorderSpring, value: store.items.map(\.id))
                 }
                 addRow
             }
             .padding(.horizontal, 14)
             .padding(.top, 2)
-            .animation(reorderSpring, value: store.items.map(\.id))
         }
     }
 
     private func dragChanged(_ id: UUID, _ dy: CGFloat) {
-        if dragging != id {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) { dragging = id }
+        if draggingID != id {
+            draggingID = id
+            lastDY = 0
+            dragOffset = 0
         }
-        dragOffset = dy
-        guard let from = store.items.firstIndex(where: { $0.id == id }) else { return }
-        let target = max(0, min(store.items.count - 1, from + Int((dy / rowHeight).rounded())))
-        if target != from {
-            store.items.move(fromOffsets: IndexSet(integer: from), toOffset: target > from ? target + 1 : target)
-            // Keep the dragged row under the cursor after the slots shift.
-            dragOffset -= CGFloat(target - from) * rowHeight
+        dragOffset += dy - lastDY
+        lastDY = dy
+        // Swap into a neighbor slot once the row has dragged past its midpoint.
+        // The slot change is instant; reducing dragOffset by a row keeps the
+        // dragged row visually continuous under the cursor.
+        while let idx = store.items.firstIndex(where: { $0.id == id }) {
+            if dragOffset > rowHeight / 2, idx < store.items.count - 1 {
+                store.items.swapAt(idx, idx + 1)
+                dragOffset -= rowHeight
+            } else if dragOffset < -rowHeight / 2, idx > 0 {
+                store.items.swapAt(idx, idx - 1)
+                dragOffset += rowHeight
+            } else {
+                break
+            }
         }
     }
 
     private func dragEnded() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            dragging = nil
+        withAnimation(reorderSpring) {
+            draggingID = nil
             dragOffset = 0
         }
+        lastDY = 0
     }
 
     private var addRow: some View {
