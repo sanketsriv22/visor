@@ -5,6 +5,8 @@ the menu-bar dropdown, and published as the release notes for each version.
 
 ## Unreleased
 
+- Delete a note from the switcher (⧉): a new "Delete this note" permanently removes the current note (with a confirmation, since — unlike Archive — it can't be undone).
+- Order notes in the switcher: a "Sort by" submenu lets you list notes by Name (A–Z), Recently updated, or Recently created. Your choice persists. (Manual drag-ordering isn't possible inside a macOS dropdown.)
 - "Check for Updates…" now shows visible progress beside the menu-bar icon (Checking → Downloading → Installing → Restarting), instead of only in the menu — which closed the moment you clicked, hiding all feedback. "You're on the latest" / errors flash there briefly too. (Updates already relaunch the app for you automatically; this just makes that visible.)
 - New "Devin (Cloud)" agent: instead of running a local CLI, it creates a Devin cloud session through the Devin REST API and opens the session in your browser / the Devin desktop app so you can watch and steer it. Add your Devin API key (Personal key `apk_user_…`) under Settings → AI Agents → Devin (Cloud); it's stored in the Keychain. Pick it from the menu-bar "Send tasks to" list, then the ✈ on a task starts a session.
 

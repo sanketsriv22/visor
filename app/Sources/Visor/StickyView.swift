@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct StickyRootView: View {
     @ObservedObject var store: NotesStore
@@ -112,11 +113,24 @@ private struct StickyCard: View {
                     Divider()
                     Button("New note", action: store.newNote)
                     Button("Archive this note") { store.archiveCurrent() }
+                    Button("Delete this note", role: .destructive) { confirmDeleteActiveNote() }
                     if !store.archivedNames.isEmpty {
                         Menu("Archived") {
                             ForEach(store.archivedNames, id: \.self) { name in
                                 Button { store.restore(name) } label: {
                                     Label(name, systemImage: "tray.and.arrow.up")
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                    Menu("Sort by") {
+                        ForEach(NotesStore.NoteSort.allCases, id: \.self) { mode in
+                            Button { store.setNoteSort(mode) } label: {
+                                if store.noteSort == mode {
+                                    Label(mode.title, systemImage: "checkmark")
+                                } else {
+                                    Text(mode.title)
                                 }
                             }
                         }
@@ -281,6 +295,21 @@ private struct StickyCard: View {
 
     private func focusRow(_ id: UUID) {
         DispatchQueue.main.async { focused = id }
+    }
+
+    /// Deleting a note is permanent (unlike Archive), so confirm first.
+    private func confirmDeleteActiveNote() {
+        let name = store.activeName
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Delete “\(name)”?"
+        alert.informativeText = "This permanently deletes the note and its tasks. To keep it instead, use Archive."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true) // accessory app must activate for a modal
+        if alert.runModal() == .alertFirstButtonReturn {
+            withAnimation(reorderSpring) { store.deleteNote(name) }
+        }
     }
 
     private var sendHint: String {
