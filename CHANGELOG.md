@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.11 — 2026-06-18
+
+- Smoother open: the per-row hover icons (✈ send, × delete, drag handle) no longer flash for a split second as the note slides down. Hover affordances are suppressed until the open animation settles.
+
 ## 1.0-beta.10 — 2026-06-18
 
 - The open note now closes only when you click the notch itself — the same spot that opens it. Clicking the menu-bar shoulders beside the notch (where VISOR and the task count sit) no longer closes it.

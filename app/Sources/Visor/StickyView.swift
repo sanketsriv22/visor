@@ -12,7 +12,7 @@ struct StickyRootView: View {
                 // The card extends up behind the notch (topInset) so the notch
                 // overlaps its top edge — the note looks like it slides out
                 // from *behind* the notch, not off its bottom lip.
-                StickyCard(store: store, ai: ai, topInset: ui.notchSize.height, notchWidth: ui.notchSize.width, onClose: onToggle)
+                StickyCard(store: store, ai: ai, topInset: ui.notchSize.height, notchWidth: ui.notchSize.width, suppressHover: ui.settling, onClose: onToggle)
                     .transition(.move(edge: .top).combined(with: .opacity))
             } else {
                 NotchStrip(size: ui.notchSize, expanded: false)
@@ -64,6 +64,8 @@ private struct StickyCard: View {
     var topInset: CGFloat
     /// Width of the notch, so the top band can flank it instead of overlapping.
     var notchWidth: CGFloat
+    /// Suppress per-row hover affordances while the card animates open.
+    var suppressHover: Bool
     var onClose: () -> Void
 
     @FocusState private var focused: UUID?
@@ -138,6 +140,7 @@ private struct StickyCard: View {
                     NoteRow(
                         item: $item,
                         focused: $focused,
+                        suppressHover: suppressHover,
                         onToggle: { store.cycle(item.id) },
                         onSubmit: { focusRow(store.insertTask(after: item.id)) },
                         onDelete: { store.remove(item.id) },
@@ -223,6 +226,7 @@ private struct StickyCard: View {
 private struct NoteRow: View {
     @Binding var item: NoteItem
     @FocusState.Binding var focused: UUID?
+    var suppressHover: Bool
     var onToggle: () -> Void
     var onSubmit: () -> Void
     var onDelete: () -> Void
@@ -268,7 +272,7 @@ private struct NoteRow: View {
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-                .opacity(hovering ? 0.7 : 0.22)
+                .opacity((hovering && !suppressHover) ? 0.7 : 0.22)
                 .draggable(item.id.uuidString)
 
             if item.isTask {
@@ -292,7 +296,7 @@ private struct NoteRow: View {
                 .focused($focused, equals: item.id)
                 .onSubmit(onSubmit)
 
-            if hovering {
+            if hovering && !suppressHover {
                 if item.isTask && !item.done {
                     Button(action: onSend) {
                         Image(systemName: "paperplane")

@@ -23,6 +23,9 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
 final class UIState: ObservableObject {
     @Published var expanded = false
     @Published var notchSize = CGSize(width: 200, height: 32)
+    /// True briefly while the card animates open. Rows pass under the cursor
+    /// during the slide, so hover affordances are suppressed until it settles.
+    @Published var settling = false
 }
 
 final class NotchController {
@@ -153,12 +156,17 @@ final class NotchController {
         } else {
             store.reloadFromDiskIfClean()
             applyFrame(expanded: true)
+            ui.settling = true
             // Higher damping so the card settles at its resting spot instead
             // of overshooting (dropping too low) before springing back.
             withAnimation(.spring(response: 0.34, dampingFraction: 0.95)) {
                 ui.expanded = true
             }
             panel.makeKeyAndOrderFront(nil)
+            // Let the slide finish before hover affordances can appear.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.ui.settling = false
+            }
         }
     }
 
