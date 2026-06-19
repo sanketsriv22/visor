@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.19 — 2026-06-18
+
+- Drag-to-reorder now tracks your cursor tightly. The drag was measured in the row's own moving coordinate space, which fed back on itself and made it glitch in place; it's now measured in global (screen) space.
+
 ## 1.0-beta.18 — 2026-06-18
 
 - Fixed the buggy drag-to-reorder. Rewrote it with a correct neighbor-swap algorithm: the dragged row stays glued to the cursor while the others slide cleanly into place. (The previous version double-counted the drag distance, causing the chaos.)

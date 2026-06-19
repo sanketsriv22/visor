@@ -359,7 +359,10 @@ private struct NoteRow: View {
                 .padding(.trailing, 2)
                 .contentShape(Rectangle())
                 .gesture(
-                    DragGesture(minimumDistance: 3)
+                    // Global coordinate space: the row's own offset (it follows
+                    // the cursor) must not feed back into the measured translation,
+                    // or the drag glitches and tracks loosely.
+                    DragGesture(minimumDistance: 3, coordinateSpace: .global)
                         .onChanged { onDragChanged($0.translation.height) }
                         .onEnded { _ in onDragEnded() }
                 )
