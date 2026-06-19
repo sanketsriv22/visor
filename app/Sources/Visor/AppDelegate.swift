@@ -210,17 +210,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return p
     }
 
-    /// Centered just beneath the menu-bar icon; clamped on-screen so it stays
-    /// visible even if the icon is tucked into a crowded bar's overflow.
+    /// Centered just below the camera notch (or the synthetic top strip on a
+    /// notch-less display) — right where the note itself drops from.
     private func hudOrigin(for size: NSSize) -> NSPoint {
-        let screen = statusItem?.button?.window?.screen ?? NSScreen.main ?? NSScreen.screens.first
+        let screen = NSScreen.screens.first { $0.notchArea != nil } ?? NSScreen.main ?? NSScreen.screens.first
         let full = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let vis = screen?.visibleFrame ?? full
-        let iconFrame = statusItem?.button?.window?.frame
-        var x = (iconFrame?.midX ?? full.maxX - 14) - size.width / 2
-        x = min(max(x, vis.minX + 8), vis.maxX - size.width - 8)
-        let topRef = iconFrame?.minY ?? (full.maxY - 24)
-        return NSPoint(x: x, y: topRef - 6 - size.height)
+        let strip: NSRect
+        if let notch = screen?.notchArea {
+            strip = notch
+        } else {
+            let menuBar = max(full.maxY - (screen?.visibleFrame.maxY ?? full.maxY - 24), 24)
+            strip = NSRect(x: full.midX - 100, y: full.maxY - menuBar, width: 200, height: menuBar)
+        }
+        let shadowPad: CGFloat = 12 // matches UpdateHUDView's outer padding
+        let gap: CGFloat = 6        // visible space between the notch and the pill
+        let x = strip.midX - size.width / 2
+        let y = strip.minY - gap + shadowPad - size.height
+        return NSPoint(x: x, y: y)
     }
 
     /// "What's New" → a submenu listing this version's changelog bullets, plus
