@@ -3,6 +3,16 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.23 — 2026-06-19
+
+- Run agents in a Terminal window you can watch (new default), instead of silently in the background. Toggle it under the menu bar → "Run agents in" (or Settings). Terminal mode opens each send in its own window, streams the agent live, and stays open after it finishes; Background still runs it quietly and captures output to a log. Any API key you've stored is injected the same way in both modes.
+- Claude Code runs as a real interactive session in Terminal mode: sends launch `claude "<task>"` (not headless `claude -p`), so you see it think and use tools and can follow up in the same window, using your existing CLI login — no API key needed. Background mode still runs it headless with `-p`.
+- Pick the project an agent works in: a new "Run in folder" menu (and Settings) lets you choose any local repo — your git repos under `~/repos` are listed for one-click selection, or browse to any folder. Sends then run inside that repo with access to all its code, and the prompt frames the task as a task for that project. The choice persists across launches.
+- Archive notes: the note switcher (⧉) now has "Archive this note" — it moves the note into `Documents/Visor/Archive`, out of the switcher but safe on disk. Archived notes appear under an "Archived" submenu where one click restores them.
+- Easier drag-to-reorder: the drag handle now has a generous grab zone around the ≡ glyph, so you can start a drag from the general area instead of having to land your cursor exactly on the three lines.
+- Tighter task list: rows sit closer together (the enlarged drag handle had bloated each row's height).
+- Settings now shows the actual command for each run mode (e.g. Claude Code: Terminal `claude <prompt>` vs Background `claude -p <prompt>`), instead of only the `-p` form — so it's clear the Terminal/Background toggle is what picks which one runs.
+
 ## 1.0-beta.22 — 2026-06-19
 
 - Right-click a task to move it to another note (or delete it).

@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let ai = AIRunner()
     private var updateItem: NSMenuItem?
     private var sendToMenu: NSMenu?
+    private var runModeMenu: NSMenu?
+    private var runInFolderMenu: NSMenu?
     private var settingsWindow: NSWindow?
 
     /// Posted by a second launch so the already-running instance shows its note.
@@ -121,6 +123,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sendTo.submenu = sub
         menu.addItem(sendTo)
 
+        // Whether a send opens a Terminal window or runs in the background.
+        let runIn = NSMenuItem(title: "Run agents in", action: nil, keyEquivalent: "")
+        let runSub = NSMenu()
+        runModeMenu = runSub
+        rebuildRunModeMenu()
+        runIn.submenu = runSub
+        menu.addItem(runIn)
+
+        // Which local repo/folder agents run in (the task is for that project).
+        let folder = NSMenuItem(title: "Run in folder", action: nil, keyEquivalent: "")
+        let folderSub = NSMenu()
+        runInFolderMenu = folderSub
+        rebuildRunInFolderMenu()
+        folder.submenu = folderSub
+        menu.addItem(folder)
+
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
@@ -193,6 +211,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// item label (e.g. after a previous check left a status on it).
     func menuWillOpen(_ menu: NSMenu) {
         rebuildSendToMenu()
+        rebuildRunModeMenu()
+        rebuildRunInFolderMenu()
         if !updater.isBusy { updateItem?.title = "Check for Updates…" }
     }
 
@@ -222,6 +242,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let name = sender.representedObject as? String else { return }
         ai.setDefault(name)
         rebuildSendToMenu()
+    }
+
+    /// Build the "Run agents in" submenu: Terminal vs Background, checkmark on
+    /// the active mode.
+    private func rebuildRunModeMenu() {
+        guard let sub = runModeMenu else { return }
+        sub.removeAllItems()
+        for mode in AIRunner.RunMode.allCases {
+            let it = NSMenuItem(title: mode.menuTitle, action: #selector(selectRunMode(_:)), keyEquivalent: "")
+            it.target = self
+            it.representedObject = mode.rawValue
+            it.state = (mode == ai.runMode) ? .on : .off
+            sub.addItem(it)
+        }
+    }
+
+    @objc private func selectRunMode(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let mode = AIRunner.RunMode(rawValue: raw) else { return }
+        ai.setRunMode(mode)
+        rebuildRunModeMenu()
+    }
+
+    /// Build the "Run in folder" submenu: a header showing the active folder,
+    /// the git repos under ~/repos to pick from, and a folder browser.
+    private func rebuildRunInFolderMenu() {
+        guard let sub = runInFolderMenu else { return }
+        sub.removeAllItems()
+
+        let header = NSMenuItem(title: "Current: \(ai.workDirDisplay)", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        sub.addItem(header)
+        sub.addItem(.separator())
+
+        let active = ai.projectDir?.standardizedFileURL
+        for repo in ai.availableRepos {
+            let it = NSMenuItem(title: repo.lastPathComponent, action: #selector(selectRepo(_:)), keyEquivalent: "")
+            it.target = self
+            it.representedObject = repo.path
+            it.state = (repo.standardizedFileURL == active) ? .on : .off
+            sub.addItem(it)
+        }
+        if ai.availableRepos.isEmpty {
+            sub.addItem(disabledItem("No git repos in ~/repos"))
+        }
+
+        sub.addItem(.separator())
+        let choose = NSMenuItem(title: "Choose folder…", action: #selector(chooseRepo), keyEquivalent: "")
+        choose.target = self
+        sub.addItem(choose)
+    }
+
+    @objc private func selectRepo(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String else { return }
+        ai.setProjectDir(URL(fileURLWithPath: path))
+        rebuildRunInFolderMenu()
+    }
+
+    @objc private func chooseRepo() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Use Folder"
+        panel.message = "Choose the local repo/folder agents should work in."
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("repos")
+        NSApp.activate(ignoringOtherApps: true) // accessory app must activate for a panel
+        if panel.runModal() == .OK, let url = panel.url {
+            ai.setProjectDir(url)
+            rebuildRunInFolderMenu()
+        }
     }
 
     @objc private func openSettings() {

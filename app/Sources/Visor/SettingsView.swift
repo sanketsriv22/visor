@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Visor settings: manage the agent CLIs tasks are sent to, and securely store
 /// an API key for any agent that authenticates with one.
@@ -14,6 +15,44 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Run agents in").font(.headline)
+                Picker("", selection: Binding(get: { ai.runMode }, set: { ai.setRunMode($0) })) {
+                    ForEach(AIRunner.RunMode.allCases, id: \.self) { mode in
+                        Text(mode.menuTitle).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Text("Terminal opens each send in a window you can watch and follow up in. Background runs it silently and captures output to a log.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Project folder").font(.headline)
+                HStack {
+                    Text(ai.workDirDisplay)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Menu("Choose") {
+                        ForEach(ai.availableRepos, id: \.self) { repo in
+                            Button(repo.lastPathComponent) { ai.setProjectDir(repo) }
+                        }
+                        if !ai.availableRepos.isEmpty { Divider() }
+                        Button("Browse…") { chooseFolder() }
+                    }
+                    .fixedSize()
+                }
+                Text("Agents run in this folder, and the task is framed as a task for that project. Pick a git repo under ~/repos or browse to any folder.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider()
+
             VStack(alignment: .leading, spacing: 4) {
                 Text("AI Agents").font(.title3).bold()
                 Text("Agents run as local CLIs and do the work. Add an API key only if the CLI needs one to authenticate (e.g. OPENAI_API_KEY for codex). Keys are stored in your macOS Keychain, never in a file.")
@@ -56,9 +95,7 @@ struct SettingsView: View {
                 .help("Remove this agent")
             }
 
-            Text(([p.command] + p.args).joined(separator: " ") + " <prompt>")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.secondary)
+            commandLines(p)
 
             if let env = p.apiKeyEnv {
                 HStack(spacing: 8) {
@@ -95,6 +132,50 @@ struct SettingsView: View {
             }
             .textFieldStyle(.roundedBorder)
         }
+    }
+
+    /// Show the actual command each run mode uses. When a provider runs
+    /// differently in Terminal mode (e.g. Claude without -p), show both so it's
+    /// clear the Terminal/Background toggle — not this row — picks which runs.
+    @ViewBuilder
+    private func commandLines(_ p: AIProvider) -> some View {
+        let bgCmd = ([p.command] + p.args).joined(separator: " ") + " <prompt>"
+        if let ia = p.interactiveArgs, ia != p.args {
+            let termCmd = ([p.command] + ia).joined(separator: " ") + " <prompt>"
+            VStack(alignment: .leading, spacing: 3) {
+                modeCommand("Terminal", termCmd)
+                modeCommand("Background", bgCmd)
+            }
+        } else {
+            Text(bgCmd)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func modeCommand(_ mode: String, _ cmd: String) -> some View {
+        HStack(spacing: 6) {
+            Text(mode)
+                .font(.caption2)
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(Capsule().fill(.secondary.opacity(0.18)))
+                .foregroundStyle(.secondary)
+            Text(cmd)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Use Folder"
+        panel.message = "Choose the local repo/folder agents should work in."
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("repos")
+        if panel.runModal() == .OK, let url = panel.url { ai.setProjectDir(url) }
     }
 
     private func keyBinding(_ name: String) -> Binding<String> {

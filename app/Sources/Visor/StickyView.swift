@@ -79,7 +79,7 @@ private struct StickyCard: View {
     @State private var draggingID: UUID?
     @State private var dragOffset: CGFloat = 0
     @State private var lastDY: CGFloat = 0
-    private let rowHeight: CGFloat = 27
+    private let rowHeight: CGFloat = 23
     // Quick, critically-damped: rows settle fast with no bouncy tail, so a new
     // drag can begin immediately after dropping (SwiftUI blocks new gestures
     // while the hierarchy is still animating).
@@ -111,6 +111,16 @@ private struct StickyCard: View {
                     }
                     Divider()
                     Button("New note", action: store.newNote)
+                    Button("Archive this note") { store.archiveCurrent() }
+                    if !store.archivedNames.isEmpty {
+                        Menu("Archived") {
+                            ForEach(store.archivedNames, id: \.self) { name in
+                                Button { store.restore(name) } label: {
+                                    Label(name, systemImage: "tray.and.arrow.up")
+                                }
+                            }
+                        }
+                    }
                 } label: {
                     Image(systemName: "rectangle.stack")
                         .font(.system(size: 13))
@@ -172,7 +182,7 @@ private struct StickyCard: View {
 
     private var taskList: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 1) {
                 ForEach($store.items) { $item in
                     NoteRow(
                         item: $item,
@@ -286,7 +296,9 @@ private struct StickyCard: View {
         } else {
             switch ai.lastResult {
             case .none:
-                Text("hover a task → ✈ sends it to \(ai.defaultProviderName)")
+                Text(ai.runMode == .terminal
+                     ? "hover a task → ✈ opens it in \(ai.defaultProviderName) (Terminal)"
+                     : "hover a task → ✈ sends it to \(ai.defaultProviderName)")
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
             case .done:
@@ -375,7 +387,10 @@ private struct NoteRow: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
                 .opacity((hovering || isDragging) && !suppressHover ? 0.95 : 0.45)
-                .padding(.trailing, 2)
+                // Generous invisible grab zone around the glyph, so you can grab
+                // the general area instead of pixel-aiming the three lines. Wide
+                // for an easy horizontal target; kept short so rows stay tight.
+                .frame(width: 26, height: 20)
                 .contentShape(Rectangle())
                 .gesture(
                     // Global coordinate space: the row's own offset (it follows
@@ -419,7 +434,7 @@ private struct NoteRow: View {
         // of the hovered subtree — otherwise moving onto a button flips hover
         // off (the button becomes the topmost view) and it vanishes mid-click.
         .overlay(alignment: .trailing) { trailingActions }
-        .padding(.vertical, 2)
+        .padding(.vertical, 1)
         .contentShape(Rectangle())
         .onHover { h in withAnimation(.easeInOut(duration: 0.12)) { hovering = h } }
         .contextMenu {

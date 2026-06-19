@@ -8,6 +8,8 @@ struct AIProvider: Codable, Identifiable, Equatable {
     var command: String       // executable name or absolute path, e.g. "devin"
     var args: [String]        // fixed args; the prompt is appended after these
     var apiKeyEnv: String?    // env var the CLI reads its key from, if any (e.g. "OPENAI_API_KEY")
+    var interactiveArgs: [String]?  // args used in Terminal mode instead of `args`, to run the
+                                    // CLI interactively (e.g. claude with no -p). Falls back to `args`.
     var id: String { name }
 }
 
@@ -21,12 +23,28 @@ private struct ProvidersConfig: Codable {
 final class AIRunner: ObservableObject {
     enum RunResult: Equatable { case none, done, failed(String) }
 
+    /// Where a send runs: in a real Terminal window you can watch and follow up
+    /// in, or silently in the background with output captured to a log file.
+    enum RunMode: String, CaseIterable {
+        case terminal, background
+        var menuTitle: String {
+            switch self {
+            case .terminal:   return "Terminal — watch it run"
+            case .background: return "Background — logged silently"
+            }
+        }
+    }
+
     /// How many agent runs are in flight (multiple tasks can run at once).
     @Published private(set) var runningCount = 0
     /// In-flight run count per task id, for the per-row "agent running" spinner.
     @Published private(set) var runningTaskIDs: [UUID: Int] = [:]
     /// Outcome of the most recently finished run.
     @Published private(set) var lastResult: RunResult = .none
+    /// Whether sends open a Terminal window or run silently in the background.
+    @Published private(set) var runMode: RunMode = .terminal
+    /// User-chosen local repo/folder agents run in (nil → default ~/repos).
+    @Published private(set) var projectDir: URL?
 
     func isRunning(_ id: UUID) -> Bool { (runningTaskIDs[id] ?? 0) > 0 }
     @Published private(set) var providers: [AIProvider] = []
@@ -37,8 +55,37 @@ final class AIRunner: ObservableObject {
     var isBusy: Bool { runningCount > 0 }
     private var lastLogURL: URL?
 
-    private let workDir = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("repos")
+    private var homeDir: URL { FileManager.default.homeDirectoryForCurrentUser }
+
+    /// Where agents run: the user-chosen project folder if set and present,
+    /// else ~/repos, else home. A sent task works inside whatever local repo the
+    /// user picked, with access to all of its code.
+    private var workDir: URL {
+        let fm = FileManager.default
+        if let p = projectDir, fm.fileExists(atPath: p.path) { return p }
+        let repos = homeDir.appendingPathComponent("repos")
+        if fm.fileExists(atPath: repos.path) { return repos }
+        return homeDir
+    }
+
+    /// The working directory shown to the user, with home abbreviated to ~.
+    var workDirDisplay: String {
+        let p = workDir.path, h = homeDir.path
+        return p.hasPrefix(h) ? "~" + p.dropFirst(h.count) : p
+    }
+
+    /// Git repos directly under ~/repos, for quick selection in the menu/Settings.
+    var availableRepos: [URL] {
+        let fm = FileManager.default
+        let repos = homeDir.appendingPathComponent("repos")
+        let subs = (try? fm.contentsOfDirectory(
+            at: repos, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])) ?? []
+        return subs.filter { url in
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else { return false }
+            return fm.fileExists(atPath: url.appendingPathComponent(".git").path)
+        }.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+    }
     private let logsDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("StickyNotes/visor-logs", isDirectory: true)
     private let configURL = FileManager.default.homeDirectoryForCurrentUser
@@ -48,13 +95,26 @@ final class AIRunner: ObservableObject {
         default: "Devin",
         providers: [
             AIProvider(name: "Devin", command: "devin", args: ["--permission-mode", "dangerous", "-p"]),
-            AIProvider(name: "Claude Code", command: "claude", args: ["-p"]),
+            // In Terminal mode Claude runs interactively (no -p): you see it work
+            // and can follow up. Background mode still uses -p (headless).
+            AIProvider(name: "Claude Code", command: "claude", args: ["-p"], interactiveArgs: []),
         ]
     )
 
     private let defaultKey = "visor.defaultProvider"
+    private let runModeKey = "visor.runMode"
+    private let projectDirKey = "visor.projectDir"
 
-    init() { loadProviders() }
+    init() {
+        loadProviders()
+        if let raw = UserDefaults.standard.string(forKey: runModeKey),
+           let mode = RunMode(rawValue: raw) {
+            runMode = mode
+        }
+        if let p = UserDefaults.standard.string(forKey: projectDirKey), !p.isEmpty {
+            projectDir = URL(fileURLWithPath: p)
+        }
+    }
 
     var defaultProvider: AIProvider? {
         providers.first { $0.name == defaultProviderName } ?? providers.first
@@ -66,6 +126,19 @@ final class AIRunner: ObservableObject {
         guard providers.contains(where: { $0.name == name }) else { return }
         defaultProviderName = name
         UserDefaults.standard.set(name, forKey: defaultKey)
+    }
+
+    /// Choose whether sends open a Terminal window or run in the background.
+    func setRunMode(_ mode: RunMode) {
+        runMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: runModeKey)
+    }
+
+    /// Choose the local repo/folder agents run in (nil resets to the default).
+    func setProjectDir(_ url: URL?) {
+        projectDir = url
+        if let url { UserDefaults.standard.set(url.path, forKey: projectDirKey) }
+        else { UserDefaults.standard.removeObject(forKey: projectDirKey) }
     }
 
     func sendToDefault(tasks: [String], taskIDs: [UUID] = []) {
@@ -81,25 +154,37 @@ final class AIRunner: ObservableObject {
             return
         }
         lastProviderName = provider.name
+        let prompt = buildPrompt(tasks)
+        switch runMode {
+        case .terminal:   runInTerminal(exe: exe, provider: provider, prompt: prompt)
+        case .background: runInBackground(exe: exe, provider: provider, prompt: prompt, taskIDs: taskIDs)
+        }
+    }
 
+    private func buildPrompt(_ tasks: [String]) -> String {
         let list = tasks.map { "- \($0)" }.joined(separator: "\n")
-        let prompt = """
+        return """
         Here are tasks from my sticky note:
 
         \(list)
+
+        You're working in \(workDirDisplay) (the current directory) — treat these \
+        as tasks for that project, and you have access to all of its code.
 
         Work through them. For each task, do whatever it takes to finish it — you \
         have my permission to run any tools and to spin up additional agents or \
         sessions as needed. Make the actual changes (and open PRs where that fits). \
         When you complete a task, say so clearly. End with a short summary.
         """
+    }
 
+    /// Run the agent silently; stdout/stderr go to a per-run log file and the
+    /// row shows a spinner while the run is in flight.
+    private func runInBackground(exe: String, provider: AIProvider, prompt: String, taskIDs: [UUID]) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: exe)
         process.arguments = provider.args + [prompt]
-        process.currentDirectoryURL = FileManager.default.fileExists(atPath: workDir.path)
-            ? workDir
-            : FileManager.default.homeDirectoryForCurrentUser
+        process.currentDirectoryURL = workDir
 
         // GUI apps inherit a bare PATH; give the CLI the usual tool locations.
         var env = ProcessInfo.processInfo.environment
@@ -113,9 +198,7 @@ final class AIRunner: ObservableObject {
 
         // Each concurrent run gets its own log so they don't interleave.
         try? FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
-        let safe = provider.name.components(separatedBy: CharacterSet(charactersIn: "/\\: "))
-            .joined(separator: "-")
-        let logURL = logsDir.appendingPathComponent("\(safe)-\(UUID().uuidString.prefix(8)).log")
+        let logURL = logsDir.appendingPathComponent("\(safeName(provider.name))-\(UUID().uuidString.prefix(8)).log")
         FileManager.default.createFile(atPath: logURL.path, contents: nil)
         if let handle = try? FileHandle(forWritingTo: logURL) {
             process.standardOutput = handle
@@ -144,6 +227,96 @@ final class AIRunner: ObservableObject {
         } catch {
             lastResult = .failed(error.localizedDescription)
         }
+    }
+
+    /// Run the agent in a Terminal window the user can watch and follow up in.
+    /// We write a tiny `.command` script (PATH + any Keychain key + the
+    /// configured command, with the prompt read from a sibling file so no
+    /// shell-escaping can go wrong) and open it, which Terminal.app executes.
+    /// The window stays open after the agent exits until a key is pressed, so
+    /// the output isn't lost.
+    private func runInTerminal(exe: String, provider: AIProvider, prompt: String) {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let runsDir = home.appendingPathComponent("StickyNotes/visor-runs", isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: runsDir, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
+        cleanOldRuns(runsDir)
+
+        let stamp = "\(safeName(provider.name))-\(UUID().uuidString.prefix(8))"
+        let promptURL = runsDir.appendingPathComponent("\(stamp).prompt.txt")
+        let scriptURL = runsDir.appendingPathComponent("\(stamp).command")
+        do {
+            try prompt.write(to: promptURL, atomically: true, encoding: .utf8)
+        } catch {
+            lastResult = .failed("couldn't stage prompt: \(error.localizedDescription)")
+            return
+        }
+
+        let path = "\(home.path)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        let workdir = workDir.path
+        // Terminal mode prefers interactiveArgs (e.g. claude with no -p) so the
+        // agent runs as a live session you can watch and follow up in.
+        let runArgs = provider.interactiveArgs ?? provider.args
+        let argv = ([exe] + runArgs).map(Self.shq).joined(separator: " ")
+
+        var lines = [
+            "#!/bin/bash",
+            "export PATH=\(Self.shq(path)):\"$PATH\"",
+        ]
+        // If this agent authenticates via an API key, inject it from the Keychain.
+        if let keyEnv = provider.apiKeyEnv, let key = Keychain.get(provider.name) {
+            lines.append("export \(keyEnv)=\(Self.shq(key))")
+        }
+        lines += [
+            "cd \(Self.shq(workdir)) 2>/dev/null || cd \"$HOME\"",
+            "clear",
+            "printf '\\033[1m▶ Visor → %s\\033[0m\\n\\n' \(Self.shq(provider.name))",
+            "\(argv) \"$(cat \(Self.shq(promptURL.path)))\"",
+            "status=$?",
+            "printf '\\n\\033[2m— %s exited (%s). Press any key to close. —\\033[0m' \(Self.shq(provider.name)) \"$status\"",
+            "read -n 1 -s",
+        ]
+        let script = lines.joined(separator: "\n") + "\n"
+        do {
+            try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
+        } catch {
+            lastResult = .failed("couldn't stage run: \(error.localizedDescription)")
+            return
+        }
+
+        NSWorkspace.shared.open(scriptURL) // a .command file → Terminal executes it
+        lastProviderName = provider.name
+
+        // The prompt/script are consumed at launch; remove them shortly after so
+        // a Keychain-injected key isn't left sitting on disk.
+        let urls = [promptURL, scriptURL]
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
+            for url in urls { try? FileManager.default.removeItem(at: url) }
+        }
+    }
+
+    /// Drop stale run scripts/prompts (older than an hour) as a backstop in case
+    /// a delayed cleanup didn't run (e.g. the app quit before its timer fired).
+    private func cleanOldRuns(_ dir: URL) {
+        guard let items = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        let cutoff = Date().addingTimeInterval(-3600)
+        for url in items {
+            let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if let mod, mod < cutoff { try? FileManager.default.removeItem(at: url) }
+        }
+    }
+
+    /// Quote a string as a single safe POSIX shell word.
+    private static func shq(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private func safeName(_ name: String) -> String {
+        name.components(separatedBy: CharacterSet(charactersIn: "/\\: ")).joined(separator: "-")
     }
 
     /// Open the most recent run's log in the user's default viewer.
@@ -207,6 +380,16 @@ final class AIRunner: ObservableObject {
             defaultProviderName = Self.defaults.default
             saveConfig(Self.defaults)
         }
+        // Migrate older configs: Claude Code should run interactively in Terminal
+        // mode (no -p) so you watch it work and can follow up. Add it if missing.
+        var migrated = false
+        for i in providers.indices
+        where (providers[i].command == "claude" || providers[i].command.hasSuffix("/claude"))
+            && providers[i].interactiveArgs == nil {
+            providers[i].interactiveArgs = []
+            migrated = true
+        }
+        if migrated { saveConfig(ProvidersConfig(default: defaultProviderName, providers: providers)) }
         // The user's saved choice (from settings) wins over the file default.
         if let saved = UserDefaults.standard.string(forKey: defaultKey),
            providers.contains(where: { $0.name == saved }) {

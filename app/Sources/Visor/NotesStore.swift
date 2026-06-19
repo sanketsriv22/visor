@@ -70,6 +70,8 @@ final class NotesStore: ObservableObject {
     @Published private(set) var noteNames: [String] = []
     /// Filename stem of the note currently shown.
     @Published private(set) var activeName: String = "Untitled"
+    /// Names of archived notes (kept in Documents/Visor/Archive), for the switcher.
+    @Published private(set) var archivedNames: [String] = []
 
     private func markDirty() {
         guard !suppressDirty else { return }
@@ -88,6 +90,7 @@ final class NotesStore: ObservableObject {
     private var lastMTime: Date?
 
     private var activeURL: URL { folder.appendingPathComponent("\(activeName).md") }
+    private var archiveFolder: URL { folder.appendingPathComponent("Archive", isDirectory: true) }
 
     var openTasks: [String] {
         items.filter { $0.isTask && !$0.done }
@@ -107,6 +110,7 @@ final class NotesStore: ObservableObject {
                 .appendingPathComponent("StickyNotes/sticky.md")
         }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: archiveFolder, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(
             at: mirror.deletingLastPathComponent(), withIntermediateDirectories: true)
         bootstrap()
@@ -297,6 +301,53 @@ final class NotesStore: ObservableObject {
         refreshNoteNames()
     }
 
+    /// Move the current note into the Archive folder (hidden from the switcher
+    /// but kept on disk), then switch to another note — or a fresh empty one if
+    /// this was the last note.
+    func archiveCurrent() {
+        commitRenameNow()
+        saveNow()
+        let archivedName = activeName
+        let src = activeURL
+        try? FileManager.default.createDirectory(at: archiveFolder, withIntermediateDirectories: true)
+        if FileManager.default.fileExists(atPath: src.path) {
+            try? FileManager.default.moveItem(at: src, to: uniqueArchiveURL(archivedName))
+        }
+        refreshNoteNames()
+        if let next = noteNames.first(where: { $0 != archivedName }) {
+            activeName = next
+            loadActive()
+        } else {
+            // Archived the last note — start a fresh empty one so there's always
+            // an active note to show.
+            activeName = uniqueName("Untitled")
+            suppressDirty = true; title = ""; items = []; suppressDirty = false
+            dirty = true
+            saveNow()
+        }
+        UserDefaults.standard.set(activeName, forKey: activeKey)
+        ensureMirrorSymlink()
+        refreshNoteNames()
+        refreshArchivedNames()
+    }
+
+    /// Move an archived note back into the active set and switch to it.
+    func restore(_ name: String) {
+        let src = archiveFolder.appendingPathComponent("\(name).md")
+        guard FileManager.default.fileExists(atPath: src.path) else { return }
+        commitRenameNow()
+        saveNow()
+        let target = uniqueName(name) // never clobber an existing active note
+        let dest = folder.appendingPathComponent("\(target).md")
+        try? FileManager.default.moveItem(at: src, to: dest)
+        refreshNoteNames()
+        refreshArchivedNames()
+        activeName = target
+        loadActive()
+        UserDefaults.standard.set(activeName, forKey: activeKey)
+        ensureMirrorSymlink()
+    }
+
     /// Rename the active file to match the title now (e.g. on Return).
     func commitTitle() { commitRenameNow() }
 
@@ -304,6 +355,7 @@ final class NotesStore: ObservableObject {
 
     private func bootstrap() {
         refreshNoteNames()
+        refreshArchivedNames()
         if noteNames.isEmpty {
             // First run: migrate an existing single note if there is one.
             if let data = try? Data(contentsOf: mirror),
@@ -346,6 +398,25 @@ final class NotesStore: ObservableObject {
         noteNames = urls.filter { $0.pathExtension == "md" }
             .map { $0.deletingPathExtension().lastPathComponent }
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func refreshArchivedNames() {
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: archiveFolder, includingPropertiesForKeys: nil)) ?? []
+        archivedNames = urls.filter { $0.pathExtension == "md" }
+            .map { $0.deletingPathExtension().lastPathComponent }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    /// A free filename in the archive, suffixing " 2", " 3"… on collision.
+    private func uniqueArchiveURL(_ base: String) -> URL {
+        var name = base
+        var n = 2
+        while FileManager.default.fileExists(
+            atPath: archiveFolder.appendingPathComponent("\(name).md").path) {
+            name = "\(base) \(n)"; n += 1
+        }
+        return archiveFolder.appendingPathComponent("\(name).md")
     }
 
     private func sanitize(_ s: String) -> String {
