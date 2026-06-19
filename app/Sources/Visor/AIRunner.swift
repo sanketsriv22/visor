@@ -19,20 +19,24 @@ private struct ProvidersConfig: Codable {
 /// Sends tasks to a configurable AI CLI and tracks the run for the UI.
 /// Providers live in an editable JSON file so the user can add their own.
 final class AIRunner: ObservableObject {
-    enum Status: Equatable { case idle, running, done, failed(String) }
+    enum RunResult: Equatable { case none, done, failed(String) }
 
-    @Published private(set) var status: Status = .idle
+    /// How many agent runs are in flight (multiple tasks can run at once).
+    @Published private(set) var runningCount = 0
+    /// Outcome of the most recently finished run.
+    @Published private(set) var lastResult: RunResult = .none
     @Published private(set) var providers: [AIProvider] = []
     @Published private(set) var defaultProviderName = ""
     /// Name of the provider for the most recent run, for status labels.
     @Published private(set) var lastProviderName = ""
 
-    var isBusy: Bool { status == .running }
+    var isBusy: Bool { runningCount > 0 }
+    private var lastLogURL: URL?
 
     private let workDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("repos")
-    private let logURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("StickyNotes/ai-last.log")
+    private let logsDir = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("StickyNotes/visor-logs", isDirectory: true)
     private let configURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("StickyNotes/ai-providers.json")
 
@@ -66,9 +70,10 @@ final class AIRunner: ObservableObject {
     }
 
     func send(tasks: [String], provider: AIProvider) {
-        guard status != .running, !tasks.isEmpty else { return }
+        guard !tasks.isEmpty else { return } // no single-run guard: runs are concurrent
         guard let exe = resolveExecutable(provider.command) else {
-            status = .failed("\(provider.name) not found (\(provider.command))")
+            lastProviderName = provider.name
+            lastResult = .failed("\(provider.name) not found (\(provider.command))")
             return
         }
         lastProviderName = provider.name
@@ -102,6 +107,11 @@ final class AIRunner: ObservableObject {
         }
         process.environment = env
 
+        // Each concurrent run gets its own log so they don't interleave.
+        try? FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
+        let safe = provider.name.components(separatedBy: CharacterSet(charactersIn: "/\\: "))
+            .joined(separator: "-")
+        let logURL = logsDir.appendingPathComponent("\(safe)-\(UUID().uuidString.prefix(8)).log")
         FileManager.default.createFile(atPath: logURL.path, contents: nil)
         if let handle = try? FileHandle(forWritingTo: logURL) {
             process.standardOutput = handle
@@ -110,22 +120,27 @@ final class AIRunner: ObservableObject {
 
         process.terminationHandler = { [weak self] proc in
             DispatchQueue.main.async {
-                self?.status = proc.terminationStatus == 0 ? .done : .failed("exit \(proc.terminationStatus)")
+                guard let self else { return }
+                self.runningCount = max(0, self.runningCount - 1)
+                self.lastResult = proc.terminationStatus == 0 ? .done : .failed("exit \(proc.terminationStatus)")
+                self.lastProviderName = provider.name
+                self.lastLogURL = logURL
             }
         }
 
         do {
             try process.run()
-            status = .running
+            runningCount += 1
+            lastLogURL = logURL
         } catch {
-            status = .failed(error.localizedDescription)
+            lastResult = .failed(error.localizedDescription)
         }
     }
 
-    /// Open the run log in the user's default viewer.
+    /// Open the most recent run's log in the user's default viewer.
     func revealLog() {
-        if FileManager.default.fileExists(atPath: logURL.path) {
-            NSWorkspace.shared.open(logURL)
+        if let url = lastLogURL, FileManager.default.fileExists(atPath: url.path) {
+            NSWorkspace.shared.open(url)
         }
     }
 

@@ -215,33 +215,37 @@ private struct StickyCard: View {
         DispatchQueue.main.async { focused = id }
     }
 
-    // Sending is per-task (the ✈ on each row). The footer just reflects the
-    // last run's state; which agent it goes to is set in the menu-bar settings.
+    // Sending is per-task (the ✈ on each row), and runs are concurrent. The
+    // footer shows how many are running, else the last run's result. Which
+    // agent it goes to is set in the menu-bar settings.
     @ViewBuilder
     private var footer: some View {
-        switch ai.status {
-        case .idle:
-            Text("hover a task → ✈ sends it to \(ai.defaultProviderName)")
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-        case .running:
-            Label("\(ai.lastProviderName) working…", systemImage: "circle.dotted")
+        if ai.runningCount > 0 {
+            Label(ai.runningCount == 1 ? "\(ai.lastProviderName) working…" : "\(ai.runningCount) agents working…",
+                  systemImage: "circle.dotted")
                 .font(.system(size: 10))
                 .foregroundStyle(.orange)
-        case .done:
-            Button(action: ai.revealLog) {
-                Label("\(ai.lastProviderName) finished — view log", systemImage: "checkmark.circle.fill")
+        } else {
+            switch ai.lastResult {
+            case .none:
+                Text("hover a task → ✈ sends it to \(ai.defaultProviderName)")
                     .font(.system(size: 10))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(.tertiary)
+            case .done:
+                Button(action: ai.revealLog) {
+                    Label("\(ai.lastProviderName) finished — view log", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.green)
+                }
+                .buttonStyle(.plain)
+            case .failed(let why):
+                Button(action: ai.revealLog) {
+                    Label("\(ai.lastProviderName) failed (\(why))", systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-        case .failed(let why):
-            Button(action: ai.revealLog) {
-                Label("\(ai.lastProviderName) failed (\(why))", systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.red)
-            }
-            .buttonStyle(.plain)
         }
     }
 }

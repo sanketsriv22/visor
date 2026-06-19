@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.15 — 2026-06-18
+
+- Concurrent sends: you can now fire a task at an agent while earlier ones are still running, instead of waiting for each to finish. The footer shows how many agents are working, and every run keeps its own log.
+
 ## 1.0-beta.14 — 2026-06-18
 
 - Keyboard shortcuts now work in the note: ⌘C / ⌘V / ⌘X / ⌘A / ⌘Z (copy, paste, cut, select-all, undo). As a menu-bar app Visor had no Edit menu to route them — added one.
