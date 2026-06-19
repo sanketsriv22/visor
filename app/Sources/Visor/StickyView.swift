@@ -359,9 +359,9 @@ private struct NoteRow: View {
     }
 
     var body: some View {
-        // .top alignment keeps the handle, checkbox and delete button on the
-        // first line when a long task wraps to multiple lines.
-        HStack(alignment: .top, spacing: 8) {
+        // .firstTextBaseline aligns the handle/checkbox to the text's first
+        // line (so they sit on the line, and stay on line 1 when text wraps).
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             // Drag handle — only this grabs for reordering, so dragging never
             // fights with editing the task text. A gesture-driven live reorder
             // (rows part as you drag) rather than a system drag-and-drop.

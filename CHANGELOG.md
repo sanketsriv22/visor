@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## Unreleased
+
+- Drag handle (≡) is now vertically aligned with the task line instead of riding high above it.
+
 ## 1.0-beta.21 — 2026-06-18
 
 - Press-and-hold a task's checkbox to jump straight to done (hold again to reopen) — no more clicking through doing/blocked to complete something. A quick tap still cycles the states.
