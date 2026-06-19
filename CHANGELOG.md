@@ -3,7 +3,7 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
-## Unreleased
+## 1.0-beta.24 — 2026-06-19
 
 - Delete a note from the switcher (⧉): a new "Delete this note" permanently removes the current note (with a confirmation, since — unlike Archive — it can't be undone).
 - Order notes in the switcher: a "Sort by" submenu lets you list notes by Name (A–Z), Recently updated, or Recently created. Your choice persists. (Manual drag-ordering isn't possible inside a macOS dropdown.)
