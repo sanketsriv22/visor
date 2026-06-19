@@ -71,9 +71,7 @@ struct SettingsView: View {
                 .help("Remove this agent")
             }
 
-            Text(([p.command] + p.args).joined(separator: " ") + " <prompt>")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.secondary)
+            commandLines(p)
 
             if let env = p.apiKeyEnv {
                 HStack(spacing: 8) {
@@ -109,6 +107,38 @@ struct SettingsView: View {
                     .disabled(newName.isEmpty || newCommand.isEmpty)
             }
             .textFieldStyle(.roundedBorder)
+        }
+    }
+
+    /// Show the actual command each run mode uses. When a provider runs
+    /// differently in Terminal mode (e.g. Claude without -p), show both so it's
+    /// clear the Terminal/Background toggle — not this row — picks which runs.
+    @ViewBuilder
+    private func commandLines(_ p: AIProvider) -> some View {
+        let bgCmd = ([p.command] + p.args).joined(separator: " ") + " <prompt>"
+        if let ia = p.interactiveArgs, ia != p.args {
+            let termCmd = ([p.command] + ia).joined(separator: " ") + " <prompt>"
+            VStack(alignment: .leading, spacing: 3) {
+                modeCommand("Terminal", termCmd)
+                modeCommand("Background", bgCmd)
+            }
+        } else {
+            Text(bgCmd)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func modeCommand(_ mode: String, _ cmd: String) -> some View {
+        HStack(spacing: 6) {
+            Text(mode)
+                .font(.caption2)
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(Capsule().fill(.secondary.opacity(0.18)))
+                .foregroundStyle(.secondary)
+            Text(cmd)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
         }
     }
 

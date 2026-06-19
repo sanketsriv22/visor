@@ -11,6 +11,7 @@ the menu-bar dropdown, and published as the release notes for each version.
 - Archive notes: the note switcher (⧉) now has "Archive this note" — it moves the note into `Documents/Visor/Archive`, out of the switcher but safe on disk. Archived notes appear under an "Archived" submenu where one click restores them.
 - Easier drag-to-reorder: the drag handle now has a generous grab zone around the ≡ glyph, so you can start a drag from the general area instead of having to land your cursor exactly on the three lines.
 - Tighter task list: rows sit closer together (the enlarged drag handle had bloated each row's height).
+- Settings now shows the actual command for each run mode (e.g. Claude Code: Terminal `claude <prompt>` vs Background `claude -p <prompt>`), instead of only the `-p` form — so it's clear the Terminal/Background toggle is what picks which one runs.
 
 ## 1.0-beta.22 — 2026-06-19
 
