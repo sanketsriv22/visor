@@ -8,6 +8,8 @@ struct AIProvider: Codable, Identifiable, Equatable {
     var command: String       // executable name or absolute path, e.g. "devin"
     var args: [String]        // fixed args; the prompt is appended after these
     var apiKeyEnv: String?    // env var the CLI reads its key from, if any (e.g. "OPENAI_API_KEY")
+    var interactiveArgs: [String]?  // args used in Terminal mode instead of `args`, to run the
+                                    // CLI interactively (e.g. claude with no -p). Falls back to `args`.
     var id: String { name }
 }
 
@@ -62,7 +64,9 @@ final class AIRunner: ObservableObject {
         default: "Devin",
         providers: [
             AIProvider(name: "Devin", command: "devin", args: ["--permission-mode", "dangerous", "-p"]),
-            AIProvider(name: "Claude Code", command: "claude", args: ["-p"]),
+            // In Terminal mode Claude runs interactively (no -p): you see it work
+            // and can follow up. Background mode still uses -p (headless).
+            AIProvider(name: "Claude Code", command: "claude", args: ["-p"], interactiveArgs: []),
         ]
     )
 
@@ -208,7 +212,10 @@ final class AIRunner: ObservableObject {
 
         let path = "\(home.path)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         let workdir = FileManager.default.fileExists(atPath: workDir.path) ? workDir.path : home.path
-        let argv = ([exe] + provider.args).map(Self.shq).joined(separator: " ")
+        // Terminal mode prefers interactiveArgs (e.g. claude with no -p) so the
+        // agent runs as a live session you can watch and follow up in.
+        let runArgs = provider.interactiveArgs ?? provider.args
+        let argv = ([exe] + runArgs).map(Self.shq).joined(separator: " ")
 
         var lines = [
             "#!/bin/bash",
@@ -330,6 +337,16 @@ final class AIRunner: ObservableObject {
             defaultProviderName = Self.defaults.default
             saveConfig(Self.defaults)
         }
+        // Migrate older configs: Claude Code should run interactively in Terminal
+        // mode (no -p) so you watch it work and can follow up. Add it if missing.
+        var migrated = false
+        for i in providers.indices
+        where (providers[i].command == "claude" || providers[i].command.hasSuffix("/claude"))
+            && providers[i].interactiveArgs == nil {
+            providers[i].interactiveArgs = []
+            migrated = true
+        }
+        if migrated { saveConfig(ProvidersConfig(default: defaultProviderName, providers: providers)) }
         // The user's saved choice (from settings) wins over the file default.
         if let saved = UserDefaults.standard.string(forKey: defaultKey),
            providers.contains(where: { $0.name == saved }) {

@@ -6,6 +6,7 @@ the menu-bar dropdown, and published as the release notes for each version.
 ## Unreleased
 
 - Run agents in a Terminal window you can watch (new default), instead of silently in the background. Toggle it under the menu bar → "Run agents in" (or Settings). Terminal mode opens each send in its own window, streams the agent live, and stays open after it finishes; Background still runs it quietly and captures output to a log. Any API key you've stored is injected the same way in both modes.
+- Claude Code runs as a real interactive session in Terminal mode: sends launch `claude "<task>"` (not headless `claude -p`), so you see it think and use tools and can follow up in the same window, using your existing CLI login — no API key needed. Background mode still runs it headless with `-p`.
 - Easier drag-to-reorder: the drag handle now has a generous grab zone around the ≡ glyph, so you can start a drag from the general area instead of having to land your cursor exactly on the three lines.
 
 ## 1.0-beta.22 — 2026-06-19
