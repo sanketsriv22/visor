@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Visor settings: manage the agent CLIs tasks are sent to, and securely store
 /// an API key for any agent that authenticates with one.
@@ -24,6 +25,29 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 Text("Terminal opens each send in a window you can watch and follow up in. Background runs it silently and captures output to a log.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Project folder").font(.headline)
+                HStack {
+                    Text(ai.workDirDisplay)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Menu("Choose") {
+                        ForEach(ai.availableRepos, id: \.self) { repo in
+                            Button(repo.lastPathComponent) { ai.setProjectDir(repo) }
+                        }
+                        if !ai.availableRepos.isEmpty { Divider() }
+                        Button("Browse…") { chooseFolder() }
+                    }
+                    .fixedSize()
+                }
+                Text("Agents run in this folder, and the task is framed as a task for that project. Pick a git repo under ~/repos or browse to any folder.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
 
@@ -140,6 +164,18 @@ struct SettingsView: View {
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Use Folder"
+        panel.message = "Choose the local repo/folder agents should work in."
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("repos")
+        if panel.runModal() == .OK, let url = panel.url { ai.setProjectDir(url) }
     }
 
     private func keyBinding(_ name: String) -> Binding<String> {

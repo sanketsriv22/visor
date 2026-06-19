@@ -43,6 +43,8 @@ final class AIRunner: ObservableObject {
     @Published private(set) var lastResult: RunResult = .none
     /// Whether sends open a Terminal window or run silently in the background.
     @Published private(set) var runMode: RunMode = .terminal
+    /// User-chosen local repo/folder agents run in (nil → default ~/repos).
+    @Published private(set) var projectDir: URL?
 
     func isRunning(_ id: UUID) -> Bool { (runningTaskIDs[id] ?? 0) > 0 }
     @Published private(set) var providers: [AIProvider] = []
@@ -54,16 +56,35 @@ final class AIRunner: ObservableObject {
     private var lastLogURL: URL?
 
     private var homeDir: URL { FileManager.default.homeDirectoryForCurrentUser }
-    private var visorRepo: URL { homeDir.appendingPathComponent("repos/visor", isDirectory: true) }
 
-    /// Where agents run. Prefer Visor's own source repo so a sent task has
-    /// access to all of Visor's code; fall back to ~/repos, then home.
+    /// Where agents run: the user-chosen project folder if set and present,
+    /// else ~/repos, else home. A sent task works inside whatever local repo the
+    /// user picked, with access to all of its code.
     private var workDir: URL {
         let fm = FileManager.default
-        if fm.fileExists(atPath: visorRepo.path) { return visorRepo }
+        if let p = projectDir, fm.fileExists(atPath: p.path) { return p }
         let repos = homeDir.appendingPathComponent("repos")
         if fm.fileExists(atPath: repos.path) { return repos }
         return homeDir
+    }
+
+    /// The working directory shown to the user, with home abbreviated to ~.
+    var workDirDisplay: String {
+        let p = workDir.path, h = homeDir.path
+        return p.hasPrefix(h) ? "~" + p.dropFirst(h.count) : p
+    }
+
+    /// Git repos directly under ~/repos, for quick selection in the menu/Settings.
+    var availableRepos: [URL] {
+        let fm = FileManager.default
+        let repos = homeDir.appendingPathComponent("repos")
+        let subs = (try? fm.contentsOfDirectory(
+            at: repos, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])) ?? []
+        return subs.filter { url in
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else { return false }
+            return fm.fileExists(atPath: url.appendingPathComponent(".git").path)
+        }.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
     }
     private let logsDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("StickyNotes/visor-logs", isDirectory: true)
@@ -82,12 +103,16 @@ final class AIRunner: ObservableObject {
 
     private let defaultKey = "visor.defaultProvider"
     private let runModeKey = "visor.runMode"
+    private let projectDirKey = "visor.projectDir"
 
     init() {
         loadProviders()
         if let raw = UserDefaults.standard.string(forKey: runModeKey),
            let mode = RunMode(rawValue: raw) {
             runMode = mode
+        }
+        if let p = UserDefaults.standard.string(forKey: projectDirKey), !p.isEmpty {
+            projectDir = URL(fileURLWithPath: p)
         }
     }
 
@@ -107,6 +132,13 @@ final class AIRunner: ObservableObject {
     func setRunMode(_ mode: RunMode) {
         runMode = mode
         UserDefaults.standard.set(mode.rawValue, forKey: runModeKey)
+    }
+
+    /// Choose the local repo/folder agents run in (nil resets to the default).
+    func setProjectDir(_ url: URL?) {
+        projectDir = url
+        if let url { UserDefaults.standard.set(url.path, forKey: projectDirKey) }
+        else { UserDefaults.standard.removeObject(forKey: projectDirKey) }
     }
 
     func sendToDefault(tasks: [String], taskIDs: [UUID] = []) {
@@ -131,15 +163,14 @@ final class AIRunner: ObservableObject {
 
     private func buildPrompt(_ tasks: [String]) -> String {
         let list = tasks.map { "- \($0)" }.joined(separator: "\n")
-        let context = workDir.path == visorRepo.path
-            ? "\nYou're in the Visor app's own source repository (the current working "
-              + "directory), so you have access to all of Visor's code.\n"
-            : ""
         return """
         Here are tasks from my sticky note:
 
         \(list)
-        \(context)
+
+        You're working in \(workDirDisplay) (the current directory) — treat these \
+        as tasks for that project, and you have access to all of its code.
+
         Work through them. For each task, do whatever it takes to finish it — you \
         have my permission to run any tools and to spin up additional agents or \
         sessions as needed. Make the actual changes (and open PRs where that fits). \
