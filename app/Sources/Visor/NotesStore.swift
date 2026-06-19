@@ -156,6 +156,26 @@ final class NotesStore: ObservableObject {
         items.removeAll { $0.id == id }
     }
 
+    /// Move a task out of the current note and append it to another note's file.
+    func moveTask(_ id: UUID, toNote name: String) {
+        guard name != activeName,
+              let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        let moved = items.remove(at: idx) // removing triggers a save of this note
+
+        let targetURL = folder.appendingPathComponent("\(name).md")
+        var title = name
+        var targetItems: [NoteItem] = []
+        if let data = try? Data(contentsOf: targetURL),
+           let s = String(data: data, encoding: .utf8) {
+            let parsed = Self.parseDocument(s)
+            if !parsed.title.isEmpty { title = parsed.title }
+            targetItems = parsed.items
+        }
+        targetItems.append(moved)
+        try? Self.serializeDocument(title: title, items: targetItems)
+            .data(using: .utf8)?.write(to: targetURL, options: .atomic)
+    }
+
     /// Move the dragged item to just above the dropped-on item — matching the
     /// insertion line drawn at the top of the target row.
     func move(id draggedID: UUID, toIndexOf targetID: UUID) {

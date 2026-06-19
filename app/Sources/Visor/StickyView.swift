@@ -188,6 +188,10 @@ private struct StickyCard: View {
                             let t = item.text.trimmingCharacters(in: .whitespaces)
                             if !t.isEmpty { ai.sendToDefault(tasks: [t], taskIDs: [item.id]) }
                         },
+                        otherNotes: store.noteNames.filter { $0 != store.activeName },
+                        onMove: { name in
+                            withAnimation(reorderSpring) { store.moveTask(item.id, toNote: name) }
+                        },
                         onDragChanged: { dy in dragChanged(item.id, dy) },
                         onDragEnded: { dragEnded() }
                     )
@@ -317,6 +321,8 @@ private struct NoteRow: View {
     var onSubmit: () -> Void
     var onDelete: () -> Void
     var onSend: () -> Void
+    var otherNotes: [String]
+    var onMove: (String) -> Void
     var onDragChanged: (CGFloat) -> Void
     var onDragEnded: () -> Void
 
@@ -359,16 +365,16 @@ private struct NoteRow: View {
     }
 
     var body: some View {
-        // .top alignment keeps the handle, checkbox and delete button on the
-        // first line when a long task wraps to multiple lines.
-        HStack(alignment: .top, spacing: 8) {
+        // .center vertically aligns the handle, checkbox and text so they sit
+        // on one line together.
+        HStack(alignment: .center, spacing: 8) {
             // Drag handle — only this grabs for reordering, so dragging never
             // fights with editing the task text. A gesture-driven live reorder
             // (rows part as you drag) rather than a system drag-and-drop.
             Image(systemName: "line.3.horizontal")
-                .font(.system(size: 11))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
-                .opacity((hovering || isDragging) && !suppressHover ? 0.8 : 0.22)
+                .opacity((hovering || isDragging) && !suppressHover ? 0.95 : 0.45)
                 .padding(.trailing, 2)
                 .contentShape(Rectangle())
                 .gesture(
@@ -406,35 +412,72 @@ private struct NoteRow: View {
                 .focused($focused, equals: item.id)
                 .onSubmit(onSubmit)
 
-            // An agent is running for this task — show a spinner regardless of hover.
-            if item.isTask && isSending {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.orange)
-                    .help("An agent is working on this task")
-            }
-            if hovering && !suppressHover {
-                if item.isTask && !item.done && !isSending {
-                    Button(action: onSend) {
-                        Image(systemName: "paperplane")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.orange)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Send just this task to the chosen agent")
-                    .transition(.opacity)
-                }
-                Button(action: onDelete) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity)
-            }
         }
+        // Float the actions over the row's trailing edge so they never push or
+        // wrap the task text; a fade keeps them legible over any text under them.
+        // NOTE: overlay must be applied BEFORE .onHover so the buttons are part
+        // of the hovered subtree — otherwise moving onto a button flips hover
+        // off (the button becomes the topmost view) and it vanishes mid-click.
+        .overlay(alignment: .trailing) { trailingActions }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
+        .onHover { h in withAnimation(.easeInOut(duration: 0.12)) { hovering = h } }
+        .contextMenu {
+            if otherNotes.isEmpty {
+                Button("Move to…") {}.disabled(true)
+            } else {
+                Menu("Move to") {
+                    ForEach(otherNotes, id: \.self) { name in
+                        Button(name) { onMove(name) }
+                    }
+                }
+            }
+            Divider()
+            Button("Delete", role: .destructive, action: onDelete)
+        }
+    }
+
+    @ViewBuilder
+    private var trailingActions: some View {
+        let showButtons = hovering && !suppressHover
+        if isSending || showButtons {
+            HStack(spacing: 6) {
+                if item.isTask && isSending {
+                    ProgressView().controlSize(.small).tint(.orange)
+                        .frame(width: 22, height: 22)
+                        .help("An agent is working on this task")
+                }
+                if showButtons {
+                    if item.isTask && !item.done && !isSending {
+                        Button(action: onSend) {
+                            Image(systemName: "paperplane.fill").font(.system(size: 12)).foregroundStyle(.orange)
+                                .frame(width: 24, height: 24)   // solid, reliable hit target
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Send just this task to the chosen agent")
+                    }
+                    Button(action: onDelete) {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Delete task")
+                }
+            }
+            .padding(.leading, 28)
+            .padding(.trailing, 2)
+            .background(
+                // Non-interactive fade so only the buttons capture clicks.
+                LinearGradient(
+                    stops: [.init(color: .black.opacity(0), location: 0),
+                            .init(color: .black, location: 0.55)],
+                    startPoint: .leading, endPoint: .trailing
+                )
+                .allowsHitTesting(false)
+            )
+            .transition(.opacity)
+        }
     }
 }

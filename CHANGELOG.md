@@ -3,6 +3,12 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.22 — 2026-06-19
+
+- Right-click a task to move it to another note (or delete it).
+- Hovering a one-line task no longer makes it wrap — the send/delete actions float over the row's right edge with a fade instead of pushing the text.
+- Cleaner rows: the drag handle, status circle, and task text are vertically centered on the line, and the handle is more visible.
+
 ## 1.0-beta.21 — 2026-06-18
 
 - Press-and-hold a task's checkbox to jump straight to done (hold again to reopen) — no more clicking through doing/blocked to complete something. A quick tap still cycles the states.
