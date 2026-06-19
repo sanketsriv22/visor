@@ -15,6 +15,21 @@ struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
+                Text("Run agents in").font(.headline)
+                Picker("", selection: Binding(get: { ai.runMode }, set: { ai.setRunMode($0) })) {
+                    ForEach(AIRunner.RunMode.allCases, id: \.self) { mode in
+                        Text(mode.menuTitle).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Text("Terminal opens each send in a window you can watch and follow up in. Background runs it silently and captures output to a log.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
                 Text("AI Agents").font(.title3).bold()
                 Text("Agents run as local CLIs and do the work. Add an API key only if the CLI needs one to authenticate (e.g. OPENAI_API_KEY for codex). Keys are stored in your macOS Keychain, never in a file.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

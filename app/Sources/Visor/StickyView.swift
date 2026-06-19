@@ -286,7 +286,9 @@ private struct StickyCard: View {
         } else {
             switch ai.lastResult {
             case .none:
-                Text("hover a task → ✈ sends it to \(ai.defaultProviderName)")
+                Text(ai.runMode == .terminal
+                     ? "hover a task → ✈ opens it in \(ai.defaultProviderName) (Terminal)"
+                     : "hover a task → ✈ sends it to \(ai.defaultProviderName)")
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
             case .done:

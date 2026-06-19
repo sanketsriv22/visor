@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let ai = AIRunner()
     private var updateItem: NSMenuItem?
     private var sendToMenu: NSMenu?
+    private var runModeMenu: NSMenu?
     private var settingsWindow: NSWindow?
 
     /// Posted by a second launch so the already-running instance shows its note.
@@ -121,6 +122,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sendTo.submenu = sub
         menu.addItem(sendTo)
 
+        // Whether a send opens a Terminal window or runs in the background.
+        let runIn = NSMenuItem(title: "Run agents in", action: nil, keyEquivalent: "")
+        let runSub = NSMenu()
+        runModeMenu = runSub
+        rebuildRunModeMenu()
+        runIn.submenu = runSub
+        menu.addItem(runIn)
+
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
@@ -193,6 +202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// item label (e.g. after a previous check left a status on it).
     func menuWillOpen(_ menu: NSMenu) {
         rebuildSendToMenu()
+        rebuildRunModeMenu()
         if !updater.isBusy { updateItem?.title = "Check for Updates…" }
     }
 
@@ -222,6 +232,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let name = sender.representedObject as? String else { return }
         ai.setDefault(name)
         rebuildSendToMenu()
+    }
+
+    /// Build the "Run agents in" submenu: Terminal vs Background, checkmark on
+    /// the active mode.
+    private func rebuildRunModeMenu() {
+        guard let sub = runModeMenu else { return }
+        sub.removeAllItems()
+        for mode in AIRunner.RunMode.allCases {
+            let it = NSMenuItem(title: mode.menuTitle, action: #selector(selectRunMode(_:)), keyEquivalent: "")
+            it.target = self
+            it.representedObject = mode.rawValue
+            it.state = (mode == ai.runMode) ? .on : .off
+            sub.addItem(it)
+        }
+    }
+
+    @objc private func selectRunMode(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let mode = AIRunner.RunMode(rawValue: raw) else { return }
+        ai.setRunMode(mode)
+        rebuildRunModeMenu()
     }
 
     @objc private func openSettings() {
