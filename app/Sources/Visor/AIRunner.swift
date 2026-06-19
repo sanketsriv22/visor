@@ -4,13 +4,22 @@ import Foundation
 /// One AI target: a CLI command the tasks are handed to. The prompt is
 /// appended as the final argument (e.g. Devin: `devin … -p "<prompt>"`).
 struct AIProvider: Codable, Identifiable, Equatable {
+    /// How a send reaches the agent: run a local CLI, or POST to the Devin
+    /// cloud API and open the resulting session.
+    enum Kind: String, Codable { case cli, devinCloud }
+
     var name: String          // shown in the UI, e.g. "Devin"
     var command: String       // executable name or absolute path, e.g. "devin"
     var args: [String]        // fixed args; the prompt is appended after these
     var apiKeyEnv: String?    // env var the CLI reads its key from, if any (e.g. "OPENAI_API_KEY")
     var interactiveArgs: [String]?  // args used in Terminal mode instead of `args`, to run the
                                     // CLI interactively (e.g. claude with no -p). Falls back to `args`.
+    var kind: Kind?           // nil / .cli = local CLI; .devinCloud = Devin REST API
     var id: String { name }
+
+    var isDevinCloud: Bool { kind == .devinCloud }
+    /// Whether this provider authenticates with a stored key (env var or Bearer token).
+    var needsKey: Bool { apiKeyEnv != nil || isDevinCloud }
 }
 
 private struct ProvidersConfig: Codable {
@@ -41,6 +50,9 @@ final class AIRunner: ObservableObject {
     @Published private(set) var runningTaskIDs: [UUID: Int] = [:]
     /// Outcome of the most recently finished run.
     @Published private(set) var lastResult: RunResult = .none
+    /// For a Devin Cloud send, the created session's URL (so the footer can
+    /// offer to reopen it); nil for local CLI runs.
+    @Published private(set) var lastSessionURL: URL?
     /// Whether sends open a Terminal window or run silently in the background.
     @Published private(set) var runMode: RunMode = .terminal
     /// User-chosen local repo/folder agents run in (nil → default ~/repos).
@@ -98,6 +110,9 @@ final class AIRunner: ObservableObject {
             // In Terminal mode Claude runs interactively (no -p): you see it work
             // and can follow up. Background mode still uses -p (headless).
             AIProvider(name: "Claude Code", command: "claude", args: ["-p"], interactiveArgs: []),
+            // Creates a session via the Devin REST API and opens it in the Devin
+            // app/web. Needs a Devin API key (stored in the Keychain).
+            AIProvider(name: "Devin (Cloud)", command: "", args: [], kind: .devinCloud),
         ]
     )
 
@@ -148,34 +163,96 @@ final class AIRunner: ObservableObject {
 
     func send(tasks: [String], provider: AIProvider, taskIDs: [UUID] = []) {
         guard !tasks.isEmpty else { return } // no single-run guard: runs are concurrent
+        lastSessionURL = nil
+        if provider.isDevinCloud {
+            sendToDevinCloud(tasks: tasks, provider: provider, taskIDs: taskIDs)
+            return
+        }
         guard let exe = resolveExecutable(provider.command) else {
             lastProviderName = provider.name
             lastResult = .failed("\(provider.name) not found (\(provider.command))")
             return
         }
         lastProviderName = provider.name
-        let prompt = buildPrompt(tasks)
+        // Local CLI agents run in the chosen project folder, so the prompt frames
+        // the task for that repo. Devin Cloud works in its own sandbox, so it omits
+        // the local working-directory line.
+        let prompt = buildPrompt(tasks, includeWorkdir: true)
         switch runMode {
         case .terminal:   runInTerminal(exe: exe, provider: provider, prompt: prompt)
         case .background: runInBackground(exe: exe, provider: provider, prompt: prompt, taskIDs: taskIDs)
         }
     }
 
-    private func buildPrompt(_ tasks: [String]) -> String {
+    private func buildPrompt(_ tasks: [String], includeWorkdir: Bool) -> String {
         let list = tasks.map { "- \($0)" }.joined(separator: "\n")
+        let context = includeWorkdir
+            ? "\nYou're working in \(workDirDisplay) (the current directory) — treat these "
+              + "as tasks for that project, and you have access to all of its code.\n"
+            : ""
         return """
         Here are tasks from my sticky note:
 
         \(list)
-
-        You're working in \(workDirDisplay) (the current directory) — treat these \
-        as tasks for that project, and you have access to all of its code.
-
+        \(context)
         Work through them. For each task, do whatever it takes to finish it — you \
         have my permission to run any tools and to spin up additional agents or \
         sessions as needed. Make the actual changes (and open PRs where that fits). \
         When you complete a task, say so clearly. End with a short summary.
         """
+    }
+
+    /// Create a Devin cloud session via the REST API and open it in the Devin
+    /// app/web. Auth is a Devin API key stored in the Keychain (per provider).
+    private func sendToDevinCloud(tasks: [String], provider: AIProvider, taskIDs: [UUID]) {
+        lastProviderName = provider.name
+        guard let key = Keychain.get(provider.name), !key.isEmpty else {
+            lastResult = .failed("Add a Devin API key in Settings")
+            return
+        }
+        guard let url = URL(string: "https://api.devin.ai/v1/sessions") else { return }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["prompt": buildPrompt(tasks, includeWorkdir: false)]
+        if let first = tasks.first?.trimmingCharacters(in: .whitespaces), !first.isEmpty {
+            body["title"] = String(first.prefix(60))
+        }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        // Reuse the in-flight indicators while the POST is outstanding.
+        runningCount += 1
+        for id in taskIDs { runningTaskIDs[id, default: 0] += 1 }
+
+        URLSession.shared.dataTask(with: req) { [weak self] data, resp, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.runningCount = max(0, self.runningCount - 1)
+                for id in taskIDs {
+                    let n = (self.runningTaskIDs[id] ?? 0) - 1
+                    if n <= 0 { self.runningTaskIDs[id] = nil } else { self.runningTaskIDs[id] = n }
+                }
+                self.lastProviderName = provider.name
+                if let error {
+                    self.lastResult = .failed(error.localizedDescription)
+                    return
+                }
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                guard (200..<300).contains(code) else {
+                    self.lastResult = .failed("Devin API error \(code)")
+                    return
+                }
+                if let data,
+                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let urlStr = obj["url"] as? String, let sessionURL = URL(string: urlStr) {
+                    self.lastSessionURL = sessionURL
+                    NSWorkspace.shared.open(sessionURL)
+                }
+                self.lastResult = .done
+            }
+        }.resume()
     }
 
     /// Run the agent silently; stdout/stderr go to a per-run log file and the
@@ -319,8 +396,13 @@ final class AIRunner: ObservableObject {
         name.components(separatedBy: CharacterSet(charactersIn: "/\\: ")).joined(separator: "-")
     }
 
-    /// Open the most recent run's log in the user's default viewer.
+    /// Open the most recent run's result: a Devin session URL if the last send
+    /// was a cloud one, otherwise the local log file.
     func revealLog() {
+        if let url = lastSessionURL {
+            NSWorkspace.shared.open(url)
+            return
+        }
         if let url = lastLogURL, FileManager.default.fileExists(atPath: url.path) {
             NSWorkspace.shared.open(url)
         }
@@ -353,7 +435,7 @@ final class AIRunner: ObservableObject {
 
     /// Whether a key has been stored for an agent that needs one.
     func hasKey(_ provider: AIProvider) -> Bool {
-        provider.apiKeyEnv != nil && Keychain.has(provider.name)
+        provider.needsKey && Keychain.has(provider.name)
     }
 
     /// Save (or clear, if empty) an agent's API key in the Keychain.
@@ -387,6 +469,11 @@ final class AIRunner: ObservableObject {
         where (providers[i].command == "claude" || providers[i].command.hasSuffix("/claude"))
             && providers[i].interactiveArgs == nil {
             providers[i].interactiveArgs = []
+            migrated = true
+        }
+        // Add the Devin Cloud target if the config predates it.
+        if !providers.contains(where: { $0.isDevinCloud }) {
+            providers.append(AIProvider(name: "Devin (Cloud)", command: "", args: [], kind: .devinCloud))
             migrated = true
         }
         if migrated { saveConfig(ProvidersConfig(default: defaultProviderName, providers: providers)) }

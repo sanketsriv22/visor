@@ -97,9 +97,9 @@ struct SettingsView: View {
 
             commandLines(p)
 
-            if let env = p.apiKeyEnv {
+            if p.needsKey {
                 HStack(spacing: 8) {
-                    Text(env)
+                    Text(p.apiKeyEnv ?? "API key")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
                     SecureField(ai.hasKey(p) ? "•••••• (set) — type to replace" : "paste API key",
@@ -140,7 +140,12 @@ struct SettingsView: View {
     @ViewBuilder
     private func commandLines(_ p: AIProvider) -> some View {
         let bgCmd = ([p.command] + p.args).joined(separator: " ") + " <prompt>"
-        if let ia = p.interactiveArgs, ia != p.args {
+        if p.isDevinCloud {
+            Text("Creates a Devin cloud session via the API and opens it in Devin")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if let ia = p.interactiveArgs, ia != p.args {
             let termCmd = ([p.command] + ia).joined(separator: " ") + " <prompt>"
             VStack(alignment: .leading, spacing: 3) {
                 modeCommand("Terminal", termCmd)

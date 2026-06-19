@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct StickyRootView: View {
     @ObservedObject var store: NotesStore
@@ -112,11 +113,24 @@ private struct StickyCard: View {
                     Divider()
                     Button("New note", action: store.newNote)
                     Button("Archive this note") { store.archiveCurrent() }
+                    Button("Delete this note", role: .destructive) { confirmDeleteActiveNote() }
                     if !store.archivedNames.isEmpty {
                         Menu("Archived") {
                             ForEach(store.archivedNames, id: \.self) { name in
                                 Button { store.restore(name) } label: {
                                     Label(name, systemImage: "tray.and.arrow.up")
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                    Menu("Sort by") {
+                        ForEach(NotesStore.NoteSort.allCases, id: \.self) { mode in
+                            Button { store.setNoteSort(mode) } label: {
+                                if store.noteSort == mode {
+                                    Label(mode.title, systemImage: "checkmark")
+                                } else {
+                                    Text(mode.title)
                                 }
                             }
                         }
@@ -283,6 +297,30 @@ private struct StickyCard: View {
         DispatchQueue.main.async { focused = id }
     }
 
+    /// Deleting a note is permanent (unlike Archive), so confirm first.
+    private func confirmDeleteActiveNote() {
+        let name = store.activeName
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Delete “\(name)”?"
+        alert.informativeText = "This permanently deletes the note and its tasks. To keep it instead, use Archive."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true) // accessory app must activate for a modal
+        if alert.runModal() == .alertFirstButtonReturn {
+            withAnimation(reorderSpring) { store.deleteNote(name) }
+        }
+    }
+
+    private var sendHint: String {
+        if ai.defaultProvider?.isDevinCloud == true {
+            return "hover a task → ✈ starts a \(ai.defaultProviderName) session"
+        }
+        return ai.runMode == .terminal
+            ? "hover a task → ✈ opens it in \(ai.defaultProviderName) (Terminal)"
+            : "hover a task → ✈ sends it to \(ai.defaultProviderName)"
+    }
+
     // Sending is per-task (the ✈ on each row), and runs are concurrent. The
     // footer shows how many are running, else the last run's result. Which
     // agent it goes to is set in the menu-bar settings.
@@ -296,14 +334,15 @@ private struct StickyCard: View {
         } else {
             switch ai.lastResult {
             case .none:
-                Text(ai.runMode == .terminal
-                     ? "hover a task → ✈ opens it in \(ai.defaultProviderName) (Terminal)"
-                     : "hover a task → ✈ sends it to \(ai.defaultProviderName)")
+                Text(sendHint)
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
             case .done:
                 Button(action: ai.revealLog) {
-                    Label("\(ai.lastProviderName) finished — view log", systemImage: "checkmark.circle.fill")
+                    Label(ai.lastSessionURL != nil
+                          ? "\(ai.lastProviderName) session created — open in Devin"
+                          : "\(ai.lastProviderName) finished — view log",
+                          systemImage: "checkmark.circle.fill")
                         .font(.system(size: 10))
                         .foregroundStyle(.green)
                 }

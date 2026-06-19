@@ -73,6 +73,19 @@ final class NotesStore: ObservableObject {
     /// Names of archived notes (kept in Documents/Visor/Archive), for the switcher.
     @Published private(set) var archivedNames: [String] = []
 
+    /// How the switcher orders notes.
+    enum NoteSort: String, CaseIterable {
+        case name, updated, created
+        var title: String {
+            switch self {
+            case .name:    return "Name (A–Z)"
+            case .updated: return "Recently updated"
+            case .created: return "Recently created"
+            }
+        }
+    }
+    @Published private(set) var noteSort: NoteSort = .name
+
     private func markDirty() {
         guard !suppressDirty else { return }
         dirty = true
@@ -82,6 +95,7 @@ final class NotesStore: ObservableObject {
     private let folder: URL   // ~/Documents/Visor
     private let mirror: URL   // ~/StickyNotes/sticky.md (symlink → active note)
     private let activeKey = "visor.activeNote"
+    private let noteSortKey = "visor.noteSort"
     private var dirty = false
     private var suppressDirty = false
     private var saveTask: DispatchWorkItem?
@@ -113,6 +127,8 @@ final class NotesStore: ObservableObject {
         try? FileManager.default.createDirectory(at: archiveFolder, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(
             at: mirror.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let raw = UserDefaults.standard.string(forKey: noteSortKey),
+           let s = NoteSort(rawValue: raw) { noteSort = s }
         bootstrap()
 
         // Every tick: flush unsaved edits (so a crash/force-quit during
@@ -348,6 +364,37 @@ final class NotesStore: ObservableObject {
         ensureMirrorSymlink()
     }
 
+    /// Permanently delete a note's file. If it's the active note, switch to
+    /// another (or a fresh empty one). Unlike archive, this is not recoverable.
+    func deleteNote(_ name: String) {
+        let url = folder.appendingPathComponent("\(name).md")
+        if name == activeName {
+            try? FileManager.default.removeItem(at: url)
+            refreshNoteNames()
+            if let next = noteNames.first(where: { $0 != name }) {
+                activeName = next
+                loadActive()
+            } else {
+                activeName = uniqueName("Untitled")
+                suppressDirty = true; title = ""; items = []; suppressDirty = false
+                dirty = true
+                saveNow()
+            }
+            UserDefaults.standard.set(activeName, forKey: activeKey)
+            ensureMirrorSymlink()
+        } else {
+            try? FileManager.default.removeItem(at: url)
+        }
+        refreshNoteNames()
+    }
+
+    /// Change how the switcher orders notes (persisted).
+    func setNoteSort(_ sort: NoteSort) {
+        noteSort = sort
+        UserDefaults.standard.set(sort.rawValue, forKey: noteSortKey)
+        refreshNoteNames()
+    }
+
     /// Rename the active file to match the title now (e.g. on Return).
     func commitTitle() { commitRenameNow() }
 
@@ -393,11 +440,30 @@ final class NotesStore: ObservableObject {
     }
 
     private func refreshNoteNames() {
-        let urls = (try? FileManager.default.contentsOfDirectory(
-            at: folder, includingPropertiesForKeys: nil)) ?? []
-        noteNames = urls.filter { $0.pathExtension == "md" }
-            .map { $0.deletingPathExtension().lastPathComponent }
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .creationDateKey]
+        let urls = ((try? FileManager.default.contentsOfDirectory(
+            at: folder, includingPropertiesForKeys: keys)) ?? [])
+            .filter { $0.pathExtension == "md" }
+        let sorted: [URL]
+        switch noteSort {
+        case .name:
+            sorted = urls.sorted {
+                $0.deletingPathExtension().lastPathComponent
+                    .localizedCaseInsensitiveCompare($1.deletingPathExtension().lastPathComponent) == .orderedAscending
+            }
+        case .updated:
+            sorted = urls.sorted { modDate($0) > modDate($1) }
+        case .created:
+            sorted = urls.sorted { creationDate($0) > creationDate($1) }
+        }
+        noteNames = sorted.map { $0.deletingPathExtension().lastPathComponent }
+    }
+
+    private func modDate(_ url: URL) -> Date {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+    }
+    private func creationDate(_ url: URL) -> Date {
+        (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
     }
 
     private func refreshArchivedNames() {

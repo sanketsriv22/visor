@@ -3,6 +3,13 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.24 — 2026-06-19
+
+- Delete a note from the switcher (⧉): a new "Delete this note" permanently removes the current note (with a confirmation, since — unlike Archive — it can't be undone).
+- Order notes in the switcher: a "Sort by" submenu lets you list notes by Name (A–Z), Recently updated, or Recently created. Your choice persists. (Manual drag-ordering isn't possible inside a macOS dropdown.)
+- "Check for Updates…" now shows progress in a small floating pill centered just below the notch (with a spinner: Checking → Downloading → Installing → Restarting), instead of text in the menu — which closed the moment you clicked, hiding all feedback. Keeps it visible regardless of how crowded the menu bar is; "You're on the latest" / errors flash there briefly. (Updates already relaunch the app for you automatically; this just makes that visible.)
+- New "Devin (Cloud)" agent: instead of running a local CLI, it creates a Devin cloud session through the Devin REST API and opens the session in your browser / the Devin desktop app so you can watch and steer it. Add your Devin API key (Personal key `apk_user_…`) under Settings → AI Agents → Devin (Cloud); it's stored in the Keychain. Pick it from the menu-bar "Send tasks to" list, then the ✈ on a task starts a session.
+
 ## 1.0-beta.23 — 2026-06-19
 
 - Run agents in a Terminal window you can watch (new default), instead of silently in the background. Toggle it under the menu bar → "Run agents in" (or Settings). Terminal mode opens each send in its own window, streams the agent live, and stays open after it finishes; Background still runs it quietly and captures output to a log. Any API key you've stored is injected the same way in both modes.
