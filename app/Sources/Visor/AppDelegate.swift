@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var runModeMenu: NSMenu?
     private var runInFolderMenu: NSMenu?
     private var settingsWindow: NSWindow?
+    private var clearStatusWork: DispatchWorkItem?
 
     /// Posted by a second launch so the already-running instance shows its note.
     private static let showNoteNotification = Notification.Name("com.kitalabs.visor.showNote")
@@ -100,6 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func setUpStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "checklist", accessibilityDescription: "Visor")
+        item.button?.imagePosition = .imageLeft // so update-progress text can sit beside the icon
 
         let menu = NSMenu()
         menu.delegate = self
@@ -158,10 +160,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.menu = menu
         statusItem = item
 
-        // Reflect update progress (after a click) in the menu item's title.
+        // Reflect update progress both in the menu item AND beside the menu-bar
+        // icon — the latter stays visible after the menu closes on click.
         updater.onStatus = { [weak self] text in
-            DispatchQueue.main.async { self?.updateItem?.title = text }
+            DispatchQueue.main.async {
+                self?.updateItem?.title = text
+                self?.showUpdateProgress(text)
+            }
         }
+    }
+
+    /// Show update progress next to the menu-bar icon (always visible, unlike the
+    /// menu which closes on click). In-progress messages end with "…" and stay
+    /// up; a terminal message ("up to date", "failed") shows briefly then clears.
+    private func showUpdateProgress(_ text: String) {
+        guard let button = statusItem?.button else { return }
+        clearStatusWork?.cancel()
+        button.title = " \(text)"
+        guard !text.hasSuffix("…") else { return } // in progress — leave it up
+        let work = DispatchWorkItem { [weak self] in self?.statusItem?.button?.title = "" }
+        clearStatusWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
     }
 
     /// "What's New" → a submenu listing this version's changelog bullets, plus

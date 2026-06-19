@@ -5,6 +5,7 @@ the menu-bar dropdown, and published as the release notes for each version.
 
 ## Unreleased
 
+- "Check for Updates…" now shows visible progress beside the menu-bar icon (Checking → Downloading → Installing → Restarting), instead of only in the menu — which closed the moment you clicked, hiding all feedback. "You're on the latest" / errors flash there briefly too. (Updates already relaunch the app for you automatically; this just makes that visible.)
 - New "Devin (Cloud)" agent: instead of running a local CLI, it creates a Devin cloud session through the Devin REST API and opens the session in your browser / the Devin desktop app so you can watch and steer it. Add your Devin API key (Personal key `apk_user_…`) under Settings → AI Agents → Devin (Cloud); it's stored in the Keychain. Pick it from the menu-bar "Send tasks to" list, then the ✈ on a task starts a session.
 
 ## 1.0-beta.23 — 2026-06-19
