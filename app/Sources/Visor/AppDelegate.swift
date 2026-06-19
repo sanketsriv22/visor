@@ -42,6 +42,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.controller?.showNote()
         }
 
+        // Flush the note whenever the app loses focus — extra safety before an
+        // accidental quit. (A normal quit also saves via applicationWillTerminate.)
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willResignActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.controller?.saveNow()
+        }
+
         if args.contains("--settings") { openSettings() }
     }
 

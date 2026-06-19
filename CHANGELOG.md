@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.13 — 2026-06-18
+
+- Sturdier autosave: edits save 0.35s after you stop typing, unsaved edits are flushed every ~1.5s even during continuous typing, and the note saves whenever the app loses focus — so an accidental or forced quit loses as little as possible.
+
 ## 1.0-beta.12 — 2026-06-18
 
 - Multiple notes: each note is now its own file in `~/Documents/Visor/`, named by its title. Use the ⧉ menu beside the title to switch between notes or create a new one. The active note is mirrored to the agent path, so the MCP server / agents always read whichever note is showing. Your existing note is migrated in automatically.

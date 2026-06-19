@@ -111,10 +111,12 @@ final class NotesStore: ObservableObject {
             at: mirror.deletingLastPathComponent(), withIntermediateDirectories: true)
         bootstrap()
 
-        // Poll for external edits (MCP server, agents) so we reflect them live
-        // and never save a stale copy over a newer write.
+        // Every tick: flush unsaved edits (so a crash/force-quit during
+        // continuous typing loses at most ~1.5s), otherwise pick up external
+        // edits (MCP server, agents).
         watchTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
-            self?.reloadFromDiskIfClean()
+            guard let self else { return }
+            if self.dirty { self.saveNow() } else { self.reloadFromDiskIfClean() }
         }
     }
 
@@ -383,6 +385,6 @@ final class NotesStore: ObservableObject {
         saveTask?.cancel()
         let task = DispatchWorkItem { [weak self] in self?.saveNow() }
         saveTask = task
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: task)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: task)
     }
 }
