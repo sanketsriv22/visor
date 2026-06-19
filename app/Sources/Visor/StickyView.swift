@@ -79,7 +79,7 @@ private struct StickyCard: View {
     @State private var draggingID: UUID?
     @State private var dragOffset: CGFloat = 0
     @State private var lastDY: CGFloat = 0
-    private let rowHeight: CGFloat = 27
+    private let rowHeight: CGFloat = 23
     // Quick, critically-damped: rows settle fast with no bouncy tail, so a new
     // drag can begin immediately after dropping (SwiftUI blocks new gestures
     // while the hierarchy is still animating).
@@ -172,7 +172,7 @@ private struct StickyCard: View {
 
     private var taskList: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 1) {
                 ForEach($store.items) { $item in
                     NoteRow(
                         item: $item,
@@ -378,8 +378,9 @@ private struct NoteRow: View {
                 .foregroundStyle(.secondary)
                 .opacity((hovering || isDragging) && !suppressHover ? 0.95 : 0.45)
                 // Generous invisible grab zone around the glyph, so you can grab
-                // the general area instead of pixel-aiming the three lines.
-                .frame(width: 26, height: 26)
+                // the general area instead of pixel-aiming the three lines. Wide
+                // for an easy horizontal target; kept short so rows stay tight.
+                .frame(width: 26, height: 20)
                 .contentShape(Rectangle())
                 .gesture(
                     // Global coordinate space: the row's own offset (it follows
@@ -423,7 +424,7 @@ private struct NoteRow: View {
         // of the hovered subtree — otherwise moving onto a button flips hover
         // off (the button becomes the topmost view) and it vanishes mid-click.
         .overlay(alignment: .trailing) { trailingActions }
-        .padding(.vertical, 2)
+        .padding(.vertical, 1)
         .contentShape(Rectangle())
         .onHover { h in withAnimation(.easeInOut(duration: 0.12)) { hovering = h } }
         .contextMenu {
