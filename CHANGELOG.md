@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.10 — 2026-06-18
+
+- The open note now closes only when you click the notch itself — the same spot that opens it. Clicking the menu-bar shoulders beside the notch (where VISOR and the task count sit) no longer closes it.
+
 ## 1.0-beta.9 — 2026-06-18
 
 - New Settings window (menu bar → Settings…): add agent CLIs, and for ones that authenticate with a key (e.g. `codex` → `OPENAI_API_KEY`), store the key securely in the macOS Keychain. The key is injected as an env var only when that agent runs, and never touches the config file.

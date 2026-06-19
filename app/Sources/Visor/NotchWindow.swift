@@ -93,9 +93,12 @@ final class NotchController {
                 self.toggle()
                 return nil
             }
-            // Expanded: only the notch strip at the top closes; clicks in
-            // the card below pass through to the text editor.
-            if event.locationInWindow.y >= self.panel.frame.height - self.ui.notchSize.height {
+            // Expanded: close only when the *notch itself* is clicked — the
+            // same area that opens it. The top band also spans the menu-bar
+            // shoulders (VISOR / the count), and clicking those shouldn't close.
+            let inTopBand = event.locationInWindow.y >= self.panel.frame.height - self.ui.notchSize.height
+            let dxFromCenter = abs(event.locationInWindow.x - self.panel.frame.width / 2)
+            if inTopBand && dxFromCenter <= self.ui.notchSize.width / 2 {
                 self.toggle()
                 return nil
             }
