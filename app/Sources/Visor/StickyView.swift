@@ -73,6 +73,12 @@ private struct StickyCard: View {
     private let addFieldID = UUID()
     private let titleFieldID = UUID()
 
+    // Live drag-to-reorder state.
+    @State private var dragging: UUID?
+    @State private var dragOffset: CGFloat = 0
+    private let rowHeight: CGFloat = 27
+    private var reorderSpring: Animation { .spring(response: 0.32, dampingFraction: 0.82) }
+
     private var shape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(
             topLeadingRadius: 0,
@@ -167,24 +173,52 @@ private struct StickyCard: View {
                         focused: $focused,
                         suppressHover: suppressHover,
                         isSending: ai.isRunning(item.id),
+                        isDragging: dragging == item.id,
                         onToggle: { store.cycle(item.id) },
                         onSubmit: { focusRow(store.insertTask(after: item.id)) },
-                        onDelete: { store.remove(item.id) },
+                        onDelete: { withAnimation(reorderSpring) { store.remove(item.id) } },
                         onSend: {
                             let t = item.text.trimmingCharacters(in: .whitespaces)
                             if !t.isEmpty { ai.sendToDefault(tasks: [t], taskIDs: [item.id]) }
                         },
-                        onDropDragged: { draggedID in
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                store.move(id: draggedID, toIndexOf: item.id)
-                            }
-                        }
+                        onDragChanged: { dy in dragChanged(item.id, dy) },
+                        onDragEnded: { dragEnded() }
                     )
+                    // The dragged row lifts (scale + shadow) and follows the
+                    // cursor; the others animate aside via the spring below.
+                    .scaleEffect(dragging == item.id ? 1.03 : 1, anchor: .leading)
+                    .shadow(color: .black.opacity(dragging == item.id ? 0.5 : 0),
+                            radius: dragging == item.id ? 10 : 0, y: 4)
+                    .offset(y: dragging == item.id ? dragOffset : 0)
+                    .zIndex(dragging == item.id ? 1 : 0)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
                 addRow
             }
             .padding(.horizontal, 14)
             .padding(.top, 2)
+            .animation(reorderSpring, value: store.items.map(\.id))
+        }
+    }
+
+    private func dragChanged(_ id: UUID, _ dy: CGFloat) {
+        if dragging != id {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) { dragging = id }
+        }
+        dragOffset = dy
+        guard let from = store.items.firstIndex(where: { $0.id == id }) else { return }
+        let target = max(0, min(store.items.count - 1, from + Int((dy / rowHeight).rounded())))
+        if target != from {
+            store.items.move(fromOffsets: IndexSet(integer: from), toOffset: target > from ? target + 1 : target)
+            // Keep the dragged row under the cursor after the slots shift.
+            dragOffset -= CGFloat(target - from) * rowHeight
+        }
+    }
+
+    private func dragEnded() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            dragging = nil
+            dragOffset = 0
         }
     }
 
@@ -207,7 +241,7 @@ private struct StickyCard: View {
     private func commitNewTask() {
         let trimmed = newTask.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        store.addTask(trimmed)
+        withAnimation(reorderSpring) { _ = store.addTask(trimmed) }
         newTask = ""
         focused = addFieldID // stay in the add field for rapid entry
     }
@@ -258,14 +292,16 @@ private struct NoteRow: View {
     @FocusState.Binding var focused: UUID?
     var suppressHover: Bool
     var isSending: Bool
+    var isDragging: Bool
     var onToggle: () -> Void
     var onSubmit: () -> Void
     var onDelete: () -> Void
     var onSend: () -> Void
-    var onDropDragged: (UUID) -> Void
+    var onDragChanged: (CGFloat) -> Void
+    var onDragEnded: () -> Void
 
     @State private var hovering = false
-    @State private var dropTargeted = false
+    @State private var checkboxBump = false
 
     static func glyph(_ s: TaskStatus) -> String {
         switch s {
@@ -299,18 +335,33 @@ private struct NoteRow: View {
         // first line when a long task wraps to multiple lines.
         HStack(alignment: .top, spacing: 8) {
             // Drag handle — only this grabs for reordering, so dragging never
-            // fights with editing the task text.
+            // fights with editing the task text. A gesture-driven live reorder
+            // (rows part as you drag) rather than a system drag-and-drop.
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-                .opacity((hovering && !suppressHover) ? 0.7 : 0.22)
-                .draggable(item.id.uuidString)
+                .opacity((hovering || isDragging) && !suppressHover ? 0.8 : 0.22)
+                .padding(.trailing, 2)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 3)
+                        .onChanged { onDragChanged($0.translation.height) }
+                        .onEnded { _ in onDragEnded() }
+                )
 
             if item.isTask {
-                Button(action: onToggle) {
+                Button {
+                    withAnimation(.spring(response: 0.16, dampingFraction: 0.45)) { checkboxBump = true }
+                    onToggle()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.13) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { checkboxBump = false }
+                    }
+                } label: {
                     Image(systemName: Self.glyph(item.status))
                         .font(.system(size: 14))
                         .foregroundStyle(Self.tint(item.status))
+                        .scaleEffect(checkboxBump ? 1.3 : 1.0)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: item.status)
                 }
                 .buttonStyle(.plain)
                 .help(Self.label(item.status) + " — click to change")
@@ -355,18 +406,7 @@ private struct NoteRow: View {
             }
         }
         .padding(.vertical, 2)
-        .overlay(alignment: .top) {
-            // Insertion indicator while a drag hovers this row.
-            if dropTargeted {
-                Rectangle().fill(.orange).frame(height: 2).offset(y: -2)
-            }
-        }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .dropDestination(for: String.self) { ids, _ in
-            guard let id = ids.first.flatMap(UUID.init) else { return false }
-            onDropDragged(id)
-            return true
-        } isTargeted: { dropTargeted = $0 }
     }
 }

@@ -3,6 +3,11 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.17 — 2026-06-18
+
+- Premium drag-to-reorder: dragging a task's handle is now a live reorder — the dragged row lifts (scale + shadow) and follows your cursor while the others smoothly slide aside. Replaces the old drop-target + orange-line interaction.
+- More polish: tasks animate in and out when added/removed, and the checkbox gives a little pop when you change a task's state.
+
 ## 1.0-beta.16 — 2026-06-18
 
 - Per-task agent indicator: while an agent is running for a task, that row shows a spinner — so with concurrent sends you can see exactly which tasks are in flight, not just the total in the footer.
