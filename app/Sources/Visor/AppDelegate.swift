@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var runInFolderMenu: NSMenu?
     private var settingsWindow: NSWindow?
     private var clearStatusWork: DispatchWorkItem?
+    private var hudPanel: NSPanel?
 
     /// Posted by a second launch so the already-running instance shows its note.
     private static let showNoteNotification = Notification.Name("com.kitalabs.visor.showNote")
@@ -101,7 +102,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func setUpStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "checklist", accessibilityDescription: "Visor")
-        item.button?.imagePosition = .imageLeft // so update-progress text can sit beside the icon
 
         let menu = NSMenu()
         menu.delegate = self
@@ -170,17 +170,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// Show update progress next to the menu-bar icon (always visible, unlike the
-    /// menu which closes on click). In-progress messages end with "…" and stay
-    /// up; a terminal message ("up to date", "failed") shows briefly then clears.
+    /// Show update progress as a small floating pill just below the menu-bar
+    /// icon — more reliable than text in the menu bar (which the menu hides on
+    /// click, and which gets lost on a crowded bar). In-progress messages end
+    /// with "…" and stay up; a terminal message shows briefly then disappears.
     private func showUpdateProgress(_ text: String) {
-        guard let button = statusItem?.button else { return }
         clearStatusWork?.cancel()
-        button.title = " \(text)"
-        guard !text.hasSuffix("…") else { return } // in progress — leave it up
-        let work = DispatchWorkItem { [weak self] in self?.statusItem?.button?.title = "" }
+        let inProgress = text.hasSuffix("…")
+        showHUD(text, inProgress: inProgress)
+        guard !inProgress else { return }
+        let work = DispatchWorkItem { [weak self] in self?.hudPanel?.orderOut(nil) }
         clearStatusWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
+    }
+
+    private func showHUD(_ text: String, inProgress: Bool) {
+        let panel = ensureHUDPanel()
+        let hosting = NSHostingView(rootView: UpdateHUDView(text: text, inProgress: inProgress))
+        let size = hosting.fittingSize
+        panel.contentView = hosting
+        panel.setContentSize(size)
+        panel.setFrameOrigin(hudOrigin(for: size))
+        panel.orderFrontRegardless() // an accessory app must order it in without activating
+    }
+
+    private func ensureHUDPanel() -> NSPanel {
+        if let p = hudPanel { return p }
+        let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered, defer: false)
+        p.isFloatingPanel = true
+        p.level = .statusBar
+        p.backgroundColor = .clear
+        p.isOpaque = false
+        p.hasShadow = false // the pill draws its own shadow; a window shadow would box the clear panel
+        p.ignoresMouseEvents = true
+        p.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        p.hidesOnDeactivate = false
+        hudPanel = p
+        return p
+    }
+
+    /// Centered just beneath the menu-bar icon; clamped on-screen so it stays
+    /// visible even if the icon is tucked into a crowded bar's overflow.
+    private func hudOrigin(for size: NSSize) -> NSPoint {
+        let screen = statusItem?.button?.window?.screen ?? NSScreen.main ?? NSScreen.screens.first
+        let full = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let vis = screen?.visibleFrame ?? full
+        let iconFrame = statusItem?.button?.window?.frame
+        var x = (iconFrame?.midX ?? full.maxX - 14) - size.width / 2
+        x = min(max(x, vis.minX + 8), vis.maxX - size.width - 8)
+        let topRef = iconFrame?.minY ?? (full.maxY - 24)
+        return NSPoint(x: x, y: topRef - 6 - size.height)
     }
 
     /// "What's New" → a submenu listing this version's changelog bullets, plus
@@ -369,5 +409,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 print("screen[\(i)] no notch (fallback strip would be used)")
             }
         }
+    }
+}
+
+/// The small floating pill shown beneath the menu-bar icon during an update.
+private struct UpdateHUDView: View {
+    let text: String
+    let inProgress: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if inProgress {
+                ProgressView().controlSize(.small).tint(.white)
+            } else {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            }
+            Text(text).font(.system(size: 12, weight: .medium)).lineLimit(1)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(.black.opacity(0.9), in: Capsule())
+        .overlay(Capsule().strokeBorder(.white.opacity(0.14)))
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
+        .fixedSize()
+        .padding(12) // room for the shadow inside the (clear) panel bounds
+        .environment(\.colorScheme, .dark)
     }
 }
