@@ -80,7 +80,10 @@ private struct StickyCard: View {
     @State private var dragOffset: CGFloat = 0
     @State private var lastDY: CGFloat = 0
     private let rowHeight: CGFloat = 27
-    private var reorderSpring: Animation { .spring(response: 0.3, dampingFraction: 0.82) }
+    // Quick, critically-damped: rows settle fast with no bouncy tail, so a new
+    // drag can begin immediately after dropping (SwiftUI blocks new gestures
+    // while the hierarchy is still animating).
+    private var reorderSpring: Animation { .spring(response: 0.2, dampingFraction: 1.0) }
 
     private var shape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(

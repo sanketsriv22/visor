@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.20 — 2026-06-18
+
+- Drag-to-reorder is responsive again: after dropping a task you can immediately grab another. The reorder/settle animation had a slow bouncy tail that kept the list "animating" and blocked the next grab; it's now a quick, critically-damped settle.
+
 ## 1.0-beta.19 — 2026-06-18
 
 - Drag-to-reorder now tracks your cursor tightly. The drag was measured in the row's own moving coordinate space, which fed back on itself and made it glitch in place; it's now measured in global (screen) space.
