@@ -7,7 +7,10 @@ the menu-bar dropdown, and published as the release notes for each version.
 
 - Run agents in a Terminal window you can watch (new default), instead of silently in the background. Toggle it under the menu bar → "Run agents in" (or Settings). Terminal mode opens each send in its own window, streams the agent live, and stays open after it finishes; Background still runs it quietly and captures output to a log. Any API key you've stored is injected the same way in both modes.
 - Claude Code runs as a real interactive session in Terminal mode: sends launch `claude "<task>"` (not headless `claude -p`), so you see it think and use tools and can follow up in the same window, using your existing CLI login — no API key needed. Background mode still runs it headless with `-p`.
+- Agents now run inside Visor's own source repo (`~/repos/visor`) instead of `~/repos`, so a sent task has access to all of Visor's code to read and edit. The prompt tells the agent it's in the Visor codebase. Falls back to `~/repos`, then your home folder, if the repo isn't there.
+- Archive notes: the note switcher (⧉) now has "Archive this note" — it moves the note into `Documents/Visor/Archive`, out of the switcher but safe on disk. Archived notes appear under an "Archived" submenu where one click restores them.
 - Easier drag-to-reorder: the drag handle now has a generous grab zone around the ≡ glyph, so you can start a drag from the general area instead of having to land your cursor exactly on the three lines.
+- Tighter task list: rows sit closer together (the enlarged drag handle had bloated each row's height).
 
 ## 1.0-beta.22 — 2026-06-19
 

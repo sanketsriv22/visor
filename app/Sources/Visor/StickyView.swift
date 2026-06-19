@@ -111,6 +111,16 @@ private struct StickyCard: View {
                     }
                     Divider()
                     Button("New note", action: store.newNote)
+                    Button("Archive this note") { store.archiveCurrent() }
+                    if !store.archivedNames.isEmpty {
+                        Menu("Archived") {
+                            ForEach(store.archivedNames, id: \.self) { name in
+                                Button { store.restore(name) } label: {
+                                    Label(name, systemImage: "tray.and.arrow.up")
+                                }
+                            }
+                        }
+                    }
                 } label: {
                     Image(systemName: "rectangle.stack")
                         .font(.system(size: 13))

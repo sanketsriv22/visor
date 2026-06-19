@@ -53,8 +53,18 @@ final class AIRunner: ObservableObject {
     var isBusy: Bool { runningCount > 0 }
     private var lastLogURL: URL?
 
-    private let workDir = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("repos")
+    private var homeDir: URL { FileManager.default.homeDirectoryForCurrentUser }
+    private var visorRepo: URL { homeDir.appendingPathComponent("repos/visor", isDirectory: true) }
+
+    /// Where agents run. Prefer Visor's own source repo so a sent task has
+    /// access to all of Visor's code; fall back to ~/repos, then home.
+    private var workDir: URL {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: visorRepo.path) { return visorRepo }
+        let repos = homeDir.appendingPathComponent("repos")
+        if fm.fileExists(atPath: repos.path) { return repos }
+        return homeDir
+    }
     private let logsDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("StickyNotes/visor-logs", isDirectory: true)
     private let configURL = FileManager.default.homeDirectoryForCurrentUser
@@ -121,11 +131,15 @@ final class AIRunner: ObservableObject {
 
     private func buildPrompt(_ tasks: [String]) -> String {
         let list = tasks.map { "- \($0)" }.joined(separator: "\n")
+        let context = workDir.path == visorRepo.path
+            ? "\nYou're in the Visor app's own source repository (the current working "
+              + "directory), so you have access to all of Visor's code.\n"
+            : ""
         return """
         Here are tasks from my sticky note:
 
         \(list)
-
+        \(context)
         Work through them. For each task, do whatever it takes to finish it — you \
         have my permission to run any tools and to spin up additional agents or \
         sessions as needed. Make the actual changes (and open PRs where that fits). \
@@ -139,9 +153,7 @@ final class AIRunner: ObservableObject {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: exe)
         process.arguments = provider.args + [prompt]
-        process.currentDirectoryURL = FileManager.default.fileExists(atPath: workDir.path)
-            ? workDir
-            : FileManager.default.homeDirectoryForCurrentUser
+        process.currentDirectoryURL = workDir
 
         // GUI apps inherit a bare PATH; give the CLI the usual tool locations.
         var env = ProcessInfo.processInfo.environment
@@ -211,7 +223,7 @@ final class AIRunner: ObservableObject {
         }
 
         let path = "\(home.path)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        let workdir = FileManager.default.fileExists(atPath: workDir.path) ? workDir.path : home.path
+        let workdir = workDir.path
         // Terminal mode prefers interactiveArgs (e.g. claude with no -p) so the
         // agent runs as a live session you can watch and follow up in.
         let runArgs = provider.interactiveArgs ?? provider.args
