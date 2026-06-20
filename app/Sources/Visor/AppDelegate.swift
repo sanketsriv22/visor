@@ -99,7 +99,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// the note and to quit (the app is otherwise invisible and non-activating).
     private func setUpStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(systemSymbolName: "checklist", accessibilityDescription: "Visor")
+        let icon = NSImage(named: "MenuBarIconTemplate")
+            ?? NSImage(systemSymbolName: "checklist", accessibilityDescription: "Visor")
+        icon?.isTemplate = true
+        icon?.size = NSSize(width: 18, height: 18)
+        item.button?.image = icon
 
         let menu = NSMenu()
         menu.delegate = self

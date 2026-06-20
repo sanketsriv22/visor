@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.27 — 2026-06-19
+
+- Custom brand icon in the menu bar: the old SF Symbol checklist is replaced with the Visor "Knot" mark — two interlocking V shapes with an alternating over/under weave. Rendered as a macOS template image so it auto-colorizes for light and dark menu bars.
+
 ## 1.0-beta.26 — 2026-06-19
 
 - Replace the hand-rolled updater with Sparkle. Updates are now signature-verified (EdDSA), handle /Applications privilege elevation properly, and check silently in the background — no more "Check for Updates" lag or failed swaps.

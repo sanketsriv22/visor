@@ -77,6 +77,11 @@ else
     echo "warning: icon generation failed, building without icon" >&2
 fi
 
+# Menu-bar icon (template image — macOS auto-colorises via alpha channel).
+for f in "$REPO/app/Sources/Visor/Resources"/MenuBarIconTemplate*.png; do
+    [ -f "$f" ] && cp "$f" "$APP/Contents/Resources/"
+done
+
 # Bundle the changelog so the app can show "What's New" offline.
 cp "$REPO/CHANGELOG.md" "$APP/Contents/Resources/CHANGELOG.md" 2>/dev/null || true
 
