@@ -87,16 +87,16 @@ final class Updater {
         // Detached swap-and-relaunch: wait for this app to quit, replace the
         // installed bundle with the staged one, clear quarantine, relaunch.
         let dest = "/Applications/Visor.app"
-        let trash = "/tmp/visor-old-\(UUID().uuidString.prefix(8))"
         let script = """
         #!/bin/bash
         while pgrep -x Visor >/dev/null 2>&1; do sleep 0.3; done
-        mv "\(dest)" "\(trash)" 2>/dev/null || rm -rf "\(dest)"
+        if ! rm -rf "\(dest)" 2>/dev/null; then
+            osascript -e 'do shell script "rm -rf \(dest)" with administrator privileges' || exit 1
+        fi
         /usr/bin/ditto "\(staged.path)" "\(dest)"
         xattr -dr com.apple.quarantine "\(dest)" 2>/dev/null || true
         open "\(dest)"
         rm -rf "\(work.path)"
-        rm -rf "\(trash)"
         """
         let scriptPath = work.appendingPathComponent("swap.sh")
         do { try script.write(to: scriptPath, atomically: true, encoding: .utf8) }

@@ -71,6 +71,8 @@ fi
 
 # Replace any running copy, then install
 pkill -x Visor 2>/dev/null || true
-mv /Applications/Visor.app "/tmp/visor-old-$$" 2>/dev/null || rm -rf /Applications/Visor.app
+if ! rm -rf /Applications/Visor.app 2>/dev/null; then
+    osascript -e 'do shell script "rm -rf /Applications/Visor.app" with administrator privileges'
+fi
 ditto "$APP" /Applications/Visor.app
 echo "Installed /Applications/Visor.app (v${VERSION})"
