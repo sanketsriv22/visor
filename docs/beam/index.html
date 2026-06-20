@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Open in Visor</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    background: #0b0b0c; color: #f2f2f2;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased; padding: 24px;
+  }
+  .card { width: 100%; max-width: 380px; text-align: center; }
+  .logo { width: 72px; height: 72px; margin: 0 auto 24px; display: block; color: #f2f2f2; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 8px; }
+  p { font-size: 15px; line-height: 1.6; color: #a0a0a4; margin: 0 0 24px; }
+  .btn {
+    display: inline-block; width: 100%; padding: 13px 20px;
+    background: #f2f2f2; color: #0b0b0c; border: none; border-radius: 12px;
+    font-size: 16px; font-weight: 600; cursor: pointer; text-decoration: none;
+  }
+  .btn:active { transform: scale(0.99); }
+  .secondary { margin-top: 16px; font-size: 13px; }
+  .secondary a { color: #8a8a8f; }
+  .note { margin-top: 28px; font-size: 12px; color: #6a6a6f; line-height: 1.5; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <svg class="logo" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+      <path d="M50 18 C44 46 24 70 28 82" stroke="currentColor" stroke-width="9" stroke-linecap="round" opacity="0.3"/>
+      <path d="M50 18 C56 46 76 70 72 82" stroke="currentColor" stroke-width="9" stroke-linecap="round" opacity="0.3"/>
+      <path d="M28 18 C24 38 56 56 50 82" stroke="currentColor" stroke-width="9" stroke-linecap="round" opacity="0.9"/>
+      <path d="M72 18 C76 38 44 56 50 82" stroke="currentColor" stroke-width="9" stroke-linecap="round" opacity="0.9"/>
+    </svg>
+
+    <div id="ok">
+      <h1>Someone beamed you a note</h1>
+      <p>Open it in Visor to drop it onto your notch.</p>
+      <a class="btn" id="open" href="#">Open in Visor</a>
+      <div class="secondary">
+        Don't have Visor? <a href="https://github.com/sanketsriv22/visor#install" target="_blank" rel="noopener">Get it here</a>.
+      </div>
+      <p class="note">
+        The note travels inside this link and is decoded on your Mac —
+        it's never uploaded to or stored on any server.
+      </p>
+    </div>
+
+    <div id="empty" class="hidden">
+      <h1>Nothing to open</h1>
+      <p>This link doesn't contain a note. Ask your friend to beam it again.</p>
+      <a class="btn" href="https://github.com/sanketsriv22/visor#install" target="_blank" rel="noopener">Get Visor</a>
+    </div>
+  </div>
+
+<script>
+  (function () {
+    var frag = location.hash ? location.hash.slice(1) : "";
+    if (!frag) {
+      document.getElementById("ok").classList.add("hidden");
+      document.getElementById("empty").classList.remove("hidden");
+      return;
+    }
+    var deep = "visor://beam#" + frag;
+    var btn = document.getElementById("open");
+    btn.setAttribute("href", deep);
+    // Try to hand off automatically; the button is the reliable fallback for
+    // browsers that block scheme redirects without a user gesture.
+    try { window.location.href = deep; } catch (e) {}
+  })();
+</script>
+</body>
+</html>

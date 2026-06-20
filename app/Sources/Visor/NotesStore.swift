@@ -400,6 +400,32 @@ final class NotesStore: ObservableObject {
         refreshNoteNames()
     }
 
+    // MARK: - Beam (share a note via a link)
+
+    /// A shareable link encoding the current note. Paste it to a friend; opening
+    /// it drops a copy of this note onto their Visor. The note travels inside the
+    /// link's fragment, so nothing is uploaded anywhere. See `BeamLink`.
+    func beamLink() -> String? {
+        BeamLink.link(forMarkdown: serialized)
+    }
+
+    /// Import a note received via a beam link: create a new note from its
+    /// contents and switch to it. Returns false if the link couldn't be decoded.
+    @discardableResult
+    func importBeamed(from url: URL) -> Bool {
+        guard let markdown = BeamLink.markdown(fromURL: url) else { return false }
+        let (t, it) = Self.parseDocument(markdown)
+        commitRenameNow()
+        saveNow()
+        activeName = uniqueName(sanitize(t.isEmpty ? "Beamed note" : t))
+        suppressDirty = true; title = t; items = it; suppressDirty = false
+        dirty = true
+        saveNow()
+        UserDefaults.standard.set(activeName, forKey: activeKey)
+        refreshNoteNames()
+        return true
+    }
+
     /// Move the current note into the Archive folder (hidden from the switcher
     /// but kept on disk), then switch to another note — or a fresh empty one if
     /// this was the last note.

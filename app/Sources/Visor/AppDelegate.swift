@@ -15,6 +15,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Posted by a second launch so the already-running instance shows its note.
     private static let showNoteNotification = Notification.Name("com.kitalabs.visor.showNote")
 
+    /// A beam URL that arrived before the note controller existed (cold launch),
+    /// held until `applicationDidFinishLaunching` can hand it over.
+    private var pendingBeamURL: URL?
+
+    /// Register the URL handler before launch finishes, so a `visor://` link that
+    /// *launches* the app is caught. `application(_:open:)` misses that first URL
+    /// for an accessory app; the kAEGetURL Apple Event is the reliable path.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+    }
+
+    @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent: NSAppleEventDescriptor) {
+        guard let s = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let url = URL(string: s), url.scheme == BeamLink.scheme else { return }
+        // On cold launch this can fire before the controller is built — stash it
+        // and let applicationDidFinishLaunching drain it once everything's ready.
+        if let controller { controller.importBeam(from: url) } else { pendingBeamURL = url }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let args = ProcessInfo.processInfo.arguments
 
@@ -54,6 +78,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         if args.contains("--settings") { openSettings() }
+
+        // A beam link that launched the app arrived before the controller existed.
+        if let url = pendingBeamURL {
+            pendingBeamURL = nil
+            controller?.importBeam(from: url)
+        }
     }
 
     /// Install a main menu with a standard Edit menu so ⌘X/⌘C/⌘V/⌘A/⌘Z reach
@@ -94,6 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         controller?.saveNow()
     }
+
 
     /// A small menu-bar icon — the only visible chrome. Gives a way to toggle
     /// the note and to quit (the app is otherwise invisible and non-activating).

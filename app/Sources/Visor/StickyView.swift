@@ -112,6 +112,7 @@ private struct StickyCard: View {
                     }
                     Divider()
                     Button("New note", action: store.newNote)
+                    Button("Beam this note…") { beamActiveNote() }
                     Button("Archive this note") { store.archiveCurrent() }
                     Button("Delete this note", role: .destructive) { confirmDeleteActiveNote() }
                     if !store.archivedNames.isEmpty {
@@ -298,6 +299,20 @@ private struct StickyCard: View {
 
     private func focusRow(_ id: UUID) {
         DispatchQueue.main.async { focused = id }
+    }
+
+    /// Build a shareable link for the current note, copy it to the clipboard,
+    /// and confirm. The recipient opens it to drop a copy onto their Visor.
+    private func beamActiveNote() {
+        guard let link = store.beamLink() else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(link, forType: .string)
+        let alert = NSAlert()
+        alert.messageText = "Beam link copied"
+        alert.informativeText = "Paste it to a friend. When they open it, “\(store.activeName)” drops onto their Visor."
+        alert.addButton(withTitle: "Done")
+        NSApp.activate(ignoringOtherApps: true) // accessory app must activate for a modal
+        alert.runModal()
     }
 
     /// Deleting a note is permanent (unlike Archive), so confirm first.

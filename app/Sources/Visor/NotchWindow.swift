@@ -133,6 +133,15 @@ final class NotchController {
 
     func saveNow() { store.saveNow() }
 
+    /// Import a note from an incoming beam URL and slide the note down to show
+    /// it. No-op if the URL's payload can't be decoded.
+    @discardableResult
+    func importBeam(from url: URL) -> Bool {
+        guard store.importBeamed(from: url) else { return false }
+        showNote()
+        return true
+    }
+
     /// Expand the note if it's collapsed; no-op if already showing. Used when
     /// the app is re-launched while already running.
     func showNote() {

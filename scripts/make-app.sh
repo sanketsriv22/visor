@@ -57,6 +57,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>SUFeedURL</key><string>https://raw.githubusercontent.com/sanketsriv22/visor/main/appcast.xml</string>
     <key>SUPublicEDKey</key><string>${SU_PUBLIC_ED_KEY}</string>
     <key>SUEnableAutomaticChecks</key><true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key><string>com.kitalabs.visor.beam</string>
+            <key>CFBundleURLSchemes</key>
+            <array><string>visor</string></array>
+        </dict>
+    </array>
 </dict>
 </plist>
 PLIST
