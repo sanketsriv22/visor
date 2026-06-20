@@ -6,6 +6,12 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SLUG="${VISOR_REPO_SLUG:-sanketsriv22/visor}"
 VERSION="$(tr -d '[:space:]' < "$REPO_DIR/VERSION")"
+# Sparkle compares the appcast's sparkle:version against the app's
+# CFBundleVersion. make-app.sh bakes CFBundleVersion = git commit count, so the
+# appcast MUST use that same integer here — not the marketing string, or the
+# comparison breaks (e.g. "1.0-beta.29" reads as version 1, which looks older
+# than the installed build number, so updates are never offered).
+BUILD="$(git -C "$REPO_DIR" rev-list --count HEAD 2>/dev/null || echo 0)"
 TAG="v$VERSION"
 TOOLS="$REPO_DIR/.sparkle-tools"
 SIGN_TOOL="$TOOLS/sign_update"
@@ -56,7 +62,7 @@ cat > "$REPO_DIR/appcast.xml" <<XML
         <item>
             <title>Visor $VERSION</title>
             <pubDate>$PUBDATE</pubDate>
-            <sparkle:version>$VERSION</sparkle:version>
+            <sparkle:version>$BUILD</sparkle:version>
             <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
             <enclosure
                 url="$DOWNLOAD_URL"
