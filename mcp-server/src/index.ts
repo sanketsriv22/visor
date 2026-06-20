@@ -61,6 +61,35 @@ function statusFromMarker(marker: string): TaskStatus {
   }
 }
 
+function markerForStatus(status: TaskStatus): string {
+  switch (status) {
+    case "done": return "x";
+    case "doing": return "/";
+    case "blocked": return "!";
+    default: return " ";
+  }
+}
+
+/** Find exactly one task whose text contains `match` (case-insensitive). Returns
+ *  the task, or a human-readable error the agent can act on (no match / ambiguous). */
+function findOneTask(
+  content: string,
+  match: string,
+  opts: { openOnly?: boolean } = {}
+): { task: Task } | { error: string } {
+  let tasks = parseTasks(content);
+  if (opts.openOnly) tasks = tasks.filter((t) => !t.done);
+  const hits = tasks.filter((t) => t.text.toLowerCase().includes(match.toLowerCase()));
+  if (hits.length === 0) {
+    const list = tasks.map((t) => `- [${t.status}] ${t.text}`).join("\n") || "(none)";
+    return { error: `No ${opts.openOnly ? "open " : ""}task matches "${match}". Tasks:\n${list}` };
+  }
+  if (hits.length > 1) {
+    return { error: `"${match}" is ambiguous; it matches:\n${hits.map((t) => `- ${t.text}`).join("\n")}\nBe more specific.` };
+  }
+  return { task: hits[0] };
+}
+
 function parseTasks(content: string): Task[] {
   return content.split("\n").flatMap((raw, i) => {
     const m = raw.match(TASK_RE);
@@ -212,18 +241,44 @@ server.registerTool(
   },
   async ({ match }) => locked(async () => {
     const content = await readNotes();
-    const open = parseTasks(content).filter((t) => !t.done);
-    const hits = open.filter((t) => t.text.toLowerCase().includes(match.toLowerCase()));
-    if (hits.length === 0) {
-      return text(`No open task matches "${match}". Open tasks:\n${open.map((t) => `- ${t.text}`).join("\n") || "(none)"}`);
-    }
-    if (hits.length > 1) {
-      return text(`"${match}" is ambiguous; it matches:\n${hits.map((t) => `- ${t.text}`).join("\n")}\nBe more specific.`);
+    const found = findOneTask(content, match, { openOnly: true });
+    if ("error" in found) return text(found.error);
+    const lines = content.split("\n");
+    lines[found.task.line] = lines[found.task.line].replace(/\[[ xX/!\-]\]/, "[x]");
+    await writeNotes(lines.join("\n"));
+    return text(`Completed: ${found.task.text}`);
+  })
+);
+
+server.registerTool(
+  "set_task_status",
+  {
+    description:
+      "Set a task's status so the user sees live progress in Visor. Use this as " +
+      "you work: mark a task 'doing' when you start it, 'blocked' if you get " +
+      "stuck, and 'done' when it's finished. 'match' is matched case-insensitively " +
+      "against task text and must match exactly one task.",
+    inputSchema: {
+      match: z.string().min(1).describe("Substring identifying the task to update"),
+      status: z
+        .enum(["open", "doing", "blocked", "done"])
+        .describe("New status: open (not started), doing (in progress), blocked, or done"),
+    },
+  },
+  async ({ match, status }) => locked(async () => {
+    const content = await readNotes();
+    const found = findOneTask(content, match);
+    if ("error" in found) return text(found.error);
+    if (found.task.status === status) {
+      return text(`"${found.task.text}" is already ${status}.`);
     }
     const lines = content.split("\n");
-    lines[hits[0].line] = lines[hits[0].line].replace(/\[[ /!\-]\]/, "[x]");
+    lines[found.task.line] = lines[found.task.line].replace(
+      /\[[ xX/!\-]\]/,
+      `[${markerForStatus(status)}]`
+    );
     await writeNotes(lines.join("\n"));
-    return text(`Completed: ${hits[0].text}`);
+    return text(`Set "${found.task.text}" → ${status}`);
   })
 );
 
