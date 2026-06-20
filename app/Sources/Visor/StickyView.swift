@@ -335,6 +335,10 @@ private struct StickyCard: View {
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
         NSApp.activate(ignoringOtherApps: true) // accessory app must activate for a modal
+        // The note panel floats at .statusBar level, so a normal-level alert is
+        // drawn behind it. Lift the alert just above the panel so it's visible.
+        let panelLevel = hostWindow?.level ?? .statusBar
+        alert.window.level = NSWindow.Level(rawValue: panelLevel.rawValue + 1)
         if alert.runModal() == .alertFirstButtonReturn {
             withAnimation(reorderSpring) { store.deleteNote(name) }
         }
