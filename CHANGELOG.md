@@ -3,6 +3,15 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.28 — 2026-06-19
+
+- Beam a note to a friend: "Beam this note…" in the note menu copies a link that encodes the whole note. When they open it, a copy drops onto their Visor. The note travels inside the link itself — nothing is uploaded to or stored on any server.
+- Agents update task progress live: the MCP server gained a `set_task_status` tool, so Claude (or any agent) can mark a task doing / blocked / done as it works, and Visor reflects it within a second or two.
+- Switching between notes is now instant — it no longer rescans the notes folder or waits on disk while you switch.
+- Move a task into a brand-new note: the task right-click "Move to" menu now offers "New note", which creates a note named after the task and moves it there.
+- Typing a long task wraps to the next line immediately instead of stretching past the edge first.
+- Refined brand icon: the menu-bar "Knot" mark now uses smooth curved strokes.
+
 ## 1.0-beta.27 — 2026-06-19
 
 - Custom brand icon in the menu bar: the old SF Symbol checklist is replaced with the Visor "Knot" mark — two interlocking V shapes with an alternating over/under weave. Rendered as a macOS template image so it auto-colorizes for light and dark menu bars.
