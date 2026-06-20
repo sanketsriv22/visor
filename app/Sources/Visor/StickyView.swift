@@ -216,6 +216,9 @@ private struct StickyCard: View {
                         onMove: { name in
                             withAnimation(reorderSpring) { store.moveTask(item.id, toNote: name) }
                         },
+                        onMoveToNew: {
+                            withAnimation(reorderSpring) { store.moveTaskToNewNote(item.id) }
+                        },
                         onDragChanged: { dy in dragChanged(item.id, dy) },
                         onDragEnded: { dragEnded() }
                     )
@@ -374,6 +377,7 @@ private struct NoteRow: View {
     var onSend: () -> Void
     var otherNotes: [String]
     var onMove: (String) -> Void
+    var onMoveToNew: () -> Void
     var onDragChanged: (CGFloat) -> Void
     var onDragEnded: () -> Void
 
@@ -481,10 +485,10 @@ private struct NoteRow: View {
         .contentShape(Rectangle())
         .onHover { h in withAnimation(.easeInOut(duration: 0.12)) { hovering = h } }
         .contextMenu {
-            if otherNotes.isEmpty {
-                Button("Move to…") {}.disabled(true)
-            } else {
-                Menu("Move to") {
+            Menu("Move to") {
+                Button("New note") { onMoveToNew() }
+                if !otherNotes.isEmpty {
+                    Divider()
                     ForEach(otherNotes, id: \.self) { name in
                         Button(name) { onMove(name) }
                     }

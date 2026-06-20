@@ -214,6 +214,20 @@ final class NotesStore: ObservableObject {
         cache.removeValue(forKey: name) // target file changed on disk — drop stale copy
     }
 
+    /// Move a task out of the current note into a brand-new note, named after the
+    /// task text. Stays on the current note; the new note appears in the switcher.
+    func moveTaskToNewNote(_ id: UUID) {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        let moved = items.remove(at: idx) // removing triggers a save of this note
+        let base = sanitize(String(moved.text.prefix(40)))
+        let name = uniqueName(base == "Untitled" ? "Untitled" : base)
+        let url = folder.appendingPathComponent("\(name).md")
+        try? Self.serializeDocument(title: name, items: [moved])
+            .data(using: .utf8)?.write(to: url, options: .atomic)
+        cache.removeValue(forKey: name)
+        refreshNoteNames()
+    }
+
     /// Move the dragged item to just above the dropped-on item — matching the
     /// insertion line drawn at the top of the target row.
     func move(id draggedID: UUID, toIndexOf targetID: UUID) {
