@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.29 — 2026-06-20
+
+- Beam now uses the macOS share sheet: "Beam this note…" opens AirDrop / Messages / Mail. AirDrop a note to a nearby Mac and it drops straight onto that Mac's Visor — no link, no browser. ("Copy beam link" is still there for sending a link to remote friends, with an install fallback for anyone without Visor.)
+
 ## 1.0-beta.28 — 2026-06-19
 
 - Beam a note to a friend: "Beam this note…" in the note menu copies a link that encodes the whole note. When they open it, a copy drops onto their Visor. The note travels inside the link itself — nothing is uploaded to or stored on any server.
