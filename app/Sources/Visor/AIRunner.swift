@@ -109,7 +109,7 @@ final class AIRunner: ObservableObject {
             AIProvider(name: "Devin", command: "devin", args: ["--permission-mode", "dangerous", "-p"]),
             // In Terminal mode Claude runs interactively (no -p): you see it work
             // and can follow up. Background mode still uses -p (headless).
-            AIProvider(name: "Claude Code", command: "claude", args: ["-p"], interactiveArgs: []),
+            AIProvider(name: "Claude Code", command: "claude", args: ["--dangerously-skip-permissions", "-p"], interactiveArgs: ["--dangerously-skip-permissions"]),
             // Creates a session via the Devin REST API and opens it in the Devin
             // app/web. Needs a Devin API key (stored in the Keychain).
             AIProvider(name: "Devin (Cloud)", command: "", args: [], kind: .devinCloud),
