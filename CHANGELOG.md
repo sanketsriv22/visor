@@ -3,6 +3,12 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.30 — 2026-06-20
+
+- Fixed the updater never offering updates. The appcast advertised the marketing version where Sparkle expected the numeric build number, so "Check for Updates" always said you were up to date even when a newer version existed. It now compares build numbers correctly, so Check for Updates works from here on.
+- The delete-note confirmation no longer appears hidden behind the note.
+- Beam is now a prism light-ray button at the end of the note's title row, instead of being tucked in the menu — click it to open AirDrop / Messages / Mail. Hover it and the prism splits the light into a spectrum.
+
 ## 1.0-beta.29 — 2026-06-20
 
 - Beam now uses the macOS share sheet: "Beam this note…" opens AirDrop / Messages / Mail. AirDrop a note to a nearby Mac and it drops straight onto that Mac's Visor — no link, no browser. ("Copy beam link" is still there for sending a link to remote friends, with an install fallback for anyone without Visor.)
