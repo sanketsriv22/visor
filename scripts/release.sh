@@ -12,7 +12,7 @@ SLUG="${VISOR_REPO_SLUG:-sanketsriv22/visor}"
 VERSION="$(tr -d '[:space:]' < "$REPO_DIR/VERSION")"
 TAG="v$VERSION"
 
-"$REPO_DIR/scripts/make-app.sh"
+"$REPO_DIR/scripts/make-app.sh" --build-only
 ditto -c -k --keepParent "$REPO_DIR/dist/Visor.app" "$REPO_DIR/dist/Visor.zip"
 
 awk -v v="$VERSION" '
