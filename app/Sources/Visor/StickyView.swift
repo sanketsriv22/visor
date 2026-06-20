@@ -72,6 +72,7 @@ private struct StickyCard: View {
     @FocusState private var focused: UUID?
     @State private var newTask = ""
     @State private var hostWindow: NSWindow?
+    @State private var beamHover = false
     private let addFieldID = UUID()
     private let titleFieldID = UUID()
 
@@ -113,7 +114,6 @@ private struct StickyCard: View {
                     }
                     Divider()
                     Button("New note", action: store.newNote)
-                    Button("Beam this note…") { beamActiveNote() }
                     Button("Copy beam link") { copyBeamLink() }
                     Button("Archive this note") { store.archiveCurrent() }
                     Button("Delete this note", role: .destructive) { confirmDeleteActiveNote() }
@@ -153,6 +153,23 @@ private struct StickyCard: View {
                     .font(.system(size: 17, weight: .semibold))
                     .focused($focused, equals: titleFieldID)
                     .onSubmit { store.commitTitle() }
+
+                // Beam: send this note to a friend (AirDrop / Messages / Mail).
+                Button(action: beamActiveNote) {
+                    BeamGlyph(spectrum: beamHover)
+                        .frame(width: 22, height: 19)
+                        .foregroundStyle(beamHover ? Color.white : Color.secondary)
+                        .scaleEffect(beamHover ? 1.1 : 1)
+                        .padding(.vertical, 6)
+                        .padding(.leading, 6)
+                        // The glyph is thin strokes on a clear background; without
+                        // this only the drawn pixels would be clickable, so clicks
+                        // landing in the gaps would miss. Make the whole area hit.
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { h in withAnimation(.easeInOut(duration: 0.18)) { beamHover = h } }
+                .help("Beam this note to a friend")
             }
             .padding(.horizontal, 16)
             .padding(.top, 2)
@@ -570,6 +587,48 @@ private struct NoteRow: View {
             )
             .transition(.opacity)
         }
+    }
+}
+
+/// A "beam" mark — a single ray entering a prism and dispersing out the far
+/// side. Monochrome at rest; the output rays light up as a spectrum when
+/// `spectrum` is true (the parent passes its hover state).
+private struct BeamGlyph: View {
+    var spectrum: Bool
+
+    private var outputColors: [Color] {
+        spectrum
+            ? [Color(red: 0.89, green: 0.29, blue: 0.29),   // red
+               Color(red: 0.94, green: 0.62, blue: 0.15),   // amber
+               Color(red: 0.40, green: 0.66, blue: 0.92)]   // blue
+            : [.secondary, .secondary, .secondary]
+    }
+
+    var body: some View {
+        ZStack {
+            // Incoming ray + prism — take the parent's foregroundStyle.
+            Path { p in
+                p.move(to: CGPoint(x: 0, y: 10)); p.addLine(to: CGPoint(x: 7, y: 10))
+            }
+            .stroke(style: StrokeStyle(lineWidth: 1.7, lineCap: .round))
+            Path { p in
+                p.move(to: CGPoint(x: 11, y: 2.5))
+                p.addLine(to: CGPoint(x: 5.5, y: 16.5))
+                p.addLine(to: CGPoint(x: 16.5, y: 16.5))
+                p.closeSubpath()
+            }
+            .stroke(style: StrokeStyle(lineWidth: 1.7, lineJoin: .round))
+            // Dispersed output rays, fanning from the prism's far face.
+            ray(to: CGPoint(x: 21, y: 6), outputColors[0])
+            ray(to: CGPoint(x: 21.5, y: 10), outputColors[1])
+            ray(to: CGPoint(x: 21, y: 14), outputColors[2])
+        }
+        .frame(width: 22, height: 19)
+    }
+
+    private func ray(to end: CGPoint, _ color: Color) -> some View {
+        Path { p in p.move(to: CGPoint(x: 13.5, y: 10)); p.addLine(to: end) }
+            .stroke(color, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
     }
 }
 
