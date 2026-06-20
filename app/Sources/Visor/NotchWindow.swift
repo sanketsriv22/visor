@@ -142,6 +142,14 @@ final class NotchController {
         return true
     }
 
+    /// Import a note from a `.visor` file (e.g. AirDrop) and show it.
+    @discardableResult
+    func importNoteFile(from url: URL) -> Bool {
+        guard store.importNoteFile(from: url) else { return false }
+        showNote()
+        return true
+    }
+
     /// Expand the note if it's collapsed; no-op if already showing. Used when
     /// the app is re-launched while already running.
     func showNote() {

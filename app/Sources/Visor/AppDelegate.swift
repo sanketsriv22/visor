@@ -15,20 +15,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Posted by a second launch so the already-running instance shows its note.
     private static let showNoteNotification = Notification.Name("com.kitalabs.visor.showNote")
 
-    /// A beam URL that arrived before the note controller existed (cold launch),
-    /// held until `applicationDidFinishLaunching` can hand it over.
+    /// A beam URL / `.visor` file that arrived before the note controller existed
+    /// (cold launch), held until `applicationDidFinishLaunching` hands it over.
     private var pendingBeamURL: URL?
+    private var pendingNoteFiles: [URL] = []
 
-    /// Register the URL handler before launch finishes, so a `visor://` link that
-    /// *launches* the app is caught. `application(_:open:)` misses that first URL
-    /// for an accessory app; the kAEGetURL Apple Event is the reliable path.
+    /// Register the URL + document handlers before launch finishes, so a
+    /// `visor://` link or a double-clicked/AirDropped `.visor` file that *launches*
+    /// the app is caught. `application(_:open:)` misses that first event for an
+    /// accessory app; the kAEGetURL / kAEOpenDocuments Apple Events are reliable.
     func applicationWillFinishLaunching(_ notification: Notification) {
-        NSAppleEventManager.shared().setEventHandler(
-            self,
-            andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
-            forEventClass: AEEventClass(kInternetEventClass),
-            andEventID: AEEventID(kAEGetURL)
-        )
+        let mgr = NSAppleEventManager.shared()
+        mgr.setEventHandler(
+            self, andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+        mgr.setEventHandler(
+            self, andSelector: #selector(handleOpenDocsEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
     }
 
     @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent: NSAppleEventDescriptor) {
@@ -37,6 +40,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // On cold launch this can fire before the controller is built — stash it
         // and let applicationDidFinishLaunching drain it once everything's ready.
         if let controller { controller.importBeam(from: url) } else { pendingBeamURL = url }
+    }
+
+    @objc private func handleOpenDocsEvent(_ event: NSAppleEventDescriptor, withReplyEvent: NSAppleEventDescriptor) {
+        guard let list = event.paramDescriptor(forKeyword: keyDirectObject), list.numberOfItems > 0 else { return }
+        for i in 1...list.numberOfItems {
+            guard let item = list.atIndex(i),
+                  let fileURL = item.coerce(toDescriptorType: typeFileURL)?.data,
+                  let url = URL(dataRepresentation: fileURL, relativeTo: nil),
+                  url.pathExtension.lowercased() == "visor" else { continue }
+            if let controller { controller.importNoteFile(from: url) } else { pendingNoteFiles.append(url) }
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -79,11 +93,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         if args.contains("--settings") { openSettings() }
 
-        // A beam link that launched the app arrived before the controller existed.
+        // A beam link / .visor file that launched the app arrived before the
+        // controller existed.
         if let url = pendingBeamURL {
             pendingBeamURL = nil
             controller?.importBeam(from: url)
         }
+        for url in pendingNoteFiles { controller?.importNoteFile(from: url) }
+        pendingNoteFiles.removeAll()
     }
 
     /// Install a main menu with a standard Edit menu so ⌘X/⌘C/⌘V/⌘A/⌘Z reach

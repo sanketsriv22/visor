@@ -400,7 +400,7 @@ final class NotesStore: ObservableObject {
         refreshNoteNames()
     }
 
-    // MARK: - Beam (share a note via a link)
+    // MARK: - Beam (share a note via a link or a .visor file)
 
     /// A shareable link encoding the current note. Paste it to a friend; opening
     /// it drops a copy of this note onto their Visor. The note travels inside the
@@ -409,21 +409,47 @@ final class NotesStore: ObservableObject {
         BeamLink.link(forMarkdown: serialized)
     }
 
-    /// Import a note received via a beam link: create a new note from its
-    /// contents and switch to it. Returns false if the link couldn't be decoded.
+    /// Write the current note to a temporary `.visor` file for sharing (AirDrop,
+    /// Messages, Mail…). The recipient's Visor owns this type, so opening it
+    /// imports the note directly. Returns the file URL, or nil on failure.
+    func writeBeamFile() -> URL? {
+        let name = sanitize(activeName)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).visor")
+        guard let data = serialized.data(using: .utf8), (try? data.write(to: url)) != nil else { return nil }
+        return url
+    }
+
+    /// Import a note received via a beam link. Returns false if it can't decode.
     @discardableResult
     func importBeamed(from url: URL) -> Bool {
         guard let markdown = BeamLink.markdown(fromURL: url) else { return false }
+        createNote(fromMarkdown: markdown, defaultName: "Beamed note")
+        return true
+    }
+
+    /// Import a note from a `.visor` file (e.g. received via AirDrop). Returns
+    /// false if the file can't be read.
+    @discardableResult
+    func importNoteFile(from url: URL) -> Bool {
+        guard let data = try? Data(contentsOf: url),
+              let markdown = String(data: data, encoding: .utf8) else { return false }
+        createNote(fromMarkdown: markdown, defaultName: url.deletingPathExtension().lastPathComponent)
+        return true
+    }
+
+    /// Create a new note from markdown and switch to it. Used by both beam links
+    /// and `.visor` files. `defaultName` is the title to fall back on when the
+    /// markdown has no `# heading`.
+    private func createNote(fromMarkdown markdown: String, defaultName: String) {
         let (t, it) = Self.parseDocument(markdown)
         commitRenameNow()
         saveNow()
-        activeName = uniqueName(sanitize(t.isEmpty ? "Beamed note" : t))
+        activeName = uniqueName(sanitize(t.isEmpty ? defaultName : t))
         suppressDirty = true; title = t; items = it; suppressDirty = false
         dirty = true
         saveNow()
         UserDefaults.standard.set(activeName, forKey: activeKey)
         refreshNoteNames()
-        return true
     }
 
     /// Move the current note into the Archive folder (hidden from the switcher

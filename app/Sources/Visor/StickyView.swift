@@ -71,6 +71,7 @@ private struct StickyCard: View {
 
     @FocusState private var focused: UUID?
     @State private var newTask = ""
+    @State private var hostWindow: NSWindow?
     private let addFieldID = UUID()
     private let titleFieldID = UUID()
 
@@ -113,6 +114,7 @@ private struct StickyCard: View {
                     Divider()
                     Button("New note", action: store.newNote)
                     Button("Beam this note…") { beamActiveNote() }
+                    Button("Copy beam link") { copyBeamLink() }
                     Button("Archive this note") { store.archiveCurrent() }
                     Button("Delete this note", role: .destructive) { confirmDeleteActiveNote() }
                     if !store.archivedNames.isEmpty {
@@ -170,6 +172,7 @@ private struct StickyCard: View {
         .overlay(
             shape.strokeBorder(.white.opacity(0.14), lineWidth: 1)
         )
+        .background(WindowReader { hostWindow = $0 })
         .onExitCommand(perform: onClose)
     }
 
@@ -301,18 +304,25 @@ private struct StickyCard: View {
         DispatchQueue.main.async { focused = id }
     }
 
-    /// Build a shareable link for the current note, copy it to the clipboard,
-    /// and confirm. The recipient opens it to drop a copy onto their Visor.
+    /// Open the macOS share sheet (AirDrop, Messages, Mail…) for this note as a
+    /// `.visor` file. AirDrop it to a nearby Mac and it drops straight onto that
+    /// Mac's Visor; other channels send the file as an attachment.
     private func beamActiveNote() {
+        guard let fileURL = store.writeBeamFile(),
+              let view = hostWindow?.contentView else { return }
+        let picker = NSSharingServicePicker(items: [fileURL])
+        let b = view.bounds
+        let anchor = NSRect(x: b.midX - 1, y: b.maxY - 56, width: 2, height: 2)
+        NSApp.activate(ignoringOtherApps: true) // accessory app must activate to show the sheet
+        picker.show(relativeTo: anchor, of: view, preferredEdge: .minY)
+    }
+
+    /// Copy a shareable link to the clipboard — handy for channels where a link
+    /// beats a file, and it carries an install link for friends without Visor.
+    private func copyBeamLink() {
         guard let link = store.beamLink() else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(link, forType: .string)
-        let alert = NSAlert()
-        alert.messageText = "Beam link copied"
-        alert.informativeText = "Paste it to a friend. When they open it, “\(store.activeName)” drops onto their Visor."
-        alert.addButton(withTitle: "Done")
-        NSApp.activate(ignoringOtherApps: true) // accessory app must activate for a modal
-        alert.runModal()
     }
 
     /// Deleting a note is permanent (unlike Archive), so confirm first.
@@ -556,5 +566,19 @@ private struct NoteRow: View {
             )
             .transition(.opacity)
         }
+    }
+}
+
+/// Grabs the AppKit window hosting this SwiftUI view, so the share sheet
+/// (NSSharingServicePicker) can be anchored to the note panel.
+private struct WindowReader: NSViewRepresentable {
+    var onWindow: (NSWindow?) -> Void
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView()
+        DispatchQueue.main.async { onWindow(v.window) }
+        return v
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { onWindow(nsView.window) }
     }
 }

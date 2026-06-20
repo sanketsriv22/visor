@@ -65,6 +65,30 @@ cat > "$APP/Contents/Info.plist" <<PLIST
             <array><string>visor</string></array>
         </dict>
     </array>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key><string>Visor Note</string>
+            <key>CFBundleTypeRole</key><string>Viewer</string>
+            <key>LSHandlerRank</key><string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array><string>com.kitalabs.visor.note</string></array>
+        </dict>
+    </array>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key><string>com.kitalabs.visor.note</string>
+            <key>UTTypeDescription</key><string>Visor Note</string>
+            <key>UTTypeConformsTo</key>
+            <array><string>public.plain-text</string></array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array><string>visor</string></array>
+            </dict>
+        </dict>
+    </array>
 </dict>
 </plist>
 PLIST
