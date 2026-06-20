@@ -3,6 +3,11 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.26 — 2026-06-19
+
+- Replace the hand-rolled updater with Sparkle. Updates are now signature-verified (EdDSA), handle /Applications privilege elevation properly, and check silently in the background — no more "Check for Updates" lag or failed swaps.
+- Faster update checks: Sparkle fetches a small appcast XML instead of hitting the GitHub API.
+
 ## 1.0-beta.25 — 2026-06-19
 
 - Fix self-updater silently failing when Visor.app was installed by a different macOS user. The swap script now moves the old bundle out of the way (which only needs write permission on /Applications) instead of trying to rm -rf its contents.
