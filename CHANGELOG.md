@@ -3,6 +3,11 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.25 — 2026-06-19
+
+- Fix self-updater silently failing when Visor.app was installed by a different macOS user. The swap script now moves the old bundle out of the way (which only needs write permission on /Applications) instead of trying to rm -rf its contents.
+- Claude Code now runs with `--dangerously-skip-permissions` by default, so tasks sent from Visor don't stop to ask for approval on every tool call.
+
 ## 1.0-beta.24 — 2026-06-19
 
 - Delete a note from the switcher (⧉): a new "Delete this note" permanently removes the current note (with a confirmation, since — unlike Archive — it can't be undone).
