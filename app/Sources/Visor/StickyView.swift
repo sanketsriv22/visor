@@ -461,6 +461,10 @@ private struct NoteRow: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .lineLimit(1...6)
+                // Prefer wrapping to the next line over growing horizontally —
+                // without this the field stretches past the row edge and only
+                // snaps to a new line a beat later.
+                .fixedSize(horizontal: false, vertical: true)
                 .strikethrough(item.isTask && item.done, color: .secondary)
                 .foregroundStyle(item.isTask && item.done ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                 .focused($focused, equals: item.id)
