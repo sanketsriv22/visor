@@ -10,7 +10,15 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$REPO/dist/Visor.app"
 VERSION="$(tr -d '[:space:]' < "$REPO/VERSION" 2>/dev/null)"
 [ -n "$VERSION" ] || VERSION="0.0.0"
-BUILD="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo "0")"
+BUILD="$(git -C "$REPO" rev-list --count HEAD 2>/dev/null || echo "0")"
+
+# Read the Sparkle EdDSA public key if it has been generated.
+SPARKLE_KEY_FILE="$REPO/.sparkle-keys/ed25519-public.pem"
+if [ -f "$SPARKLE_KEY_FILE" ]; then
+    SU_PUBLIC_ED_KEY="$(tr -d '[:space:]' < "$SPARKLE_KEY_FILE")"
+else
+    SU_PUBLIC_ED_KEY=""
+fi
 
 BUILD_ONLY=""
 [ "${1:-}" = "--build-only" ] && BUILD_ONLY=1
@@ -20,8 +28,15 @@ cd "$REPO/app"
 swift build -c release
 
 rm -rf "$REPO/dist"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp .build/release/Visor "$APP/Contents/MacOS/Visor"
+
+# Embed Sparkle.framework so the app can find it at runtime.
+SPARKLE_FW=$(find .build -path '*/Sparkle.framework' -type d -maxdepth 6 | head -1)
+if [ -n "$SPARKLE_FW" ]; then
+    ditto "$SPARKLE_FW" "$APP/Contents/Frameworks/Sparkle.framework"
+    install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/Visor" 2>/dev/null || true
+fi
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -39,6 +54,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>SUFeedURL</key><string>https://raw.githubusercontent.com/sanketsriv22/visor/main/appcast.xml</string>
+    <key>SUPublicEDKey</key><string>${SU_PUBLIC_ED_KEY}</string>
+    <key>SUEnableAutomaticChecks</key><true/>
 </dict>
 </plist>
 PLIST
@@ -62,7 +80,7 @@ fi
 # Bundle the changelog so the app can show "What's New" offline.
 cp "$REPO/CHANGELOG.md" "$APP/Contents/Resources/CHANGELOG.md" 2>/dev/null || true
 
-codesign --force --sign - "$APP"
+codesign --force --sign - --deep "$APP"
 
 if [ -n "$BUILD_ONLY" ]; then
     echo "Built $APP (v${VERSION})"
