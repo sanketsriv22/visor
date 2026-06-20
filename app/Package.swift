@@ -13,7 +13,11 @@ let package = Package(
             dependencies: [
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
-            path: "Sources/Visor"
+            path: "Sources/Visor",
+            // Menu-bar icon PNGs live here as build inputs for make-app.sh, which
+            // copies them into the .app's Contents/Resources. They're not SPM
+            // resources, so exclude them to keep the build quiet.
+            exclude: ["Resources"]
         )
     ]
 )

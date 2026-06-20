@@ -103,6 +103,23 @@ final class NotesStore: ObservableObject {
     private var watchTimer: Timer?
     private var lastMTime: Date?
 
+    /// Serial queue for file I/O that doesn't need to block the UI (writing the
+    /// outgoing note, repointing the mirror symlink). Keeps note switching snappy
+    /// even when the Documents folder is slow (e.g. iCloud-backed).
+    private let io = DispatchQueue(label: "com.kitalabs.visor.notes-io", qos: .userInitiated)
+
+    /// Parsed notes kept in memory, keyed by name, so re-opening a note is
+    /// instant — no disk read or markdown parse. Each entry remembers the file's
+    /// modification date at the time it was cached; if the file later changes on
+    /// disk (e.g. an agent edits it), the mtime won't match and the watch timer
+    /// reloads it. Accessed on the main thread only.
+    private var cache: [String: (title: String, items: [NoteItem], mtime: Date?)] = [:]
+
+    /// Snapshot the active note into the cache so switching away and back is free.
+    private func cacheActive() {
+        cache[activeName] = (title, items, lastMTime)
+    }
+
     private var activeURL: URL { folder.appendingPathComponent("\(activeName).md") }
     private var archiveFolder: URL { folder.appendingPathComponent("Archive", isDirectory: true) }
 
@@ -194,6 +211,7 @@ final class NotesStore: ObservableObject {
         targetItems.append(moved)
         try? Self.serializeDocument(title: title, items: targetItems)
             .data(using: .utf8)?.write(to: targetURL, options: .atomic)
+        cache.removeValue(forKey: name) // target file changed on disk — drop stale copy
     }
 
     /// Move the dragged item to just above the dropped-on item — matching the
@@ -280,6 +298,7 @@ final class NotesStore: ObservableObject {
         title = parsedTitle
         items = parsedItems
         suppressDirty = false
+        cacheActive()
     }
 
     func saveNow() {
@@ -288,21 +307,71 @@ final class NotesStore: ObservableObject {
         try? serialized.data(using: .utf8)?.write(to: activeURL, options: .atomic)
         dirty = false
         lastMTime = mtime(activeURL)
+        cacheActive()
         ensureMirrorSymlink()
     }
 
     // MARK: - Notes (switch / create)
 
-    /// Save the current note, then switch to another saved note.
+    /// Switch to another saved note. The outgoing note is persisted in the
+    /// background and the incoming note is served from the in-memory cache when
+    /// possible, so this returns immediately instead of blocking on disk.
     func switchTo(_ name: String) {
         guard name != activeName else { return }
-        commitRenameNow()
-        saveNow()
+        commitRenameNow()                 // handle a pending title rename (usually a no-op)
+        guard name != activeName else { return } // …which may itself have changed activeName
+
+        flushOutgoingAsync()              // write the outgoing note off the main thread + cache it
         activeName = name
-        loadActive()
+
+        if let hit = cache[name] {
+            // Instant: show the parsed note we already hold in memory.
+            suppressDirty = true; title = hit.title; items = hit.items; suppressDirty = false
+            lastMTime = hit.mtime
+        } else {
+            loadActive()                  // first open this session — read + parse once…
+            cacheActive()                 // …then remember it
+        }
+
         UserDefaults.standard.set(activeName, forKey: activeKey)
-        ensureMirrorSymlink()
-        refreshNoteNames()
+
+        // Repoint the mirror symlink (for the MCP server / agents) in the
+        // background — the UI doesn't depend on it. Note switching no longer
+        // rescans the notes directory: the set of notes is unchanged by a switch.
+        let target = activeURL
+        io.async { [weak self] in self?.ensureMirrorSymlink(for: target) }
+
+        // The set of names is unchanged by a switch, but date-based sort orders
+        // can shift (we just touched the outgoing note's mtime) — refresh those
+        // off the main thread so the switcher stays correct without stalling.
+        if noteSort != .name { refreshNoteNamesAsync() }
+    }
+
+    /// Persist the note we're leaving without blocking the UI. Its content is
+    /// already in memory, so we snapshot it, cache it, and write on the I/O queue.
+    private func flushOutgoingAsync() {
+        saveTask?.cancel()
+        let outgoing = activeName
+        let snapTitle = title
+        let snapItems = items
+        guard dirty else {
+            // Clean: on-disk copy already matches memory, just cache it.
+            cache[outgoing] = (snapTitle, snapItems, lastMTime)
+            return
+        }
+        let doc = serialized
+        let url = activeURL
+        dirty = false
+        cache[outgoing] = (snapTitle, snapItems, lastMTime) // updated with real mtime once written
+        io.async { [weak self] in
+            try? doc.data(using: .utf8)?.write(to: url, options: .atomic)
+            let m = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if var entry = self.cache[outgoing] { entry.mtime = m; self.cache[outgoing] = entry }
+                if self.activeName == outgoing { self.lastMTime = m }
+            }
+        }
     }
 
     /// Create a fresh, empty note and switch to it.
@@ -325,6 +394,7 @@ final class NotesStore: ObservableObject {
         saveNow()
         let archivedName = activeName
         let src = activeURL
+        cache.removeValue(forKey: archivedName)
         try? FileManager.default.createDirectory(at: archiveFolder, withIntermediateDirectories: true)
         if FileManager.default.fileExists(atPath: src.path) {
             try? FileManager.default.moveItem(at: src, to: uniqueArchiveURL(archivedName))
@@ -368,6 +438,7 @@ final class NotesStore: ObservableObject {
     /// another (or a fresh empty one). Unlike archive, this is not recoverable.
     func deleteNote(_ name: String) {
         let url = folder.appendingPathComponent("\(name).md")
+        cache.removeValue(forKey: name)
         if name == activeName {
             try? FileManager.default.removeItem(at: url)
             refreshNoteNames()
@@ -437,33 +508,50 @@ final class NotesStore: ObservableObject {
         }
         suppressDirty = false
         lastMTime = mtime(activeURL)
+        cacheActive()
     }
 
     private func refreshNoteNames() {
+        noteNames = Self.scanNoteNames(in: folder, sort: noteSort)
+    }
+
+    /// Re-scan the notes directory off the main thread. Used after a switch when
+    /// the sort depends on file dates (Recently updated/created) — switching can
+    /// change those orders, but the directory scan is too slow to do inline.
+    private func refreshNoteNamesAsync() {
+        let folder = self.folder
+        let sort = self.noteSort
+        io.async { [weak self] in
+            let names = Self.scanNoteNames(in: folder, sort: sort)
+            DispatchQueue.main.async { self?.noteNames = names }
+        }
+    }
+
+    /// List the `.md` note names in `folder`, ordered per `sort`. Pure (no
+    /// instance state) so it's safe to run on a background queue.
+    private static func scanNoteNames(in folder: URL, sort: NoteSort) -> [String] {
         let keys: [URLResourceKey] = [.contentModificationDateKey, .creationDateKey]
         let urls = ((try? FileManager.default.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: keys)) ?? [])
             .filter { $0.pathExtension == "md" }
         let sorted: [URL]
-        switch noteSort {
+        switch sort {
         case .name:
             sorted = urls.sorted {
                 $0.deletingPathExtension().lastPathComponent
                     .localizedCaseInsensitiveCompare($1.deletingPathExtension().lastPathComponent) == .orderedAscending
             }
         case .updated:
-            sorted = urls.sorted { modDate($0) > modDate($1) }
+            sorted = urls.sorted { date($0, .contentModificationDateKey) > date($1, .contentModificationDateKey) }
         case .created:
-            sorted = urls.sorted { creationDate($0) > creationDate($1) }
+            sorted = urls.sorted { date($0, .creationDateKey) > date($1, .creationDateKey) }
         }
-        noteNames = sorted.map { $0.deletingPathExtension().lastPathComponent }
+        return sorted.map { $0.deletingPathExtension().lastPathComponent }
     }
 
-    private func modDate(_ url: URL) -> Date {
-        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-    }
-    private func creationDate(_ url: URL) -> Date {
-        (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
+    private static func date(_ url: URL, _ key: URLResourceKey) -> Date {
+        let v = try? url.resourceValues(forKeys: [key])
+        return v?.allValues[key] as? Date ?? .distantPast
     }
 
     private func refreshArchivedNames() {
@@ -513,6 +601,7 @@ final class NotesStore: ObservableObject {
         renameTask?.cancel()
         let desired = sanitize(title)
         guard desired != activeName else { return }
+        let previous = activeName
         saveNow() // flush content under the old name first
         let target = uniqueName(desired) // never clobber another note
         let newURL = folder.appendingPathComponent("\(target).md")
@@ -520,8 +609,10 @@ final class NotesStore: ObservableObject {
             try? FileManager.default.moveItem(at: activeURL, to: newURL)
         }
         activeName = target
+        cache.removeValue(forKey: previous) // file moved to the new name
         UserDefaults.standard.set(activeName, forKey: activeKey)
         lastMTime = mtime(activeURL)
+        cacheActive()
         ensureMirrorSymlink()
         refreshNoteNames()
     }
@@ -531,17 +622,20 @@ final class NotesStore: ObservableObject {
     }
 
     /// Point the mirror (~/StickyNotes/sticky.md) at the active note so the MCP
-    /// server and agents read whatever note is showing.
-    private func ensureMirrorSymlink() {
+    /// server and agents read whatever note is showing. `target` defaults to the
+    /// active note's URL; pass it explicitly when calling off the main thread (so
+    /// we don't read `activeName` from a background queue).
+    private func ensureMirrorSymlink(for target: URL? = nil) {
+        let dest = target ?? activeURL
         let fm = FileManager.default
         if let type = (try? fm.attributesOfItem(atPath: mirror.path))?[.type] as? FileAttributeType {
             if type == FileAttributeType.typeSymbolicLink,
-               (try? fm.destinationOfSymbolicLink(atPath: mirror.path)) == activeURL.path {
+               (try? fm.destinationOfSymbolicLink(atPath: mirror.path)) == dest.path {
                 return // already pointing at the active note
             }
             try? fm.removeItem(at: mirror)
         }
-        try? fm.createSymbolicLink(at: mirror, withDestinationURL: activeURL)
+        try? fm.createSymbolicLink(at: mirror, withDestinationURL: dest)
     }
 
     private func scheduleSave() {
