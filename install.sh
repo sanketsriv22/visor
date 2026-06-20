@@ -15,7 +15,9 @@ ZIP_URL="https://github.com/$REPO/releases/latest/download/Visor.zip"
 
 install_app() { # $1 = path to a Visor.app
   pkill -x Visor 2>/dev/null || true
-  rm -rf "$APP"
+  if ! rm -rf "$APP" 2>/dev/null; then
+    osascript -e 'do shell script "rm -rf /Applications/Visor.app" with administrator privileges'
+  fi
   ditto "$1" "$APP"
   # Downloaded apps are quarantined; clear it so Gatekeeper lets it open.
   xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
