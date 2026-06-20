@@ -71,6 +71,6 @@ fi
 
 # Replace any running copy, then install
 pkill -x Visor 2>/dev/null || true
-rm -rf /Applications/Visor.app
+mv /Applications/Visor.app "/tmp/visor-old-$$" 2>/dev/null || rm -rf /Applications/Visor.app
 ditto "$APP" /Applications/Visor.app
 echo "Installed /Applications/Visor.app (v${VERSION})"
