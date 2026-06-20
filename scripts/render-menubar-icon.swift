@@ -1,5 +1,6 @@
 // Renders the Visor "Knot" menu-bar icon as a macOS template image.
-// Two V shapes interlocking with alternating over/under weave.
+// Two curved V shapes interlocking — the back V at lower opacity,
+// the front V at full opacity, creating the weave effect.
 // Output: MenuBarIconTemplate.png (18x18) and @2x (36x36) in the given directory.
 // Usage: swift render-menubar-icon.swift /path/to/output-dir
 import AppKit
@@ -24,56 +25,51 @@ func renderKnot(pointSize: CGFloat, scale: CGFloat) -> NSBitmapImageRep {
     let cx = s / 2
     let cy = s / 2
     let spread: CGFloat = s * 0.37
-    let vHeight: CGFloat = s * 0.35
-    let lw: CGFloat = s * 0.12
+    let vHeight: CGFloat = s * 0.38
+    let lw: CGFloat = s * 0.11
+    let curvePull: CGFloat = s * 0.08
 
     ctx.clear(CGRect(x: 0, y: 0, width: s, height: s))
     ctx.setLineCap(.round)
-    ctx.setLineJoin(.round)
     ctx.setLineWidth(lw)
 
-    // V (upright): tips top-left/right, vertex bottom-center
-    let vTipL = CGPoint(x: cx - spread, y: cy - vHeight)
-    let vTipR = CGPoint(x: cx + spread, y: cy - vHeight)
-    let vVtx  = CGPoint(x: cx, y: cy + vHeight)
+    // Inverted V (behind — low opacity, drawn first)
+    ctx.setStrokeColor(CGColor(gray: 0, alpha: 0.30))
 
-    // Lambda (inverted): vertex top-center, tips bottom-left/right
-    let aVtx  = CGPoint(x: cx, y: cy - vHeight)
-    let aTipL = CGPoint(x: cx - spread, y: cy + vHeight)
-    let aTipR = CGPoint(x: cx + spread, y: cy + vHeight)
+    ctx.beginPath()
+    ctx.move(to: CGPoint(x: cx, y: cy - vHeight))
+    ctx.addCurve(
+        to: CGPoint(x: cx - spread, y: cy + vHeight),
+        control1: CGPoint(x: cx - curvePull, y: cy - vHeight * 0.2),
+        control2: CGPoint(x: cx - spread - curvePull, y: cy + vHeight * 0.5))
+    ctx.strokePath()
 
-    // Arms cross at t=0.5 along each arm (both at y=cy).
-    // Weave: left crossing -> V in front; right crossing -> Lambda in front.
-    let armLen = sqrt(spread * spread + 4 * vHeight * vHeight)
-    let gapT = (lw * 1.1) / armLen
+    ctx.beginPath()
+    ctx.move(to: CGPoint(x: cx, y: cy - vHeight))
+    ctx.addCurve(
+        to: CGPoint(x: cx + spread, y: cy + vHeight),
+        control1: CGPoint(x: cx + curvePull, y: cy - vHeight * 0.2),
+        control2: CGPoint(x: cx + spread + curvePull, y: cy + vHeight * 0.5))
+    ctx.strokePath()
 
-    func lerp(_ a: CGPoint, _ b: CGPoint, _ t: CGFloat) -> CGPoint {
-        CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
-    }
+    // Upright V (in front — full opacity)
+    ctx.setStrokeColor(CGColor(gray: 0, alpha: 0.85))
 
-    func stroke(_ from: CGPoint, _ to: CGPoint) {
-        ctx.beginPath()
-        ctx.move(to: from)
-        ctx.addLine(to: to)
-        ctx.strokePath()
-    }
+    ctx.beginPath()
+    ctx.move(to: CGPoint(x: cx - spread, y: cy - vHeight))
+    ctx.addCurve(
+        to: CGPoint(x: cx, y: cy + vHeight),
+        control1: CGPoint(x: cx - spread - curvePull, y: cy - vHeight * 0.5),
+        control2: CGPoint(x: cx + curvePull, y: cy + vHeight * 0.2))
+    ctx.strokePath()
 
-    let black = CGColor(gray: 0, alpha: 1.0)
-    ctx.setStrokeColor(black)
-
-    // V left arm — fully drawn (V is in front at left crossing)
-    stroke(vTipL, vVtx)
-
-    // V right arm — gap at right crossing (Lambda is in front there)
-    stroke(vTipR, lerp(vTipR, vVtx, 0.5 - gapT))
-    stroke(lerp(vTipR, vVtx, 0.5 + gapT), vVtx)
-
-    // Lambda right arm — fully drawn (Lambda is in front at right crossing)
-    stroke(aVtx, aTipR)
-
-    // Lambda left arm — gap at left crossing (V is in front there)
-    stroke(aVtx, lerp(aVtx, aTipL, 0.5 - gapT))
-    stroke(lerp(aVtx, aTipL, 0.5 + gapT), aTipL)
+    ctx.beginPath()
+    ctx.move(to: CGPoint(x: cx + spread, y: cy - vHeight))
+    ctx.addCurve(
+        to: CGPoint(x: cx, y: cy + vHeight),
+        control1: CGPoint(x: cx + spread + curvePull, y: cy - vHeight * 0.5),
+        control2: CGPoint(x: cx - curvePull, y: cy + vHeight * 0.2))
+    ctx.strokePath()
 
     NSGraphicsContext.restoreGraphicsState()
     return rep
