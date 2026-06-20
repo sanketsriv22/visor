@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <channel>
+        <title>Visor Updates</title>
+        <link>https://github.com/sanketsriv22/visor/releases</link>
+        <item>
+            <title>Visor 1.0-beta.26</title>
+            <pubDate>Fri, 19 Jun 2026 18:49:13 -0700</pubDate>
+            <sparkle:version>1.0-beta.26</sparkle:version>
+            <sparkle:shortVersionString>1.0-beta.26</sparkle:shortVersionString>
+            <enclosure
+                url="https://github.com/sanketsriv22/visor/releases/download/v1.0-beta.26/Visor.zip"
+                sparkle:edSignature="hnbTBTQPGWCkPOdBxJsz3e5ab9sPJc5GYZ5cYKu06NWdMCD0+Kt7sBfahDLQ2Z0rQF6flX1+tgkFQ2nTozMFDQ=="
+                length="1590161"
+                type="application/octet-stream"
+            />
+        </item>
+    </channel>
+</rss>
