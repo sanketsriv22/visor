@@ -72,6 +72,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             exit(0)
         }
 
+        // Configure Firebase (anonymous auth + Firestore) for live note sharing.
+        // No-op when no GoogleService-Info.plist is bundled, so dev builds run fine.
+        #if canImport(FirebaseCore)
+        FirebaseBootstrap.start()
+        #endif
+
         setUpMainMenu()
         controller = NotchController(startExpanded: args.contains("--expanded"), ai: ai)
         setUpStatusItem()

@@ -2,30 +2,55 @@ import Foundation
 
 /// Encodes a note into a shareable "Beam" link and back.
 ///
-/// The note's markdown is deflated and base64url-encoded into the URL *fragment*
-/// (the part after `#`). Browsers never send the fragment to the server, so the
-/// landing page — and whoever hosts it — never sees the note's contents. The
-/// page's only job is to hand the fragment off to the `visor://` scheme, which
-/// the app decodes locally. No backend, no account, nothing stored anywhere.
+/// There are two kinds of beam link, both carried in the URL *fragment* (the
+/// part after `#`, which browsers never send to the server):
+///
+///   1. **Shared (live)** — `#s/<id>/<token>`. References a note synced through
+///      the backend; opening it joins the live document so edits flow both ways.
+///      This is what `NotesStore.share` now produces.
+///   2. **Legacy (offline copy)** — a base64url blob of the deflated markdown.
+///      The note rode entirely inside the link; opening it dropped a one-time
+///      copy. Still decoded here so links shared before live sync keep working.
+///
+/// Either way the landing page only hands the fragment to the `visor://` scheme;
+/// the host never sees note contents.
 enum BeamLink {
-    /// Static handoff page. The note rides in the fragment, so this host only
-    /// ever serves a fixed page — it never receives the note data.
+    /// Static handoff page. The fragment never reaches this host.
     static let base = "https://sanketsriv22.github.io/visor/beam/"
     static let scheme = "visor"
+    /// Marks a fragment as a shared-note reference rather than legacy content.
+    private static let sharedPrefix = "s/"
 
-    /// Build a shareable link that encodes `markdown`, or nil if encoding fails.
+    /// Build a link to a live shared note.
+    static func sharedLink(for ref: BeamRef) -> String {
+        base + "#" + sharedPrefix + ref.id + "/" + ref.token
+    }
+
+    /// Build a legacy offline-copy link that encodes `markdown`, or nil on failure.
     static func link(forMarkdown markdown: String) -> String? {
         guard let encoded = encode(markdown) else { return nil }
         return base + "#" + encoded
     }
 
-    /// Pull the payload out of any beam URL (the https page or a `visor://` link)
-    /// and decode it back to markdown.
+    /// The shared-note reference in `url`, if it's a live link.
+    static func sharedRef(fromURL url: URL) -> BeamRef? {
+        guard let fragment = fragment(of: url), fragment.hasPrefix(sharedPrefix) else { return nil }
+        let parts = fragment.dropFirst(sharedPrefix.count).split(separator: "/", maxSplits: 1)
+        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
+        return BeamRef(id: String(parts[0]), token: String(parts[1]))
+    }
+
+    /// Decode a legacy offline-copy link back to markdown. Returns nil for shared
+    /// links (use `sharedRef(fromURL:)` for those) or anything undecodable.
     static func markdown(fromURL url: URL) -> String? {
+        guard let fragment = fragment(of: url), !fragment.hasPrefix(sharedPrefix) else { return nil }
+        return decode(fragment)
+    }
+
+    private static func fragment(of url: URL) -> String? {
         let s = url.absoluteString
         guard let hash = s.firstIndex(of: "#") else { return nil }
-        let fragment = String(s[s.index(after: hash)...])
-        return decode(fragment)
+        return String(s[s.index(after: hash)...])
     }
 
     // MARK: - Codec

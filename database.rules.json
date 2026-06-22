@@ -1,0 +1,13 @@
+{
+  "rules": {
+    "beams": {
+      "$noteId": {
+        ".read": true,
+        ".write": true,
+        "ops": {
+          ".indexOn": ["t"]
+        }
+      }
+    }
+  }
+}

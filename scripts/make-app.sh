@@ -117,6 +117,17 @@ done
 # Bundle the changelog so the app can show "What's New" offline.
 cp "$REPO/CHANGELOG.md" "$APP/Contents/Resources/CHANGELOG.md" 2>/dev/null || true
 
+# Firebase config for live note sharing. It's a secret (gitignored), so it lives
+# outside the repo by default — override with GOOGLE_SERVICE_PLIST. Absent? The
+# app still builds and runs; live sharing just stays disabled (FirebaseBootstrap
+# no-ops without it).
+GOOGLE_SERVICE_PLIST="${GOOGLE_SERVICE_PLIST:-$REPO/GoogleService-Info.plist}"
+if [ -f "$GOOGLE_SERVICE_PLIST" ]; then
+    cp "$GOOGLE_SERVICE_PLIST" "$APP/Contents/Resources/GoogleService-Info.plist"
+else
+    echo "warning: no GoogleService-Info.plist (looked at $GOOGLE_SERVICE_PLIST) — live note sharing disabled" >&2
+fi
+
 codesign --force --sign - --deep "$APP"
 
 if [ -n "$BUILD_ONLY" ]; then

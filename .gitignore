@@ -4,3 +4,5 @@ dist/
 .DS_Store
 .sparkle-tools/
 .sparkle-keys/
+# Firebase config — secret, kept untracked at the repo root (or outside it).
+GoogleService-Info.plist

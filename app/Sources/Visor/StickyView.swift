@@ -36,25 +36,32 @@ private struct NotchStrip: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
+            // Always-present invisible hit target so the notch stays clickable.
+            Color.black.opacity(0.011)
+
             if hovering && !expanded {
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: 8,
-                    bottomTrailingRadius: 8,
-                    topTrailingRadius: 0
-                )
-                .fill(Color.black)
-                Capsule()
-                    .fill(.white.opacity(0.5))
-                    .frame(width: size.width * 0.4, height: 2.5)
-                    .padding(.bottom, 3)
-            } else {
-                Color.black.opacity(0.011) // effectively invisible, still hit-testable
+                ZStack(alignment: .bottom) {
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 0,
+                        bottomLeadingRadius: 8,
+                        bottomTrailingRadius: 8,
+                        topTrailingRadius: 0
+                    )
+                    .fill(Color.black)
+                    Capsule()
+                        .fill(.white.opacity(0.5))
+                        .frame(width: size.width * 0.4, height: 2.5)
+                        .padding(.bottom, 3)
+                }
+                // Fade + grow down from the notch instead of snapping in.
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .frame(width: size.width, height: size.height)
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
+        .onHover { h in
+            withAnimation(.easeInOut(duration: 0.2)) { hovering = h }
+        }
     }
 }
 
@@ -114,7 +121,7 @@ private struct StickyCard: View {
                     }
                     Divider()
                     Button("New note", action: store.newNote)
-                    Button("Copy beam link") { copyBeamLink() }
+                    Button("Copy live link") { copyBeamLink() }
                     Button("Archive this note") { store.archiveCurrent() }
                     Button("Delete this note", role: .destructive) { confirmDeleteActiveNote() }
                     if !store.archivedNames.isEmpty {
@@ -169,7 +176,7 @@ private struct StickyCard: View {
                 }
                 .buttonStyle(.plain)
                 .onHover { h in withAnimation(.easeInOut(duration: 0.18)) { beamHover = h } }
-                .help("Beam this note to a friend")
+                .help("Beam a live link — edits sync both ways")
             }
             .padding(.horizontal, 16)
             .padding(.top, 2)
@@ -191,10 +198,14 @@ private struct StickyCard: View {
         )
         .background(WindowReader { hostWindow = $0 })
         .onExitCommand(perform: onClose)
+        // Moving to another line clears any blank row you left behind — but keeps
+        // the row you just moved into (so creating-then-typing still works).
+        .onChange(of: focused) { newFocus in store.pruneEmptyTasks(except: newFocus) }
     }
 
-    /// The strip at notch height: VISOR in the left shoulder, open-count in the
-    /// right shoulder, with a gap in the middle cleared for the physical notch.
+    /// The strip at notch height: VISOR in the left shoulder; the open-count tucked
+    /// up against the right edge of the notch with the shared beacon beside it, in
+    /// the right shoulder. A gap in the middle clears the physical notch.
     private var notchBand: some View {
         let gap = notchWidth + 18 // notch + a little clearance on each side
         let shoulder = max(0, (NotchController.cardWidth - gap) / 2)
@@ -206,16 +217,37 @@ private struct StickyCard: View {
                 .padding(.leading, 16)
                 .frame(width: shoulder, alignment: .leading)
             Spacer(minLength: 0).frame(width: gap)
-            Text("\(store.openTaskCount) open")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(store.openTaskCount > 0 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
-                .padding(.trailing, 16)
-                .frame(width: shoulder, alignment: .trailing)
+            HStack(spacing: 0) {
+                Text("\(store.openTaskCount) open")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(store.openTaskCount > 0 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                Spacer(minLength: 8)
+                if store.isActiveNoteShared { sharedBeacon } // right-aligned under the prism
+            }
+            .padding(.leading, 6)
+            .padding(.trailing, 16)
+            .frame(width: shoulder, alignment: .leading)
         }
         .frame(height: topInset)
     }
 
+    /// Indicates the active note is a live shared note, with a live viewer count.
+    private var sharedBeacon: some View {
+        HStack(spacing: 3) {
+            Image(systemName: store.presenceCount > 1 ? "person.2.fill" : "dot.radiowaves.left.and.right")
+            if store.presenceCount > 1 {
+                Text("\(store.presenceCount)").font(.system(size: 10, weight: .semibold))
+            }
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(store.presenceCount > 1 ? Color.green : Color.secondary)
+        .help(store.presenceCount > 1
+            ? "Shared note — \(store.presenceCount) people viewing now"
+            : "Shared note — anyone with the link can edit")
+    }
+
     private var taskList: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 1) {
                 ForEach($store.items) { $item in
@@ -227,7 +259,11 @@ private struct StickyCard: View {
                         isDragging: draggingID == item.id,
                         onToggle: { store.cycle(item.id) },
                         onComplete: { store.toggleDone(item.id) },
-                        onSubmit: { focusRow(store.insertTask(after: item.id)) },
+                        onSubmit: {
+                            let id = store.insertTask(after: item.id)
+                            focusRow(id)
+                            scrollTo(id, proxy)
+                        },
                         onDelete: { withAnimation(reorderSpring) { store.remove(item.id) } },
                         onSend: {
                             let t = item.text.trimmingCharacters(in: .whitespaces)
@@ -253,11 +289,13 @@ private struct StickyCard: View {
                     .zIndex(draggingID == item.id ? 1 : 0)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                     .animation(draggingID == item.id ? nil : reorderSpring, value: store.items.map(\.id))
+                    .id(item.id)
                 }
-                addRow
+                addRow(proxy).id(addFieldID)
             }
             .padding(.horizontal, 14)
             .padding(.top, 2)
+        }
         }
     }
 
@@ -293,7 +331,7 @@ private struct StickyCard: View {
         lastDY = 0
     }
 
-    private var addRow: some View {
+    private func addRow(_ proxy: ScrollViewProxy) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "plus.circle")
                 .font(.system(size: 14))
@@ -302,44 +340,60 @@ private struct StickyCard: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .focused($focused, equals: addFieldID)
-                .onSubmit(commitNewTask)
+                .onSubmit { commitNewTask(proxy) }
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
         .onTapGesture { focused = addFieldID }
     }
 
-    private func commitNewTask() {
+    private func commitNewTask(_ proxy: ScrollViewProxy) {
         let trimmed = newTask.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        withAnimation(reorderSpring) { _ = store.addTask(trimmed) }
+        let id = withAnimation(reorderSpring) { store.addTask(trimmed) }
         newTask = ""
         focused = addFieldID // stay in the add field for rapid entry
+        scrollTo(id, proxy) // keep the freshly added task (and add field) in view
     }
 
     private func focusRow(_ id: UUID) {
         DispatchQueue.main.async { focused = id }
     }
 
-    /// Open the macOS share sheet (AirDrop, Messages, Mail…) for this note as a
-    /// `.visor` file. AirDrop it to a nearby Mac and it drops straight onto that
-    /// Mac's Visor; other channels send the file as an attachment.
-    private func beamActiveNote() {
-        guard let fileURL = store.writeBeamFile(),
-              let view = hostWindow?.contentView else { return }
-        let picker = NSSharingServicePicker(items: [fileURL])
-        let b = view.bounds
-        let anchor = NSRect(x: b.midX - 1, y: b.maxY - 56, width: 2, height: 2)
-        NSApp.activate(ignoringOtherApps: true) // accessory app must activate to show the sheet
-        picker.show(relativeTo: anchor, of: view, preferredEdge: .minY)
+    /// Scroll the task list so `id` is visible (used when a new task is added past
+    /// the current bottom of the viewport).
+    private func scrollTo(_ id: UUID, _ proxy: ScrollViewProxy) {
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .bottom) }
+        }
     }
 
-    /// Copy a shareable link to the clipboard — handy for channels where a link
-    /// beats a file, and it carries an install link for friends without Visor.
+    /// Beam this note as a *live* shared link: promote it to a shared note and
+    /// open the macOS share sheet (AirDrop, Messages, Mail, Copy…) with the link.
+    /// Opening it on another Mac joins the same note so edits sync both ways.
+    /// Promoting touches the network, so the sheet appears once the link is ready.
+    private func beamActiveNote() {
+        guard let view = hostWindow?.contentView else { return }
+        store.shareNote { link in
+            guard let link, let url = URL(string: link) else { return }
+            let picker = NSSharingServicePicker(items: [url])
+            let b = view.bounds
+            let anchor = NSRect(x: b.midX - 1, y: b.maxY - 56, width: 2, height: 2)
+            NSApp.activate(ignoringOtherApps: true) // accessory app must activate to show the sheet
+            picker.show(relativeTo: anchor, of: view, preferredEdge: .minY)
+        }
+    }
+
+    /// Promote this note to a live shared note and copy its link to the clipboard.
+    /// Opening it on another Mac joins the same note so edits sync in real time.
+    /// (Creating the share touches the network, so this is async; the link lands
+    /// on the clipboard a moment later.)
     private func copyBeamLink() {
-        guard let link = store.beamLink() else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(link, forType: .string)
+        store.shareNote { link in
+            guard let link else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(link, forType: .string)
+        }
     }
 
     /// Deleting a note is permanent (unlike Archive), so confirm first.
@@ -468,7 +522,7 @@ private struct NoteRow: View {
     var body: some View {
         // .center vertically aligns the handle, checkbox and text so they sit
         // on one line together.
-        HStack(alignment: .center, spacing: 8) {
+        HStack(alignment: .center, spacing: 4) {
             // Drag handle — only this grabs for reordering, so dragging never
             // fights with editing the task text. A gesture-driven live reorder
             // (rows part as you drag) rather than a system drag-and-drop.
@@ -476,10 +530,10 @@ private struct NoteRow: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
                 .opacity((hovering || isDragging) && !suppressHover ? 0.95 : 0.45)
-                // Generous invisible grab zone around the glyph, so you can grab
-                // the general area instead of pixel-aiming the three lines. Wide
-                // for an easy horizontal target; kept short so rows stay tight.
-                .frame(width: 26, height: 20)
+                // Invisible grab zone around the glyph so you can grab the general
+                // area instead of pixel-aiming the three lines. Kept snug so the
+                // handle and bullet sit close together on the left.
+                .frame(width: 16, height: 20)
                 .contentShape(Rectangle())
                 .gesture(
                     // Global coordinate space: the row's own offset (it follows

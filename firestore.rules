@@ -1,0 +1,27 @@
+rules_version = '2';
+
+// Capability model for shared notes (no Firebase Auth — see FirebaseBootstrap).
+// Access is gated by knowing a note's unguessable id (carried in the beam link):
+//   - `get`   : read a note you know the id of            → allowed
+//   - `create`/`update`: make or edit a note by id        → allowed
+//   - `list`  : enumerate/browse all notes                → DENIED (no fishing)
+//   - `delete`: removed client-side only                  → DENIED
+// The note id is a random 20-char Firestore id (~120 bits), so it can't be
+// guessed or enumerated. The token in the link is extra entropy. Tradeoffs
+// (link = full access, plaintext at rest, no revocation) are documented in
+// docs/firebase-sync.md.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /sharedNotes/{noteId} {
+      allow get, create, update: if true;
+      allow list, delete: if false;
+
+      // CRDT delta log. Reading (get + list) within a note you already hold the
+      // id for is fine; entries are append-only.
+      match /changes/{changeId} {
+        allow read, create: if true;
+        allow update, delete: if false;
+      }
+    }
+  }
+}

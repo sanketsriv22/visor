@@ -159,7 +159,7 @@ final class NotchController {
 
     func toggle() {
         if ui.expanded {
-            store.saveNow()
+            store.prepareToHide()  // prune blank rows + save (discards the note if now empty)
             withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                 ui.expanded = false
             }

@@ -73,6 +73,11 @@ final class NotesStore: ObservableObject {
     /// Names of archived notes (kept in Documents/Visor/Archive), for the switcher.
     @Published private(set) var archivedNames: [String] = []
 
+    /// Whether the active note is a live shared note — drives the share indicator.
+    @Published private(set) var isActiveNoteShared = false
+    /// People currently viewing the active shared note, including you (0 if not shared).
+    @Published private(set) var presenceCount = 0
+
     /// How the switcher orders notes.
     enum NoteSort: String, CaseIterable {
         case name, updated, created
@@ -90,12 +95,25 @@ final class NotesStore: ObservableObject {
         guard !suppressDirty else { return }
         dirty = true
         scheduleSave()
+        pushIfShared()  // stream the edit live (the sync engine micro-batches it)
     }
 
     private let folder: URL   // ~/Documents/Visor
     private let mirror: URL   // ~/StickyNotes/sticky.md (symlink → active note)
     private let activeKey = "visor.activeNote"
     private let noteSortKey = "visor.noteSort"
+    /// Maps a note name → its shared reference ("id/token"), so a note stays
+    /// linked to its live document across relaunches. Nil-valued when sharing
+    /// isn't configured.
+    private let sharedRefsKey = "visor.sharedRefs"
+
+    /// Real-time sharing backend, or nil when it isn't available (SDK not linked
+    /// or no `GoogleService-Info.plist`). When nil, every share path falls back
+    /// to the legacy offline copy and the app behaves exactly as before.
+    private let sync: NoteSyncing? = NoteSyncFactory.make()
+    /// True while we're applying a remote edit, so the resulting `items`/`title`
+    /// mutations don't get pushed straight back out as a local change.
+    private var applyingRemote = false
     private var dirty = false
     private var suppressDirty = false
     private var saveTask: DispatchWorkItem?
@@ -155,6 +173,21 @@ final class NotesStore: ObservableObject {
             guard let self else { return }
             if self.dirty { self.saveNow() } else { self.reloadFromDiskIfClean() }
         }
+
+        // Remote edits to the active shared note flow in here. We apply them like
+        // an external file edit: only when the user isn't mid-edit, so live typing
+        // wins the moment-to-moment race (the merge is already safe in the CRDT).
+        sync?.onRemoteMarkdown = { [weak self] markdown in
+            self?.applyRemoteMarkdown(markdown)
+        }
+        sync?.onPresenceCount = { [weak self] count in
+            self?.presenceCount = count
+        }
+        // If the note we restored is a shared one, start syncing it immediately.
+        if let ref = sharedRef(for: activeName) {
+            sync?.attach(ref: ref, localMarkdown: serialized)
+        }
+        refreshSharedState()
     }
 
     // MARK: - Mutations
@@ -315,14 +348,52 @@ final class NotesStore: ObservableObject {
         cacheActive()
     }
 
+    /// Drop blank task rows — e.g. empty `- [ ]` lines left behind by pressing
+    /// Return and not typing. `keepID` spares the row currently being edited, so we
+    /// can prune the instant focus moves to another line without deleting the row
+    /// you just moved into. Called on focus change and when leaving/hiding a note.
+    func pruneEmptyTasks(except keepID: UUID? = nil) {
+        let kept = items.filter { item in
+            if item.id == keepID { return true }
+            return !(item.isTask && item.text.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+        if kept.count != items.count { items = kept }
+    }
+
+    /// Persist as the card hides: prune blank rows first, then save (which also
+    /// discards the note entirely if pruning left it empty).
+    func prepareToHide() {
+        pruneEmptyTasks()
+        saveNow()
+    }
+
+    /// A note with no title and no non-blank tasks — nothing worth keeping.
+    private func contentIsEmpty(_ title: String, _ items: [NoteItem]) -> Bool {
+        title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && items.allSatisfy { $0.text.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
     func saveNow() {
         saveTask?.cancel()
+        // Never persist an empty note — an untouched "New note" you click away from
+        // shouldn't linger. (Shared notes are exempt: they have a remote identity.)
+        if sharedRef(for: activeName) == nil, contentIsEmpty(title, items) {
+            if FileManager.default.fileExists(atPath: activeURL.path) {
+                try? FileManager.default.removeItem(at: activeURL)
+                cache.removeValue(forKey: activeName)
+                lastMTime = nil
+                refreshNoteNames()
+            }
+            dirty = false
+            return
+        }
         guard dirty || !FileManager.default.fileExists(atPath: activeURL.path) else { return }
         try? serialized.data(using: .utf8)?.write(to: activeURL, options: .atomic)
         dirty = false
         lastMTime = mtime(activeURL)
         cacheActive()
         ensureMirrorSymlink()
+        pushIfShared()
     }
 
     // MARK: - Notes (switch / create)
@@ -335,6 +406,7 @@ final class NotesStore: ObservableObject {
         commitRenameNow()                 // handle a pending title rename (usually a no-op)
         guard name != activeName else { return } // …which may itself have changed activeName
 
+        pruneEmptyTasks()                 // don't carry blank rows out of the note we're leaving
         flushOutgoingAsync()              // write the outgoing note off the main thread + cache it
         activeName = name
 
@@ -348,6 +420,7 @@ final class NotesStore: ObservableObject {
         }
 
         UserDefaults.standard.set(activeName, forKey: activeKey)
+        attachSyncForActive()
 
         // Repoint the mirror symlink (for the MCP server / agents) in the
         // background — the UI doesn't depend on it. Note switching no longer
@@ -368,6 +441,17 @@ final class NotesStore: ObservableObject {
         let outgoing = activeName
         let snapTitle = title
         let snapItems = items
+        // Leaving an empty, unshared note discards it rather than persisting it.
+        if sharedRef(for: outgoing) == nil, contentIsEmpty(snapTitle, snapItems) {
+            cache.removeValue(forKey: outgoing)
+            dirty = false
+            let url = activeURL
+            io.async { [weak self] in
+                try? FileManager.default.removeItem(at: url)
+                DispatchQueue.main.async { self?.refreshNoteNames() }
+            }
+            return
+        }
         guard dirty else {
             // Clean: on-disk copy already matches memory, just cache it.
             cache[outgoing] = (snapTitle, snapItems, lastMTime)
@@ -391,40 +475,177 @@ final class NotesStore: ObservableObject {
     /// Create a fresh, empty note and switch to it.
     func newNote() {
         commitRenameNow()
+        // Already sitting on an empty note? Reuse it instead of stacking another.
+        if sharedRef(for: activeName) == nil, contentIsEmpty(title, items) { return }
         saveNow()
         activeName = uniqueName("Untitled")
         suppressDirty = true; title = ""; items = []; suppressDirty = false
         dirty = true
         saveNow()
         UserDefaults.standard.set(activeName, forKey: activeKey)
+        attachSyncForActive() // a fresh note isn't shared — detach any prior sync
         refreshNoteNames()
     }
 
     // MARK: - Beam (share a note via a link or a .visor file)
 
-    /// A shareable link encoding the current note. Paste it to a friend; opening
-    /// it drops a copy of this note onto their Visor. The note travels inside the
-    /// link's fragment, so nothing is uploaded anywhere. See `BeamLink`.
-    func beamLink() -> String? {
-        BeamLink.link(forMarkdown: serialized)
+    /// Produce a shareable link for the current note and, when the sync backend
+    /// is available, promote it to a *live* shared note so edits flow both ways.
+    /// Network work runs off the main thread, so the result is delivered via the
+    /// completion (on the main thread). Falls back to a legacy offline-copy link
+    /// if sharing isn't configured or the share fails. Re-sharing an already
+    /// shared note returns its existing link.
+    func shareNote(completion: @escaping (String?) -> Void) {
+        if let ref = sharedRef(for: activeName) {
+            completion(BeamLink.sharedLink(for: ref))
+            return
+        }
+        saveNow() // flush current edits so the shared seed is complete
+        guard let sync else {
+            completion(BeamLink.link(forMarkdown: serialized))
+            return
+        }
+        let name = activeName
+        let seed = serialized
+        sync.share(markdown: seed) { [weak self] ref in
+            guard let self else { completion(nil); return }
+            guard let ref else {
+                completion(BeamLink.link(forMarkdown: seed)) // backend hiccup — offline copy
+                return
+            }
+            self.setSharedRef(ref, for: name)
+            if name == self.activeName { self.refreshSharedState() }
+            completion(BeamLink.sharedLink(for: ref))
+        }
     }
 
-    /// Write the current note to a temporary `.visor` file for sharing (AirDrop,
-    /// Messages, Mail…). The recipient's Visor owns this type, so opening it
-    /// imports the note directly. Returns the file URL, or nil on failure.
-    func writeBeamFile() -> URL? {
-        let name = sanitize(activeName)
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).visor")
-        guard let data = serialized.data(using: .utf8), (try? data.write(to: url)) != nil else { return nil }
-        return url
-    }
-
-    /// Import a note received via a beam link. Returns false if it can't decode.
+    /// Import a note received via a beam link. A *live* link joins the shared
+    /// note and starts syncing; a *legacy* link drops a one-time copy. Returns
+    /// false if the URL can't be decoded.
     @discardableResult
     func importBeamed(from url: URL) -> Bool {
+        if let ref = BeamLink.sharedRef(fromURL: url) {
+            joinShared(ref: ref)
+            return true
+        }
         guard let markdown = BeamLink.markdown(fromURL: url) else { return false }
         createNote(fromMarkdown: markdown, defaultName: "Beamed note")
         return true
+    }
+
+    /// Join a live shared note: switch to it if we already have it, otherwise
+    /// create a local note and fill it from the remote seed, then keep it synced.
+    private func joinShared(ref: BeamRef) {
+        if let existing = noteNameForSharedRef(ref) {
+            switchTo(existing)
+            return
+        }
+        guard let sync else { return } // can't join without a backend
+        commitRenameNow()
+        saveNow()
+        let name = uniqueName("Beamed note")
+        activeName = name
+        suppressDirty = true; title = ""; items = []; suppressDirty = false
+        dirty = true
+        saveNow()
+        setSharedRef(ref, for: name)
+        UserDefaults.standard.set(activeName, forKey: activeKey)
+        refreshNoteNames()
+        refreshSharedState()
+        sync.join(ref: ref) { [weak self] markdown in
+            guard let self, let markdown, self.activeName == name else { return }
+            self.applyRemoteMarkdown(markdown)
+        }
+    }
+
+    /// Apply a remote edit to the active shared note. Treated like an external
+    /// file edit: skipped while the user is mid-edit (the merge is already safe in
+    /// the CRDT and will surface on the next clean tick), and written straight to
+    /// disk *without* re-pushing it back out as a local change.
+    private func applyRemoteMarkdown(_ markdown: String) {
+        guard !dirty else { return }
+        let (t, parsed) = Self.parseDocument(markdown)
+        guard Self.serializeDocument(title: t, items: parsed) != serialized else { return }
+        // Re-parsing mints fresh UUIDs for every line. Reuse the existing rows'
+        // ids positionally so SwiftUI only re-renders the rows that actually
+        // changed — otherwise the whole list (and every row's hover controls)
+        // churns and flickers on each incoming keystroke from a peer.
+        var it = parsed
+        for i in it.indices where i < items.count {
+            it[i] = NoteItem(id: items[i].id, text: it[i].text, isTask: it[i].isTask, status: it[i].status)
+        }
+        applyingRemote = true
+        suppressDirty = true
+        if title != t { title = t }
+        items = it
+        suppressDirty = false
+        applyingRemote = false
+        try? serialized.data(using: .utf8)?.write(to: activeURL, options: .atomic)
+        dirty = false
+        lastMTime = mtime(activeURL)
+        cacheActive()
+        ensureMirrorSymlink()
+    }
+
+    /// Attach the sync engine to the active note when it's shared, else detach.
+    private func attachSyncForActive() {
+        guard let sync else { refreshSharedState(); return }
+        if let ref = sharedRef(for: activeName) {
+            sync.attach(ref: ref, localMarkdown: serialized)
+        } else {
+            sync.detach()
+        }
+        refreshSharedState()
+    }
+
+    /// Recompute the published share state for the active note.
+    private func refreshSharedState() {
+        let shared = sharedRef(for: activeName) != nil
+        if isActiveNoteShared != shared { isActiveNoteShared = shared }
+        if !shared, presenceCount != 0 { presenceCount = 0 }
+    }
+
+    /// Push the active note's content if it's shared. Debounced inside the engine
+    /// and a no-op when nothing changed, so it's cheap to call on every save.
+    private func pushIfShared() {
+        guard !applyingRemote, sharedRef(for: activeName) != nil else { return }
+        sync?.pushLocal(markdown: serialized)
+    }
+
+    // MARK: - Shared-note references (name ↔ live document)
+
+    private func sharedRefMap() -> [String: String] {
+        UserDefaults.standard.dictionary(forKey: sharedRefsKey) as? [String: String] ?? [:]
+    }
+
+    private func sharedRef(for name: String) -> BeamRef? {
+        guard let raw = sharedRefMap()[name] else { return nil }
+        let parts = raw.split(separator: "/", maxSplits: 1)
+        guard parts.count == 2 else { return nil }
+        return BeamRef(id: String(parts[0]), token: String(parts[1]))
+    }
+
+    private func setSharedRef(_ ref: BeamRef, for name: String) {
+        var map = sharedRefMap()
+        map[name] = ref.id + "/" + ref.token
+        UserDefaults.standard.set(map, forKey: sharedRefsKey)
+    }
+
+    private func removeSharedRef(for name: String) {
+        var map = sharedRefMap()
+        map.removeValue(forKey: name)
+        UserDefaults.standard.set(map, forKey: sharedRefsKey)
+    }
+
+    private func moveSharedRef(from old: String, to new: String) {
+        var map = sharedRefMap()
+        guard let v = map.removeValue(forKey: old) else { return }
+        map[new] = v
+        UserDefaults.standard.set(map, forKey: sharedRefsKey)
+    }
+
+    private func noteNameForSharedRef(_ ref: BeamRef) -> String? {
+        sharedRefMap().first { $0.value.hasPrefix(ref.id + "/") }?.key
     }
 
     /// Import a note from a `.visor` file (e.g. received via AirDrop). Returns
@@ -479,6 +700,7 @@ final class NotesStore: ObservableObject {
         }
         UserDefaults.standard.set(activeName, forKey: activeKey)
         ensureMirrorSymlink()
+        attachSyncForActive() // sync the note we landed on (archived note's link is kept)
         refreshNoteNames()
         refreshArchivedNames()
     }
@@ -492,12 +714,14 @@ final class NotesStore: ObservableObject {
         let target = uniqueName(name) // never clobber an existing active note
         let dest = folder.appendingPathComponent("\(target).md")
         try? FileManager.default.moveItem(at: src, to: dest)
+        moveSharedRef(from: name, to: target) // a restored shared note keeps its link
         refreshNoteNames()
         refreshArchivedNames()
         activeName = target
         loadActive()
         UserDefaults.standard.set(activeName, forKey: activeKey)
         ensureMirrorSymlink()
+        attachSyncForActive()
     }
 
     /// Permanently delete a note's file. If it's the active note, switch to
@@ -505,6 +729,9 @@ final class NotesStore: ObservableObject {
     func deleteNote(_ name: String) {
         let url = folder.appendingPathComponent("\(name).md")
         cache.removeValue(forKey: name)
+        // Drop the local link mapping. (This stops syncing locally; it doesn't
+        // remove us from the shared note's members or delete it remotely.)
+        removeSharedRef(for: name)
         if name == activeName {
             try? FileManager.default.removeItem(at: url)
             refreshNoteNames()
@@ -519,6 +746,7 @@ final class NotesStore: ObservableObject {
             }
             UserDefaults.standard.set(activeName, forKey: activeKey)
             ensureMirrorSymlink()
+            attachSyncForActive()
         } else {
             try? FileManager.default.removeItem(at: url)
         }
@@ -676,6 +904,7 @@ final class NotesStore: ObservableObject {
         }
         activeName = target
         cache.removeValue(forKey: previous) // file moved to the new name
+        moveSharedRef(from: previous, to: target) // keep the live link tied to the note
         UserDefaults.standard.set(activeName, forKey: activeKey)
         lastMTime = mtime(activeURL)
         cacheActive()

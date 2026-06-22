@@ -3,6 +3,15 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.31 — 2026-06-22
+
+- Beam now creates a **live shared note** instead of a one-time copy: send someone the link and you both edit the same note, syncing in real time, character by character. Opening the same link again reopens that shared note instead of spawning duplicates.
+- A beacon in the top band shows when a note is shared, with a live count of how many people are viewing it right now.
+- Empty notes and blank task rows no longer linger: a brand-new note you never type in is discarded when you leave it, and a blank row vanishes the moment you move to another line.
+- The task list now auto-scrolls to keep a newly added task in view when it lands past the bottom.
+- Tightened the spacing between the drag handle and the bullet on the left of each row.
+- Smoothed the notch hover affordance so the little pull-tab fades in instead of snapping.
+
 ## 1.0-beta.30 — 2026-06-20
 
 - Fixed the updater never offering updates. The appcast advertised the marketing version where Sparkle expected the numeric build number, so "Check for Updates" always said you were up to date even when a newer version existed. It now compares build numbers correctly, so Check for Updates works from here on.
