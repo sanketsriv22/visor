@@ -77,6 +77,30 @@ final class SharedNoteSync: NoteSyncing {
     /// the snapshot it bootstrapped from).
     private static let opReplayLimit: UInt = 500
 
+    /// URL-safe lowercase slug of a note title, for a readable doc id. Falls back
+    /// to "note" when the title has no usable characters.
+    private static func slug(_ s: String) -> String {
+        var out = ""
+        var lastDash = false
+        for ch in s.lowercased() {
+            if ("a"..."z").contains(ch) || ("0"..."9").contains(ch) {
+                out.append(ch); lastDash = false
+            } else if !lastDash {
+                out.append("-"); lastDash = true
+            }
+        }
+        let dashes = CharacterSet(charactersIn: "-")
+        let capped = String(out.prefix(30)).trimmingCharacters(in: dashes)
+        return capped.isEmpty ? "note" : capped
+    }
+
+    /// Short random suffix (8 lowercase alphanumerics, ~41 bits) — the unguessable
+    /// part of the capability id.
+    private static func randomSuffix() -> String {
+        let alphabet = Array("abcdefghijklmnopqrstuvwxyz0123456789")
+        return String((0..<8).map { _ in alphabet.randomElement()! })
+    }
+
     // MARK: - Local CRDT snapshot cache
 
     /// Per-note Automerge snapshots, so reopening a shared note is instant and
@@ -107,13 +131,14 @@ final class SharedNoteSync: NoteSyncing {
 
     // MARK: - NoteSyncing
 
-    func share(markdown: String, completion: @escaping (BeamRef?) -> Void) {
+    func share(markdown: String, nameHint: String, completion: @escaping (BeamRef?) -> Void) {
         guard FirebaseBootstrap.configured else { completion(nil); return }
-        let docRef = db.collection(Self.collection).document()
-        let ref = BeamRef(id: docRef.documentID, token: UUID().uuidString)
+        // Readable-but-unguessable doc id: "note-name-slug" + short random suffix.
+        let id = Self.slug(nameHint) + "-" + Self.randomSuffix()
+        let docRef = db.collection(Self.collection).document(id)
+        let ref = BeamRef(id: id)
         let note = CRDTNote(markdown: markdown)
         let payload: [String: Any] = [
-            "token": ref.token,
             "snapshot": note.snapshot(),
             "createdAt": FieldValue.serverTimestamp(),
             "updatedAt": FieldValue.serverTimestamp(),

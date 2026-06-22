@@ -3,6 +3,14 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.32 — 2026-06-22
+
+- **Arrow-key navigation between tasks.** Up/Down move the cursor between rows, preserving your column (it lands at the same spot, not the end), and move between a long task's wrapped lines before jumping rows.
+- Beam links are now shorter and readable — `…/visor/beam/#s/<note-name>-xxxx` — and point at the kitalabs.dev domain.
+- Empty notes and blank task rows no longer linger: an untouched new note is discarded when you leave it, and a blank row clears the moment you move to another line.
+- The note auto-scrolls to keep a newly added task in view, and the drag handle now sits snug next to the checkbox.
+- Removed the faint light line along the note's top edge.
+
 ## 1.0-beta.31 — 2026-06-22
 
 - Beam now creates a **live shared note** instead of a one-time copy: send someone the link and you both edit the same note, syncing in real time, character by character. Opening the same link again reopens that shared note instead of spawning duplicates.

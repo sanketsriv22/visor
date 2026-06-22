@@ -15,15 +15,18 @@ import Foundation
 /// Either way the landing page only hands the fragment to the `visor://` scheme;
 /// the host never sees note contents.
 enum BeamLink {
-    /// Static handoff page. The fragment never reaches this host.
-    static let base = "https://sanketsriv22.github.io/visor/beam/"
+    /// Static handoff page (kitalabs.dev, served via Firebase Hosting). The
+    /// fragment never reaches this host — it only redirects to the `visor://`
+    /// scheme. Links shared before this still work via their original hosts.
+    static let base = "https://www.kitalabs.dev/visor/beam/"
     static let scheme = "visor"
     /// Marks a fragment as a shared-note reference rather than legacy content.
     private static let sharedPrefix = "s/"
 
-    /// Build a link to a live shared note.
+    /// Build a link to a live shared note. The id is the whole capability now —
+    /// no separate token (it was never enforced).
     static func sharedLink(for ref: BeamRef) -> String {
-        base + "#" + sharedPrefix + ref.id + "/" + ref.token
+        base + "#" + sharedPrefix + ref.id
     }
 
     /// Build a legacy offline-copy link that encodes `markdown`, or nil on failure.
@@ -32,12 +35,15 @@ enum BeamLink {
         return base + "#" + encoded
     }
 
-    /// The shared-note reference in `url`, if it's a live link.
+    /// The shared-note reference in `url`, if it's a live link. Accepts both the
+    /// new `s/<id>` form and the legacy `s/<id>/<token>` form (id is the first
+    /// segment either way).
     static func sharedRef(fromURL url: URL) -> BeamRef? {
         guard let fragment = fragment(of: url), fragment.hasPrefix(sharedPrefix) else { return nil }
-        let parts = fragment.dropFirst(sharedPrefix.count).split(separator: "/", maxSplits: 1)
-        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
-        return BeamRef(id: String(parts[0]), token: String(parts[1]))
+        let rest = fragment.dropFirst(sharedPrefix.count)
+        let id = rest.split(separator: "/", maxSplits: 1).first.map(String.init) ?? String(rest)
+        guard !id.isEmpty else { return nil }
+        return BeamRef(id: id)
     }
 
     /// Decode a legacy offline-copy link back to markdown. Returns nil for shared

@@ -507,7 +507,7 @@ final class NotesStore: ObservableObject {
         }
         let name = activeName
         let seed = serialized
-        sync.share(markdown: seed) { [weak self] ref in
+        sync.share(markdown: seed, nameHint: name) { [weak self] ref in
             guard let self else { completion(nil); return }
             guard let ref else {
                 completion(BeamLink.link(forMarkdown: seed)) // backend hiccup — offline copy
@@ -620,14 +620,14 @@ final class NotesStore: ObservableObject {
 
     private func sharedRef(for name: String) -> BeamRef? {
         guard let raw = sharedRefMap()[name] else { return nil }
-        let parts = raw.split(separator: "/", maxSplits: 1)
-        guard parts.count == 2 else { return nil }
-        return BeamRef(id: String(parts[0]), token: String(parts[1]))
+        // Accept legacy "id/token" entries too — the id is the first segment.
+        let id = raw.split(separator: "/", maxSplits: 1).first.map(String.init) ?? raw
+        return id.isEmpty ? nil : BeamRef(id: id)
     }
 
     private func setSharedRef(_ ref: BeamRef, for name: String) {
         var map = sharedRefMap()
-        map[name] = ref.id + "/" + ref.token
+        map[name] = ref.id
         UserDefaults.standard.set(map, forKey: sharedRefsKey)
     }
 
@@ -645,7 +645,7 @@ final class NotesStore: ObservableObject {
     }
 
     private func noteNameForSharedRef(_ ref: BeamRef) -> String? {
-        sharedRefMap().first { $0.value.hasPrefix(ref.id + "/") }?.key
+        sharedRefMap().first { $0.value == ref.id || $0.value.hasPrefix(ref.id + "/") }?.key
     }
 
     /// Import a note from a `.visor` file (e.g. received via AirDrop). Returns

@@ -160,6 +160,9 @@ final class NotchController {
     func toggle() {
         if ui.expanded {
             store.prepareToHide()  // prune blank rows + save (discards the note if now empty)
+            // Suppress the notch hover popup until the collapse + window resize
+            // settle, so it doesn't reflow right-to-left under a resting cursor.
+            ui.settling = true
             withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                 ui.expanded = false
             }
@@ -169,6 +172,10 @@ final class NotchController {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) { [weak self] in
                 guard let self, !self.ui.expanded else { return }
                 self.applyFrame(expanded: false)
+                // Window is now its final notch size — let the popup appear cleanly.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    withAnimation(.easeInOut(duration: 0.2)) { self.ui.settling = false }
+                }
             }
         } else {
             store.reloadFromDiskIfClean()

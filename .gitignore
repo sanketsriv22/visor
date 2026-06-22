@@ -6,3 +6,5 @@ dist/
 .sparkle-keys/
 # Firebase config — secret, kept untracked at the repo root (or outside it).
 GoogleService-Info.plist
+# Firebase CLI local deploy cache.
+.firebase/

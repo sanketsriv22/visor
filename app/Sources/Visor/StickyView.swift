@@ -16,7 +16,7 @@ struct StickyRootView: View {
                 StickyCard(store: store, ai: ai, topInset: ui.notchSize.height, notchWidth: ui.notchSize.width, suppressHover: ui.settling, onClose: onToggle)
                     .transition(.move(edge: .top).combined(with: .opacity))
             } else {
-                NotchStrip(size: ui.notchSize, expanded: false)
+                NotchStrip(size: ui.notchSize, expanded: false, suppressHover: ui.settling)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -31,36 +31,223 @@ struct StickyRootView: View {
 private struct NotchStrip: View {
     let size: CGSize
     let expanded: Bool
+    /// True briefly after the card collapses, while the window is still resizing
+    /// — suppresses the hover popup so it doesn't reflow mid-resize.
+    var suppressHover: Bool
 
     @State private var hovering = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Always-present invisible hit target so the notch stays clickable.
-            Color.black.opacity(0.011)
-
-            if hovering && !expanded {
-                ZStack(alignment: .bottom) {
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 0,
-                        bottomLeadingRadius: 8,
-                        bottomTrailingRadius: 8,
-                        topTrailingRadius: 0
-                    )
-                    .fill(Color.black)
-                    Capsule()
-                        .fill(.white.opacity(0.5))
-                        .frame(width: size.width * 0.4, height: 2.5)
-                        .padding(.bottom, 3)
-                }
-                // Fade + grow down from the notch instead of snapping in.
-                .transition(.opacity.combined(with: .move(edge: .top)))
+            if hovering && !expanded && !suppressHover {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 8,
+                    bottomTrailingRadius: 8,
+                    topTrailingRadius: 0
+                )
+                .fill(Color.black)
+                Capsule()
+                    .fill(.white.opacity(0.5))
+                    .frame(width: size.width * 0.4, height: 2.5)
+                    .padding(.bottom, 3)
+            } else {
+                Color.black.opacity(0.011) // effectively invisible, still hit-testable
             }
         }
         .frame(width: size.width, height: size.height)
         .contentShape(Rectangle())
-        .onHover { h in
-            withAnimation(.easeInOut(duration: 0.2)) { hovering = h }
+        // Gentle fade so the pull-tab eases in rather than snapping.
+        .onHover { h in withAnimation(.easeInOut(duration: 0.2)) { hovering = h } }
+    }
+}
+
+/// The card's outline minus the top edge — traces left, bottom (rounded), and
+/// right. Used for the card border so the top (which sits at the black screen
+/// edge) isn't stroked.
+private struct CardEdgeBorder: Shape {
+    var radius: CGFloat = 18
+    func path(in rect: CGRect) -> Path {
+        let r = min(radius, rect.height)
+        var p = Path()
+        p.move(to: CGPoint(x: 0, y: 0))                                  // top-left
+        p.addLine(to: CGPoint(x: 0, y: rect.height - r))                 // left edge
+        p.addQuadCurve(to: CGPoint(x: r, y: rect.height),
+                       control: CGPoint(x: 0, y: rect.height))           // bottom-left corner
+        p.addLine(to: CGPoint(x: rect.width - r, y: rect.height))        // bottom edge
+        p.addQuadCurve(to: CGPoint(x: rect.width, y: rect.height - r),
+                       control: CGPoint(x: rect.width, y: rect.height))  // bottom-right corner
+        p.addLine(to: CGPoint(x: rect.width, y: 0))                      // right edge
+        return p
+    }
+}
+
+/// An `NSTextView`-backed task editor. Unlike SwiftUI's `TextField` (an
+/// `NSTextField`), `NSTextView` does **not** select-all when it gains focus, so
+/// programmatic focus (arrow-key navigation) lands as a clean caret with no
+/// flash. It wraps long text and grows up to `maxLines`, reporting its height so
+/// the row sizes to fit. Return submits; ↑/↓ on the first/last line jump to the
+/// neighbouring row, otherwise move the caret between wrapped lines.
+/// Where a caret should land when arrow-navigating into a row: a target x (in
+/// the row editor's local coordinates, which line up across rows) and whether to
+/// land on the first line (arrowed down into this row) or last line (arrowed up).
+struct CaretLanding {
+    var x: CGFloat
+    var fromTop: Bool
+}
+
+private struct TaskEditor: NSViewRepresentable {
+    @Binding var text: String
+    var isDone: Bool
+    var isFocused: Bool
+    @Binding var height: CGFloat
+    /// When this row is about to be focused via ↑/↓, where to put the caret so it
+    /// preserves the column instead of jumping to the end. Consumed once.
+    var landing: CaretLanding?
+    var onFocus: () -> Void
+    var onSubmit: () -> Void
+    var onLandingConsumed: () -> Void
+    var onMoveUp: (CGFloat) -> Void
+    var onMoveDown: (CGFloat) -> Void
+
+    static let font = NSFont.systemFont(ofSize: 13)
+    static let maxLines = 6
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSTextView {
+        let tv = NSTextView()
+        tv.delegate = context.coordinator
+        tv.isRichText = false
+        tv.importsGraphics = false
+        tv.allowsUndo = true
+        tv.drawsBackground = false
+        tv.font = Self.font
+        tv.textContainerInset = .zero
+        tv.textContainer?.lineFragmentPadding = 0
+        tv.textContainer?.widthTracksTextView = true
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.string = text
+        context.coordinator.style(tv)
+        return tv
+    }
+
+    func updateNSView(_ tv: NSTextView, context: Context) {
+        context.coordinator.parent = self
+        if tv.string != text {
+            let sel = tv.selectedRange()
+            tv.string = text
+            tv.setSelectedRange(NSRange(location: min(sel.location, (text as NSString).length), length: 0))
+        }
+        context.coordinator.style(tv)
+        if isFocused, tv.window != nil, tv.window?.firstResponder !== tv {
+            tv.window?.makeFirstResponder(tv)
+            if let landing {
+                context.coordinator.placeCaret(tv, atX: landing.x, fromTop: landing.fromTop)
+                DispatchQueue.main.async { self.onLandingConsumed() }
+            } else {
+                tv.setSelectedRange(NSRange(location: (tv.string as NSString).length, length: 0))
+            }
+        }
+        context.coordinator.recomputeHeight(tv)
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: TaskEditor
+        init(_ p: TaskEditor) { parent = p }
+
+        func textDidChange(_ n: Notification) {
+            guard let tv = n.object as? NSTextView else { return }
+            parent.text = tv.string
+            recomputeHeight(tv)
+        }
+
+        func textDidBeginEditing(_ n: Notification) { parent.onFocus() }
+
+        func textView(_ tv: NSTextView, doCommandBy sel: Selector) -> Bool {
+            switch sel {
+            case #selector(NSResponder.insertNewline(_:)):
+                parent.onSubmit(); return true
+            case #selector(NSResponder.moveUp(_:)):
+                if caretAtFirstLine(tv) { parent.onMoveUp(caretX(tv)); return true }
+                return false
+            case #selector(NSResponder.moveDown(_:)):
+                if caretAtLastLine(tv) { parent.onMoveDown(caretX(tv)); return true }
+                return false
+            default:
+                return false
+            }
+        }
+
+        /// Plain text, with secondary colour + strikethrough when the task is done.
+        func style(_ tv: NSTextView) {
+            let color: NSColor = parent.isDone ? .secondaryLabelColor : .labelColor
+            let full = NSRange(location: 0, length: (tv.string as NSString).length)
+            tv.textStorage?.removeAttribute(.strikethroughStyle, range: full)
+            tv.textStorage?.addAttribute(.foregroundColor, value: color, range: full)
+            if parent.isDone {
+                tv.textStorage?.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: full)
+            }
+            tv.font = TaskEditor.font
+            tv.insertionPointColor = .labelColor
+            tv.typingAttributes = [.font: TaskEditor.font, .foregroundColor: color]
+        }
+
+        func recomputeHeight(_ tv: NSTextView) {
+            guard let lm = tv.layoutManager, let tc = tv.textContainer else { return }
+            lm.ensureLayout(for: tc)
+            let line = ceil(Self.lineHeight)
+            let used = lm.usedRect(for: tc).height
+            let h = min(max(used, line), line * CGFloat(TaskEditor.maxLines))
+            if abs(parent.height - h) > 0.5 {
+                DispatchQueue.main.async { self.parent.height = h }
+            }
+        }
+
+        private static var lineHeight: CGFloat {
+            TaskEditor.font.ascender - TaskEditor.font.descender + TaskEditor.font.leading
+        }
+
+        func caretAtFirstLine(_ tv: NSTextView) -> Bool {
+            guard let lm = tv.layoutManager, lm.numberOfGlyphs > 0 else { return true }
+            let g = min(tv.selectedRange().location, lm.numberOfGlyphs - 1)
+            let cur = lm.lineFragmentRect(forGlyphAt: g, effectiveRange: nil)
+            let first = lm.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
+            return cur.minY <= first.minY + 0.5
+        }
+
+        func caretAtLastLine(_ tv: NSTextView) -> Bool {
+            guard let lm = tv.layoutManager, lm.numberOfGlyphs > 0 else { return true }
+            let g = min(tv.selectedRange().location, lm.numberOfGlyphs - 1)
+            let cur = lm.lineFragmentRect(forGlyphAt: g, effectiveRange: nil)
+            let last = lm.lineFragmentRect(forGlyphAt: lm.numberOfGlyphs - 1, effectiveRange: nil)
+            return cur.maxY >= last.maxY - 0.5
+        }
+
+        /// The caret's x in the view's local coordinates — captured before an
+        /// arrow jump so the target row can land at the same column. Rows share
+        /// the same left edge, so this x maps directly across them.
+        func caretX(_ tv: NSTextView) -> CGFloat {
+            let loc = tv.selectedRange().location
+            let screen = tv.firstRect(forCharacterRange: NSRange(location: loc, length: 0), actualRange: nil)
+            guard let window = tv.window, screen != .zero else { return 0 }
+            let win = window.convertPoint(fromScreen: screen.origin)
+            return tv.convert(win, from: nil).x
+        }
+
+        /// Place the caret at the character nearest `x` on this row's first (or
+        /// last) line — column-preserving arrow navigation.
+        func placeCaret(_ tv: NSTextView, atX x: CGFloat, fromTop: Bool) {
+            guard let lm = tv.layoutManager, let tc = tv.textContainer, lm.numberOfGlyphs > 0 else {
+                tv.setSelectedRange(NSRange(location: 0, length: 0)); return
+            }
+            lm.ensureLayout(for: tc)
+            let g = fromTop ? 0 : lm.numberOfGlyphs - 1
+            let line = lm.lineFragmentRect(forGlyphAt: g, effectiveRange: nil)
+            let point = NSPoint(x: x, y: line.midY + tv.textContainerOrigin.y)
+            let idx = tv.characterIndexForInsertion(at: point)
+            tv.setSelectedRange(NSRange(location: idx, length: 0))
         }
     }
 }
@@ -76,7 +263,12 @@ private struct StickyCard: View {
     var suppressHover: Bool
     var onClose: () -> Void
 
+    // @FocusState owns the SwiftUI text fields (title + add row). Task rows are
+    // NSTextView-backed and can't be owned by @FocusState, so their focus is a
+    // plain state (which retains any id), coordinated with `focused` below.
     @FocusState private var focused: UUID?
+    @State private var focusedRow: UUID?
+    @State private var pendingCaret: CaretLanding?  // column to preserve on ↑/↓ jumps
     @State private var newTask = ""
     @State private var hostWindow: NSWindow?
     @State private var beamHover = false
@@ -194,13 +386,25 @@ private struct StickyCard: View {
                 .shadow(color: .black.opacity(0.35), radius: 5, y: 2)
         )
         .overlay(
-            shape.strokeBorder(.white.opacity(0.14), lineWidth: 1)
+            // Border on the left, bottom, and right only — no top edge, which sat
+            // at the black screen edge and read as an odd light line.
+            CardEdgeBorder(radius: 18).stroke(.white.opacity(0.14), lineWidth: 1)
         )
         .background(WindowReader { hostWindow = $0 })
         .onExitCommand(perform: onClose)
-        // Moving to another line clears any blank row you left behind — but keeps
-        // the row you just moved into (so creating-then-typing still works).
-        .onChange(of: focused) { newFocus in store.pruneEmptyTasks(except: newFocus) }
+        // Focusing a SwiftUI field (title/add row) means no task row is focused.
+        .onChange(of: focused) { f in
+            if f != nil {
+                focusedRow = nil
+                DispatchQueue.main.async { store.pruneEmptyTasks(except: nil) }
+            }
+        }
+        // Moving to another row clears any blank row you left behind — but keeps
+        // the row you just moved into. Deferred a tick so we don't mutate items
+        // during the focus change (which crashes SwiftUI).
+        .onChange(of: focusedRow) { row in
+            DispatchQueue.main.async { store.pruneEmptyTasks(except: row) }
+        }
     }
 
     /// The strip at notch height: VISOR in the left shoulder; the open-count tucked
@@ -253,7 +457,8 @@ private struct StickyCard: View {
                 ForEach($store.items) { $item in
                     NoteRow(
                         item: $item,
-                        focused: $focused,
+                        isFocused: focusedRow == item.id,
+                        onFocus: { focusedRow = item.id; focused = nil },
                         suppressHover: suppressHover,
                         isSending: ai.isRunning(item.id),
                         isDragging: draggingID == item.id,
@@ -277,7 +482,21 @@ private struct StickyCard: View {
                             withAnimation(reorderSpring) { store.moveTaskToNewNote(item.id) }
                         },
                         onDragChanged: { dy in dragChanged(item.id, dy) },
-                        onDragEnded: { dragEnded() }
+                        onDragEnded: { dragEnded() },
+                        landing: pendingCaret,
+                        onLandingConsumed: { pendingCaret = nil },
+                        onMoveUp: { x in
+                            if let i = store.items.firstIndex(where: { $0.id == item.id }), i > 0 {
+                                pendingCaret = CaretLanding(x: x, fromTop: false) // land on the row above's last line
+                                focusedRow = store.items[i - 1].id
+                            }
+                        },
+                        onMoveDown: { x in
+                            if let i = store.items.firstIndex(where: { $0.id == item.id }), i < store.items.count - 1 {
+                                pendingCaret = CaretLanding(x: x, fromTop: true) // land on the row below's first line
+                                focusedRow = store.items[i + 1].id
+                            }
+                        }
                     )
                     // The dragged row lifts and tracks the cursor with NO
                     // animation (its slot jumps are cancelled by dragOffset);
@@ -357,7 +576,7 @@ private struct StickyCard: View {
     }
 
     private func focusRow(_ id: UUID) {
-        DispatchQueue.main.async { focused = id }
+        DispatchQueue.main.async { focused = nil; focusedRow = id }
     }
 
     /// Scroll the task list so `id` is visible (used when a new task is added past
@@ -466,7 +685,8 @@ private struct StickyCard: View {
 /// plain text otherwise. A delete affordance appears on hover.
 private struct NoteRow: View {
     @Binding var item: NoteItem
-    @FocusState.Binding var focused: UUID?
+    var isFocused: Bool
+    var onFocus: () -> Void
     var suppressHover: Bool
     var isSending: Bool
     var isDragging: Bool
@@ -480,9 +700,14 @@ private struct NoteRow: View {
     var onMoveToNew: () -> Void
     var onDragChanged: (CGFloat) -> Void
     var onDragEnded: () -> Void
+    var landing: CaretLanding?
+    var onLandingConsumed: () -> Void
+    var onMoveUp: (CGFloat) -> Void
+    var onMoveDown: (CGFloat) -> Void
 
     @State private var hovering = false
     @State private var checkboxBump = false
+    @State private var editorHeight: CGFloat = 17
 
     static func glyph(_ s: TaskStatus) -> String {
         switch s {
@@ -559,21 +784,21 @@ private struct NoteRow: View {
                     .help(Self.label(item.status) + " — tap to change, hold to complete")
             }
 
-            // axis: .vertical lets long text wrap onto new lines and the row
-            // grow, instead of truncating on a single line.
-            TextField("", text: $item.text, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .lineLimit(1...6)
-                // Prefer wrapping to the next line over growing horizontally —
-                // without this the field stretches past the row edge and only
-                // snaps to a new line a beat later.
-                .fixedSize(horizontal: false, vertical: true)
-                .strikethrough(item.isTask && item.done, color: .secondary)
-                .foregroundStyle(item.isTask && item.done ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-                .focused($focused, equals: item.id)
-                .onSubmit(onSubmit)
-
+            // NSTextView-backed editor: wraps + grows like the old field, but
+            // doesn't select-all on focus, so arrow-key navigation lands cleanly.
+            TaskEditor(
+                text: $item.text,
+                isDone: item.isTask && item.done,
+                isFocused: isFocused,
+                height: $editorHeight,
+                landing: isFocused ? landing : nil,
+                onFocus: onFocus,
+                onSubmit: onSubmit,
+                onLandingConsumed: onLandingConsumed,
+                onMoveUp: onMoveUp,
+                onMoveDown: onMoveDown
+            )
+            .frame(height: editorHeight)
         }
         // Float the actions over the row's trailing edge so they never push or
         // wrap the task text; a fade keeps them legible over any text under them.

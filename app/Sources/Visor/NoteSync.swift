@@ -5,8 +5,11 @@ import Foundation
 /// carries both, and joining proves you hold the token before the rules add you
 /// to the note's member list. Knowing an id alone is not enough to read a note.
 struct BeamRef: Equatable {
+    /// The shared note's Firestore document id. It doubles as the capability —
+    /// knowing it (via the beam link) is what grants access — so it must stay
+    /// unguessable. We use `note-name-slug` + a short random suffix for a readable
+    /// yet hard-to-guess id.
     let id: String
-    let token: String
 }
 
 /// The seam between `NotesStore` and the real-time sync backend. The store never
@@ -29,10 +32,11 @@ protocol NoteSyncing: AnyObject {
     var onPresenceCount: ((Int) -> Void)? { get set }
 
     /// Promote the current note into a brand-new shared note. `markdown` seeds
-    /// the CRDT. On success the completion carries the `BeamRef` to embed in a
-    /// link; on failure it carries nil and the caller should fall back to an
-    /// offline copy. Leaves the engine attached to the new shared note.
-    func share(markdown: String, completion: @escaping (BeamRef?) -> Void)
+    /// the CRDT; `nameHint` is the note's title, used to build a readable doc id.
+    /// On success the completion carries the `BeamRef` to embed in a link; on
+    /// failure it carries nil and the caller should fall back to an offline copy.
+    /// Leaves the engine attached to the new shared note.
+    func share(markdown: String, nameHint: String, completion: @escaping (BeamRef?) -> Void)
 
     /// Join an existing shared note. The completion carries the note's current
     /// markdown (the seed to show locally), or nil if the join failed (bad token,
