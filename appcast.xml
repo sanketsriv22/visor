@@ -4,14 +4,14 @@
         <title>Visor Updates</title>
         <link>https://github.com/sanketsriv22/visor/releases</link>
         <item>
-            <title>Visor 1.0-beta.32</title>
-            <pubDate>Tue, 23 Jun 2026 02:54:09 -0700</pubDate>
-            <sparkle:version>106</sparkle:version>
-            <sparkle:shortVersionString>1.0-beta.32</sparkle:shortVersionString>
+            <title>Visor 1.0-beta.33</title>
+            <pubDate>Tue, 23 Jun 2026 03:19:23 -0700</pubDate>
+            <sparkle:version>110</sparkle:version>
+            <sparkle:shortVersionString>1.0-beta.33</sparkle:shortVersionString>
             <enclosure
-                url="https://github.com/sanketsriv22/visor/releases/download/v1.0-beta.32/Visor.zip"
-                sparkle:edSignature="vye6sxKQg7PFtGYxYiUz8L3QirK6Pb2E1EkeMljOOUOGLiXr8+s3rQjIVAfHKAPNQj7IYvyfS/LlFKKmlFkcCw=="
-                length="9166301"
+                url="https://github.com/sanketsriv22/visor/releases/download/v1.0-beta.33/Visor.zip"
+                sparkle:edSignature="m7qivDUUd5YtbRYUWw0jw+0lp77GlaAm+Us2ETrpxKp5xrvASbVz1Z+nxe3crxBw1EUsnFm+R2/+KMzs+D14AA=="
+                length="9100981"
                 type="application/octet-stream"
             />
         </item>
