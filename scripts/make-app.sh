@@ -109,8 +109,9 @@ else
     echo "warning: icon generation failed, building without icon" >&2
 fi
 
-# Menu-bar icon (template image — macOS auto-colorises via alpha channel).
-for f in "$REPO/app/Sources/Visor/Resources"/MenuBarIconTemplate*.png; do
+# Template images (macOS auto-colorises via alpha channel): the menu-bar icon
+# and the in-app trefoil "beam" glyph. Loaded by NSImage(named:).
+for f in "$REPO/app/Sources/Visor/Resources"/*Template*.png; do
     [ -f "$f" ] && cp "$f" "$APP/Contents/Resources/"
 done
 

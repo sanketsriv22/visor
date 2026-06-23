@@ -39,23 +39,31 @@ private struct NotchStrip: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
+            // Always-present invisible hit target so the notch stays clickable.
+            Color.black.opacity(0.011)
+
             if hovering && !expanded && !suppressHover {
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: 8,
-                    bottomTrailingRadius: 8,
-                    topTrailingRadius: 0
-                )
-                .fill(Color.black)
-                Capsule()
-                    .fill(.white.opacity(0.5))
-                    .frame(width: size.width * 0.4, height: 2.5)
-                    .padding(.bottom, 3)
-            } else {
-                Color.black.opacity(0.011) // effectively invisible, still hit-testable
+                ZStack(alignment: .bottom) {
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 0,
+                        bottomLeadingRadius: 8,
+                        bottomTrailingRadius: 8,
+                        topTrailingRadius: 0
+                    )
+                    .fill(Color.black)
+                    Capsule()
+                        .fill(.white.opacity(0.5))
+                        .frame(width: size.width * 0.4, height: 2.5)
+                        .padding(.bottom, 3)
+                }
+                // Pure fade in/out — never a positional/sliding animation.
+                .transition(.opacity)
             }
         }
         .frame(width: size.width, height: size.height)
+        // Never animate the strip's layout when the window resizes on collapse —
+        // that's what caused the popup to slide in from the right.
+        .animation(nil, value: size)
         .contentShape(Rectangle())
         // Gentle fade so the pull-tab eases in rather than snapping.
         .onHover { h in withAnimation(.easeInOut(duration: 0.2)) { hovering = h } }
@@ -357,17 +365,33 @@ private struct StickyCard: View {
                 Button(action: beamActiveNote) {
                     BeamGlyph(spectrum: beamHover)
                         .frame(width: 22, height: 19)
-                        .foregroundStyle(beamHover ? Color.white : Color.secondary)
                         .scaleEffect(beamHover ? 1.1 : 1)
+                        // Re-clamp to the resting size so the hover "pop" overflows
+                        // visually without resizing the layout/hit region. If the
+                        // tracked region resized on hover, SwiftUI could rebuild the
+                        // tracking area mid-hover and drop the exit event (icon stuck lit).
+                        .frame(width: 22, height: 19)
+                        // Sense hover on the glyph itself, NOT the padded click area
+                        // below — otherwise the icon lights up whenever the cursor is
+                        // merely near it. onContinuousHover's .ended fires reliably on
+                        // exit, unlike onHover inside a non-activating panel.
+                        .onContinuousHover { phase in
+                            let inside: Bool
+                            switch phase {
+                            case .active: inside = true
+                            case .ended:  inside = false
+                            }
+                            withAnimation(.easeInOut(duration: 0.18)) { beamHover = inside }
+                        }
                         .padding(.vertical, 6)
                         .padding(.leading, 6)
                         // The glyph is thin strokes on a clear background; without
                         // this only the drawn pixels would be clickable, so clicks
-                        // landing in the gaps would miss. Make the whole area hit.
+                        // landing in the gaps would miss. Make the whole padded area
+                        // clickable (a larger, easier target than the hover region).
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .onHover { h in withAnimation(.easeInOut(duration: 0.18)) { beamHover = h } }
                 .help("Beam a live link — edits sync both ways")
             }
             .padding(.horizontal, 16)
@@ -869,45 +893,86 @@ private struct NoteRow: View {
     }
 }
 
-/// A "beam" mark — a single ray entering a prism and dispersing out the far
-/// side. Monochrome at rest; the output rays light up as a spectrum when
-/// `spectrum` is true (the parent passes its hover state).
+/// A "beam" mark — a 2-D trefoil knot, the simplest knot. Uses the crafted
+/// `trefoilTemplate` template image when it's bundled (the packaged .app),
+/// and falls back to a parametric trefoil drawn in code otherwise (e.g.
+/// `swift run`, where Resources aren't bundled). Monochrome at rest (inherits
+/// the parent's foregroundStyle); the strand lights up as a rainbow spectrum
+/// when `spectrum` is true (the parent passes its hover state).
 private struct BeamGlyph: View {
     var spectrum: Bool
 
-    private var outputColors: [Color] {
-        spectrum
-            ? [Color(red: 0.89, green: 0.29, blue: 0.29),   // red
-               Color(red: 0.94, green: 0.62, blue: 0.15),   // amber
-               Color(red: 0.40, green: 0.66, blue: 0.92)]   // blue
-            : [.secondary, .secondary, .secondary]
+    private static let stroke = StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round)
+
+    /// The bundled template image, if present. Marked as a template so AppKit
+    /// tints it from the alpha channel; SwiftUI then recolours via foregroundStyle.
+    private static let templateImage: NSImage? = {
+        guard let img = NSImage(named: "trefoilTemplate") else { return nil }
+        img.isTemplate = true
+        return img
+    }()
+
+    private var spectrumGradient: AngularGradient {
+        AngularGradient(
+            colors: [Color(red: 0.89, green: 0.29, blue: 0.29),   // red
+                     Color(red: 0.94, green: 0.62, blue: 0.15),   // amber
+                     Color(red: 0.40, green: 0.66, blue: 0.92),   // blue
+                     Color(red: 0.89, green: 0.29, blue: 0.29)],  // back to red — seamless loop
+            center: .center)
     }
 
     var body: some View {
+        // SwiftUI can't interpolate between two different ShapeStyles (a solid
+        // colour and a gradient), so toggling foregroundStyle snaps. Instead we
+        // stack a grey base and the rainbow version and crossfade their opacity,
+        // which *does* animate — giving a smooth grey↔lit transition on hover.
         ZStack {
-            // Incoming ray + prism — take the parent's foregroundStyle.
-            Path { p in
-                p.move(to: CGPoint(x: 0, y: 10)); p.addLine(to: CGPoint(x: 7, y: 10))
-            }
-            .stroke(style: StrokeStyle(lineWidth: 1.7, lineCap: .round))
-            Path { p in
-                p.move(to: CGPoint(x: 11, y: 2.5))
-                p.addLine(to: CGPoint(x: 5.5, y: 16.5))
-                p.addLine(to: CGPoint(x: 16.5, y: 16.5))
-                p.closeSubpath()
-            }
-            .stroke(style: StrokeStyle(lineWidth: 1.7, lineJoin: .round))
-            // Dispersed output rays, fanning from the prism's far face.
-            ray(to: CGPoint(x: 21, y: 6), outputColors[0])
-            ray(to: CGPoint(x: 21.5, y: 10), outputColors[1])
-            ray(to: CGPoint(x: 21, y: 14), outputColors[2])
+            glyph(AnyShapeStyle(Color.secondary))
+            glyph(AnyShapeStyle(spectrumGradient))
+                .opacity(spectrum ? 1 : 0)
         }
         .frame(width: 22, height: 19)
+        .animation(.easeInOut(duration: 0.18), value: spectrum)
     }
 
-    private func ray(to end: CGPoint, _ color: Color) -> some View {
-        Path { p in p.move(to: CGPoint(x: 13.5, y: 10)); p.addLine(to: end) }
-            .stroke(color, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+    /// One rendering of the trefoil tinted with `style`: the bundled template
+    /// image when present, else the parametric vector fallback.
+    @ViewBuilder private func glyph(_ style: AnyShapeStyle) -> some View {
+        if let img = Self.templateImage {
+            Image(nsImage: img)
+                .renderingMode(.template)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .padding(1.5)
+                .foregroundStyle(style)
+        } else {
+            Self.trefoil(in: CGRect(x: 0, y: 0, width: 22, height: 19).insetBy(dx: 1.5, dy: 1.5))
+                .stroke(style, style: Self.stroke)
+        }
+    }
+
+    /// The standard 2-D trefoil:  x = sin t + 2 sin 2t,  y = cos t − 2 cos 2t.
+    /// Sampled over one period and scaled to fit `rect` (centred on its box).
+    private static func trefoil(in rect: CGRect) -> Path {
+        let samples = 220
+        let pts: [CGPoint] = (0...samples).map { i in
+            let t = 2 * Double.pi * Double(i) / Double(samples)
+            return CGPoint(x: sin(t) + 2 * sin(2 * t),
+                           y: cos(t) - 2 * cos(2 * t))
+        }
+        let xs = pts.map(\.x), ys = pts.map(\.y)
+        let minX = xs.min()!, maxX = xs.max()!, minY = ys.min()!, maxY = ys.max()!
+        let scale = min(rect.width / (maxX - minX), rect.height / (maxY - minY))
+        let cx = (minX + maxX) / 2, cy = (minY + maxY) / 2
+
+        var path = Path()
+        for (i, pt) in pts.enumerated() {
+            let p = CGPoint(x: rect.midX + (pt.x - cx) * scale,
+                            y: rect.midY + (pt.y - cy) * scale)
+            i == 0 ? path.move(to: p) : path.addLine(to: p)
+        }
+        path.closeSubpath()
+        return path
     }
 }
 
