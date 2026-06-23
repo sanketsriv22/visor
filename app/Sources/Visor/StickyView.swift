@@ -309,7 +309,18 @@ private struct StickyCard: View {
     @State private var draggingID: UUID?
     @State private var dragOffset: CGFloat = 0
     @State private var lastDY: CGFloat = 0
+    // Measured per-row heights, so reordering works with multi-line tasks (rows
+    // are not a fixed height). Keyed by item id; rowHeight is the fallback for a
+    // row that hasn't been measured yet.
+    @State private var rowHeights: [UUID: CGFloat] = [:]
     private let rowHeight: CGFloat = 23
+    private let rowSpacing: CGFloat = 1   // matches the task VStack's spacing
+
+    /// Slot-to-slot distance for the row `id`: its measured height plus the
+    /// inter-row spacing, falling back to `rowHeight` before it's been measured.
+    private func slotHeight(of id: UUID) -> CGFloat {
+        rowHeights[id].map { $0 + rowSpacing } ?? rowHeight
+    }
     // Quick, critically-damped: rows settle fast with no bouncy tail, so a new
     // drag can begin immediately after dropping (SwiftUI blocks new gestures
     // while the hierarchy is still animating).
@@ -542,6 +553,16 @@ private struct StickyCard: View {
                             }
                         }
                     )
+                    // Measure each row's natural height (before the drag scale/
+                    // offset) so reordering can account for multi-line rows.
+                    .background(
+                        GeometryReader { g in
+                            Color.clear.preference(
+                                key: RowHeightKey.self,
+                                value: [item.id: g.size.height]
+                            )
+                        }
+                    )
                     // The dragged row lifts and tracks the cursor with NO
                     // animation (its slot jumps are cancelled by dragOffset);
                     // every other row springs to its new slot.
@@ -558,6 +579,7 @@ private struct StickyCard: View {
             }
             .padding(.horizontal, 14)
             .padding(.top, 2)
+            .onPreferenceChange(RowHeightKey.self) { rowHeights = $0 }
         }
         }
     }
@@ -570,19 +592,30 @@ private struct StickyCard: View {
         }
         dragOffset += dy - lastDY
         lastDY = dy
-        // Swap into a neighbor slot once the row has dragged past its midpoint.
-        // The slot change is instant; reducing dragOffset by a row keeps the
-        // dragged row visually continuous under the cursor.
+        // Swap into a neighbor slot once the row has dragged past that neighbor's
+        // midpoint. Use the *neighbor's* measured height (rows vary — multi-line
+        // tasks are taller), so the threshold and the dragOffset compensation
+        // match the slot the row actually moved across. Using a fixed height here
+        // made the dragged row (and its handle) drift off the cursor when passing
+        // a multi-line task.
         while let idx = store.items.firstIndex(where: { $0.id == id }) {
-            if dragOffset > rowHeight / 2, idx < store.items.count - 1 {
-                store.items.swapAt(idx, idx + 1)
-                dragOffset -= rowHeight
-            } else if dragOffset < -rowHeight / 2, idx > 0 {
-                store.items.swapAt(idx, idx - 1)
-                dragOffset += rowHeight
-            } else {
-                break
+            if idx < store.items.count - 1 {
+                let h = slotHeight(of: store.items[idx + 1].id)
+                if dragOffset > h / 2 {
+                    store.items.swapAt(idx, idx + 1)
+                    dragOffset -= h
+                    continue
+                }
             }
+            if idx > 0 {
+                let h = slotHeight(of: store.items[idx - 1].id)
+                if dragOffset < -h / 2 {
+                    store.items.swapAt(idx, idx - 1)
+                    dragOffset += h
+                    continue
+                }
+            }
+            break
         }
     }
 
@@ -993,6 +1026,15 @@ private struct BeamGlyph: View {
         }
         path.closeSubpath()
         return path
+    }
+}
+
+/// Collects each task row's measured height, keyed by item id, so drag-to-
+/// reorder can handle rows of different heights (multi-line tasks).
+private struct RowHeightKey: PreferenceKey {
+    static let defaultValue: [UUID: CGFloat] = [:]
+    static func reduce(value: inout [UUID: CGFloat], nextValue: () -> [UUID: CGFloat]) {
+        value.merge(nextValue()) { _, new in new }
     }
 }
 
