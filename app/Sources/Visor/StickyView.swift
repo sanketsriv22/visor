@@ -581,6 +581,10 @@ private struct StickyCard: View {
             .padding(.top, 2)
             .onPreferenceChange(RowHeightKey.self) { rowHeights = $0 }
         }
+        // Hide the scroller — it looks heavy in the small notch panel, and
+        // shows permanently under the "Show scroll bars: Always" system setting.
+        // The list still scrolls (wheel/trackpad).
+        .scrollIndicators(.hidden)
         }
     }
 
