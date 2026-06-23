@@ -10,6 +10,7 @@ the menu-bar dropdown, and published as the release notes for each version.
 - Empty notes and blank task rows no longer linger: an untouched new note is discarded when you leave it, and a blank row clears the moment you move to another line.
 - The note auto-scrolls to keep a newly added task in view, and the drag handle now sits snug next to the checkbox.
 - Removed the faint light line along the note's top edge.
+- New look: a trefoil-knot mark is now Visor's app icon and menu-bar icon, and replaces the prism on the beam button (it still lights up as a spectrum on hover).
 
 ## 1.0-beta.31 — 2026-06-22
 

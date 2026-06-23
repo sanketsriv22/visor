@@ -93,20 +93,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# App icon: use the committed .icns (so CI needs no GUI). Fall back to
-# rendering one locally if it's missing.
+# App icon: use the committed .icns (so CI needs no GUI). To regenerate it from
+# scripts/AppIcon-1024.png, see scripts/make-appicon.swift.
 if [ -f "$REPO/scripts/AppIcon.icns" ]; then
     cp "$REPO/scripts/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
-elif swift "$REPO/scripts/render-icon.swift" /tmp/visor-icon-1024.png; then
-    ICONSET=/tmp/Visor.iconset
-    rm -rf "$ICONSET" && mkdir "$ICONSET"
-    for s in 16 32 128 256 512; do
-        sips -z "$s" "$s" /tmp/visor-icon-1024.png --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
-        sips -z "$((s * 2))" "$((s * 2))" /tmp/visor-icon-1024.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
-    done
-    iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 else
-    echo "warning: icon generation failed, building without icon" >&2
+    echo "warning: scripts/AppIcon.icns missing, building without icon" >&2
 fi
 
 # Template images (macOS auto-colorises via alpha channel): the menu-bar icon
