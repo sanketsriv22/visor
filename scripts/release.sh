@@ -16,6 +16,35 @@ TAG="v$VERSION"
 TOOLS="$REPO_DIR/.sparkle-tools"
 SIGN_TOOL="$TOOLS/sign_update"
 
+# ── Flags ────────────────────────────────────────────────────────────────
+#   --no-bump : release the current VERSION but do NOT advance it afterwards
+#               (use when you want to hand-pick the next version, e.g. 1.0).
+#   --force   : re-publish a VERSION that's already released (skip the guard).
+BUMP_AFTER=1
+FORCE=0
+for arg in "$@"; do
+  case "$arg" in
+    --no-bump) BUMP_AFTER=0 ;;
+    --force)   FORCE=1 ;;
+    *) echo "unknown flag: $arg" >&2; exit 2 ;;
+  esac
+done
+
+# ── Guard: never cut the same version twice ──────────────────────────────
+# If a tag/release for this VERSION already exists, someone forgot to bump it.
+# Re-releasing the same marketing version differs only by build number, which
+# is confusing ("beta.32 (106) available — you have beta.32 (104)").
+if [ "$FORCE" != "1" ]; then
+  if git -C "$REPO_DIR" rev-parse -q --verify "refs/tags/$TAG" >/dev/null 2>&1 \
+     || git -C "$REPO_DIR" ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1 \
+     || gh release view "$TAG" --repo "$SLUG" >/dev/null 2>&1; then
+    echo "ERROR: $TAG is already released. Bump VERSION (currently $VERSION) and add a" >&2
+    echo "       CHANGELOG.md entry for the new version before cutting a release." >&2
+    echo "       (Pass --force only to deliberately re-publish the same version.)" >&2
+    exit 1
+  fi
+fi
+
 # ── 1. Ensure Sparkle CLI tools are available ────────────────────────────
 if [ ! -x "$SIGN_TOOL" ]; then
   echo "Downloading Sparkle CLI tools…"
@@ -91,3 +120,22 @@ git -C "$REPO_DIR" diff --cached --quiet appcast.xml || \
 git -C "$REPO_DIR" push origin HEAD
 
 echo "Published $TAG to $SLUG."
+
+# ── 8. Advance VERSION for the next cycle ────────────────────────────────
+# Bump the trailing number (e.g. 1.0-beta.32 -> 1.0-beta.33) and commit, so the
+# next release is always a fresh number and the guard above can't trip on a
+# stale VERSION. Add the matching "## <new-version>" CHANGELOG entry as you work.
+if [ "$BUMP_AFTER" = "1" ]; then
+  if printf '%s' "$VERSION" | grep -qE '[0-9]+$'; then
+    PREFIX="$(printf '%s' "$VERSION" | sed -E 's/[0-9]+$//')"
+    NUM="$(printf '%s' "$VERSION" | grep -oE '[0-9]+$')"
+    NEXT="${PREFIX}$((NUM + 1))"
+    printf '%s\n' "$NEXT" > "$REPO_DIR/VERSION"
+    git -C "$REPO_DIR" add VERSION
+    git -C "$REPO_DIR" commit -m "Bump VERSION to $NEXT after releasing $VERSION"
+    git -C "$REPO_DIR" push origin HEAD
+    echo "VERSION advanced to $NEXT for the next cycle."
+  else
+    echo "note: VERSION ('$VERSION') has no trailing number to auto-bump — set the next one by hand." >&2
+  fi
+fi
