@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.33 — 2026-06-23
+
+- Update prompts now come to the front. "Check for Updates" and the available-update window appear on top of your other windows instead of opening behind them.
+
 ## 1.0-beta.32 — 2026-06-22
 
 - **Arrow-key navigation between tasks.** Up/Down move the cursor between rows, preserving your column (it lands at the same spot, not the end), and move between a long task's wrapped lines before jumping rows.
