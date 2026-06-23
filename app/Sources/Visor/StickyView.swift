@@ -104,6 +104,20 @@ struct CaretLanding {
     var fromTop: Bool
 }
 
+/// NSTextView that reports when it becomes first responder. We can't rely on
+/// `textDidBeginEditing` for focus tracking — that only fires on the first edit,
+/// not when the user merely clicks into the field, so clicking from an empty new
+/// task into another one never registered the focus change (and the empty row
+/// lingered). `becomeFirstResponder` fires on the click itself.
+private final class FocusReportingTextView: NSTextView {
+    var onFocus: (() -> Void)?
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { onFocus?() }
+        return became
+    }
+}
+
 private struct TaskEditor: NSViewRepresentable {
     @Binding var text: String
     var isDone: Bool
@@ -124,7 +138,12 @@ private struct TaskEditor: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSTextView {
-        let tv = NSTextView()
+        let tv = FocusReportingTextView()
+        tv.onFocus = { [weak coordinator = context.coordinator] in
+            // Defer so we never mutate SwiftUI state inside an AppKit responder
+            // pass (focus can also be set programmatically during updateNSView).
+            DispatchQueue.main.async { coordinator?.parent.onFocus() }
+        }
         tv.delegate = context.coordinator
         tv.isRichText = false
         tv.importsGraphics = false
@@ -171,7 +190,8 @@ private struct TaskEditor: NSViewRepresentable {
             recomputeHeight(tv)
         }
 
-        func textDidBeginEditing(_ n: Notification) { parent.onFocus() }
+        // Focus is reported via FocusReportingTextView.becomeFirstResponder
+        // (fires on click), not here — textDidBeginEditing only fires on first edit.
 
         func textView(_ tv: NSTextView, doCommandBy sel: Selector) -> Bool {
             switch sel {
