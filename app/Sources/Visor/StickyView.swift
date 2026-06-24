@@ -456,20 +456,24 @@ private struct StickyCard: View {
         let gap = notchWidth + 18 // notch + a little clearance on each side
         let shoulder = max(0, (NotchController.cardWidth - gap) / 2)
         return HStack(spacing: 0) {
-            HStack(spacing: 8) {
+            // The shoulder is only ~101pt (card 420, notch 200), so keep this tight:
+            // VISOR stays whole and left-justified; the count is right-justified
+            // against the notch and truncates (never overflows under it).
+            HStack(spacing: 4) {
                 Text("VISOR")
                     .font(.system(size: 11, weight: .semibold))
-                    .tracking(2)
+                    .tracking(1)
                     .foregroundStyle(.secondary)
-                    .fixedSize()                 // never wrap VISOR onto two lines
-                Spacer(minLength: 8)
+                    .fixedSize()
+                    .layoutPriority(1)
+                Spacer(minLength: 4)
                 Text("\(store.openTaskCount) open")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(store.openTaskCount > 0 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
-                    .fixedSize()                 // hug the notch's left edge, right-justified
+                    .lineLimit(1)
             }
-            .padding(.leading, 16)
-            .padding(.trailing, 4)
+            .padding(.leading, 12)
+            .padding(.trailing, 2)
             .frame(width: shoulder, alignment: .leading)
             Spacer(minLength: 0).frame(width: gap)
             HStack(spacing: 8) {
