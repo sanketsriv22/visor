@@ -710,10 +710,12 @@ private struct StickyCard: View {
     }
 
     /// Scroll the task list so `id` is visible (used when a new task is added past
-    /// the current bottom of the viewport).
+    /// the current bottom of the viewport). Deferred a beat so the freshly
+    /// inserted row has been built and measured — scrolling in the same runloop
+    /// tick can fire before the row exists, so nothing happens.
     private func scrollTo(_ id: UUID, _ proxy: ScrollViewProxy) {
-        DispatchQueue.main.async {
-            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .bottom) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(id, anchor: .bottom) }
         }
     }
 
