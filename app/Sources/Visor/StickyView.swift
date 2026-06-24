@@ -592,7 +592,7 @@ private struct StickyCard: View {
                     focusedRow = store.items[i + 1].id
                 }
             },
-            onDeleteBackwardWhenEmpty: { deleteNoteIfEmpty() }
+            onDeleteBackwardWhenEmpty: { backspaceEmptyRow(item.id) }
         )
         // Measure each row's natural height (before the drag scale/offset) so
         // reordering can account for multi-line rows.
@@ -699,10 +699,19 @@ private struct StickyCard: View {
                 .font(.system(size: 13))
                 .focused($focused, equals: addFieldID)
                 .onSubmit { commitNewTask(proxy) }
+                // A click straight on the field text needs the app active too, or
+                // the non-activating panel won't let it take focus.
+                .simultaneousGesture(TapGesture().onEnded { NSApp.activate(ignoringOtherApps: true) })
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
-        .onTapGesture { focused = addFieldID }
+        // The notch panel is non-activating, so a SwiftUI TextField won't accept
+        // focus on click unless the app activates first. Activate, then focus the
+        // field — so tapping the +, the label, or empty space all start a new task.
+        .onTapGesture {
+            NSApp.activate(ignoringOtherApps: true)
+            focused = addFieldID
+        }
     }
 
     private func commitNewTask(_ proxy: ScrollViewProxy) {
@@ -718,14 +727,27 @@ private struct StickyCard: View {
         DispatchQueue.main.async { focused = nil; focusedRow = id }
     }
 
-    /// Backspace in an empty row, when the whole note is empty (no title, no task
-    /// text), deletes the note. Returns true if it acted so the editor swallows
-    /// the keystroke.
-    private func deleteNoteIfEmpty() -> Bool {
+    /// Backspace in an empty row: remove that row and move the caret to the end
+    /// of the previous one (joining up, like a text editor). If it's the only row
+    /// and the note has no title either, delete the whole note. Returns true if it
+    /// acted so the editor swallows the keystroke.
+    private func backspaceEmptyRow(_ id: UUID) -> Bool {
+        guard let idx = store.items.firstIndex(where: { $0.id == id }) else { return false }
+
+        // The last empty thing in an otherwise-empty note → discard the note.
         let titleEmpty = store.title.trimmingCharacters(in: .whitespaces).isEmpty
-        let bodyEmpty = store.items.allSatisfy { $0.text.trimmingCharacters(in: .whitespaces).isEmpty }
-        guard titleEmpty && bodyEmpty else { return false }
-        withAnimation(reorderSpring) { store.deleteNote(store.activeName) }
+        if store.items.count == 1 && titleEmpty {
+            withAnimation(reorderSpring) { store.deleteNote(store.activeName) }
+            return true
+        }
+
+        // Otherwise remove this empty row and focus a neighbour — the previous
+        // row (caret at its end) if there is one, else the next row.
+        let toPrev = idx > 0
+        let neighbor = toPrev ? store.items[idx - 1].id : store.items[idx + 1].id
+        withAnimation(reorderSpring) { store.remove(id) }
+        if toPrev { pendingCaret = CaretLanding(x: 1_000_000, fromTop: false) } // end of the previous row
+        focusedRow = neighbor
         return true
     }
 
