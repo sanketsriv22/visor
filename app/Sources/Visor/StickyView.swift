@@ -307,7 +307,9 @@ private struct StickyCard: View {
     @State private var pendingCaret: CaretLanding?  // column to preserve on ↑/↓ jumps
     @State private var hostWindow: NSWindow?
     @State private var beamHover = false
-    private let addFieldID = UUID()
+    /// Set by the header's add-task button to ask the task list to scroll to a
+    /// just-added row (the button is outside the list's ScrollViewReader).
+    @State private var scrollRequest: UUID?
     private let titleFieldID = UUID()
 
     // Live drag-to-reorder state. dragOffset is the dragged row's offset from
@@ -406,38 +408,9 @@ private struct StickyCard: View {
                     .focused($focused, equals: titleFieldID)
                     .onSubmit { store.commitTitle() }
 
-                // Beam: send this note to a friend (AirDrop / Messages / Mail).
-                Button(action: beamActiveNote) {
-                    BeamGlyph(spectrum: beamHover)
-                        .frame(width: 22, height: 19)
-                        .scaleEffect(beamHover ? 1.1 : 1)
-                        // Re-clamp to the resting size so the hover "pop" overflows
-                        // visually without resizing the layout/hit region. If the
-                        // tracked region resized on hover, SwiftUI could rebuild the
-                        // tracking area mid-hover and drop the exit event (icon stuck lit).
-                        .frame(width: 22, height: 19)
-                        // Sense hover on the glyph itself, NOT the padded click area
-                        // below — otherwise the icon lights up whenever the cursor is
-                        // merely near it. onContinuousHover's .ended fires reliably on
-                        // exit, unlike onHover inside a non-activating panel.
-                        .onContinuousHover { phase in
-                            let inside: Bool
-                            switch phase {
-                            case .active: inside = true
-                            case .ended:  inside = false
-                            }
-                            withAnimation(.easeInOut(duration: 0.18)) { beamHover = inside }
-                        }
-                        .padding(.vertical, 6)
-                        .padding(.leading, 6)
-                        // The glyph is thin strokes on a clear background; without
-                        // this only the drawn pixels would be clickable, so clicks
-                        // landing in the gaps would miss. Make the whole padded area
-                        // clickable (a larger, easier target than the hover region).
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Beam a live link — edits sync both ways")
+                // Add a task — drops an empty task at the bottom of the unfinished
+                // group and focuses it. (The beam button moved up to the notch band.)
+                addTaskButton
             }
             .padding(.horizontal, 16)
             .padding(.top, 2)
@@ -476,30 +449,33 @@ private struct StickyCard: View {
         }
     }
 
-    /// The strip at notch height: VISOR in the left shoulder; the open-count tucked
-    /// up against the right edge of the notch with the shared beacon beside it, in
-    /// the right shoulder. A gap in the middle clears the physical notch.
+    /// The strip at notch height. Left shoulder: VISOR + the open-task count.
+    /// Right shoulder: the share/presence beacon, then the beam button at the far
+    /// right edge. A gap in the middle clears the physical notch.
     private var notchBand: some View {
         let gap = notchWidth + 18 // notch + a little clearance on each side
         let shoulder = max(0, (NotchController.cardWidth - gap) / 2)
         return HStack(spacing: 0) {
-            Text("VISOR")
-                .font(.system(size: 11, weight: .semibold))
-                .tracking(2)
-                .foregroundStyle(.secondary)
-                .padding(.leading, 16)
-                .frame(width: shoulder, alignment: .leading)
-            Spacer(minLength: 0).frame(width: gap)
-            HStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Text("VISOR")
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(2)
+                    .foregroundStyle(.secondary)
                 Text("\(store.openTaskCount) open")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(store.openTaskCount > 0 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
-                Spacer(minLength: 8)
-                if store.isActiveNoteShared { sharedBeacon } // right-aligned under the prism
+                Spacer(minLength: 0)
             }
-            .padding(.leading, 6)
-            .padding(.trailing, 16)
+            .padding(.leading, 16)
             .frame(width: shoulder, alignment: .leading)
+            Spacer(minLength: 0).frame(width: gap)
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                if store.isActiveNoteShared { sharedBeacon }
+                beamButton
+            }
+            .padding(.trailing, 10)
+            .frame(width: shoulder, alignment: .trailing)
         }
         .frame(height: topInset)
     }
@@ -519,13 +495,59 @@ private struct StickyCard: View {
             : "Shared note — anyone with the link can edit")
     }
 
+    /// Header button: drop an empty task at the bottom of the unfinished group and
+    /// focus it to type into. (Sits where the beam button used to be.)
+    private var addTaskButton: some View {
+        Button {
+            NSApp.activate(ignoringOtherApps: true)
+            let id = withAnimation(reorderSpring) { store.addTask("") }
+            focusRow(id)
+            scrollRequest = id
+        } label: {
+            Image(systemName: "plus.circle")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 6)
+                .padding(.leading, 6)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Add a task")
+    }
+
+    /// The trefoil "beam" button — share this note as a live link. Lives in the
+    /// notch band's right shoulder, beside the share/presence beacon.
+    private var beamButton: some View {
+        Button(action: beamActiveNote) {
+            BeamGlyph(spectrum: beamHover)
+                .frame(width: 22, height: 19)
+                .scaleEffect(beamHover ? 1.1 : 1)
+                .frame(width: 22, height: 19)   // re-clamp so the hover pop doesn't resize the hit region
+                // Hover only over the glyph; onContinuousHover's .ended fires
+                // reliably on exit inside the non-activating panel.
+                .onContinuousHover { phase in
+                    let inside: Bool
+                    switch phase {
+                    case .active: inside = true
+                    case .ended:  inside = false
+                    }
+                    withAnimation(.easeInOut(duration: 0.18)) { beamHover = inside }
+                }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 4)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Beam a live link — edits sync both ways")
+    }
+
     private var taskList: some View {
         ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 1) {
-                addRow(proxy).id(addFieldID)
                 // Unfinished tasks (and any plain lines) render here; completed
-                // tasks collect in the collapsible section below.
+                // tasks collect in the collapsible section below. (The "add task"
+                // button lives in the header now, not as a row.)
                 ForEach($store.items) { $item in
                     if !(item.isTask && item.done) {
                         taskRow($item, proxy)
@@ -541,6 +563,16 @@ private struct StickyCard: View {
         // shows permanently under the "Show scroll bars: Always" system setting.
         // The list still scrolls (wheel/trackpad).
         .scrollIndicators(.hidden)
+        // The header's add-task button can't reach this ScrollView's proxy, so it
+        // posts the new row's id here and we scroll to it (deferred so the row is
+        // built first).
+        .onChange(of: scrollRequest) { req in
+            guard let req else { return }
+            scrollRequest = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(req, anchor: .bottom) }
+            }
+        }
         }
     }
 
@@ -686,29 +718,6 @@ private struct StickyCard: View {
             dragOffset = 0
         }
         lastDY = 0
-    }
-
-    /// A button (not a text field) — tapping it drops a fresh empty task at the
-    /// bottom of the unfinished group and focuses its editor to type into. Using a
-    /// real task-row editor (NSTextView) avoids the non-activating panel's flaky
-    /// SwiftUI-TextField focus.
-    private func addRow(_ proxy: ScrollViewProxy) -> some View {
-        Button {
-            NSApp.activate(ignoringOtherApps: true)
-            let id = withAnimation(reorderSpring) { store.addTask("") }
-            focusRow(id)
-            scrollTo(id, proxy)
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "plus.circle").font(.system(size: 14))
-                Text("Add a task").font(.system(size: 13))
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(.secondary)
-            .padding(.vertical, 2)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     private func focusRow(_ id: UUID) {
