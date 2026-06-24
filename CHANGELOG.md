@@ -3,6 +3,16 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.34 — 2026-06-24
+
+- **Completed tasks tuck away.** Finishing a task sinks it to the bottom, and completed tasks collapse under a "N completed" toggle so they don't crowd your list.
+- **"Add a task" is a button now.** The ➕ at the end of the title row drops a fresh task at the bottom of your unfinished list and puts the cursor right in it. Tapping a checkbox cycles open → doing → blocked — **finishing a task is long-press only**, so you can't complete one by accident.
+- **Clean up by progress.** A new "Clean up — sort by progress" item in the note menu orders tasks untouched → in-progress → blocked → done.
+- **Notch band tidied.** The open-task count now sits next to VISOR on the left of the notch, and the beam (share) button moved up beside the sharing indicator.
+- **Editing fixes.** Backspace on an empty line removes it (and discards the note when it's the last empty line); empty new tasks are dropped when you click away; new tasks reliably scroll into view; and the drag handle stays under your cursor when reordering past a multi-line task.
+- **Polish.** The scrollbar is hidden, the send/delete icons on each row glow on hover, and the old "hover a task →" hint line is gone.
+- **For your AI agents (MCP).** The Visor MCP server now surveys tasks across **all** your notes, can set a task's status (doing / blocked / done) so an agent shows live progress right in Visor, and gives clear Full Disk Access guidance instead of returning an empty list.
+
 ## 1.0-beta.33 — 2026-06-23
 
 - Update prompts now come to the front. "Check for Updates" and the available-update window appear on top of your other windows instead of opening behind them.
