@@ -313,6 +313,8 @@ private struct StickyCard: View {
     // are not a fixed height). Keyed by item id; rowHeight is the fallback for a
     // row that hasn't been measured yet.
     @State private var rowHeights: [UUID: CGFloat] = [:]
+    /// Whether the collapsible "completed" section at the bottom is expanded.
+    @State private var showCompleted = false
     private let rowHeight: CGFloat = 23
     private let rowSpacing: CGFloat = 1   // matches the task VStack's spacing
 
@@ -510,72 +512,14 @@ private struct StickyCard: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 1) {
                 addRow(proxy).id(addFieldID)
+                // Unfinished tasks (and any plain lines) render here; completed
+                // tasks collect in the collapsible section below.
                 ForEach($store.items) { $item in
-                    NoteRow(
-                        item: $item,
-                        isFocused: focusedRow == item.id,
-                        onFocus: { focusedRow = item.id; focused = nil },
-                        suppressHover: suppressHover,
-                        isSending: ai.isRunning(item.id),
-                        isDragging: draggingID == item.id,
-                        onToggle: { withAnimation(reorderSpring) { store.cycle(item.id) } },
-                        onComplete: { withAnimation(reorderSpring) { store.toggleDone(item.id) } },
-                        onSubmit: {
-                            let id = store.insertTask(after: item.id)
-                            focusRow(id)
-                            scrollTo(id, proxy)
-                        },
-                        onDelete: { withAnimation(reorderSpring) { store.remove(item.id) } },
-                        onSend: {
-                            let t = item.text.trimmingCharacters(in: .whitespaces)
-                            if !t.isEmpty { ai.sendToDefault(tasks: [t], taskIDs: [item.id]) }
-                        },
-                        otherNotes: store.noteNames.filter { $0 != store.activeName },
-                        onMove: { name in
-                            withAnimation(reorderSpring) { store.moveTask(item.id, toNote: name) }
-                        },
-                        onMoveToNew: {
-                            withAnimation(reorderSpring) { store.moveTaskToNewNote(item.id) }
-                        },
-                        onDragChanged: { dy in dragChanged(item.id, dy) },
-                        onDragEnded: { dragEnded() },
-                        landing: pendingCaret,
-                        onLandingConsumed: { pendingCaret = nil },
-                        onMoveUp: { x in
-                            if let i = store.items.firstIndex(where: { $0.id == item.id }), i > 0 {
-                                pendingCaret = CaretLanding(x: x, fromTop: false) // land on the row above's last line
-                                focusedRow = store.items[i - 1].id
-                            }
-                        },
-                        onMoveDown: { x in
-                            if let i = store.items.firstIndex(where: { $0.id == item.id }), i < store.items.count - 1 {
-                                pendingCaret = CaretLanding(x: x, fromTop: true) // land on the row below's first line
-                                focusedRow = store.items[i + 1].id
-                            }
-                        }
-                    )
-                    // Measure each row's natural height (before the drag scale/
-                    // offset) so reordering can account for multi-line rows.
-                    .background(
-                        GeometryReader { g in
-                            Color.clear.preference(
-                                key: RowHeightKey.self,
-                                value: [item.id: g.size.height]
-                            )
-                        }
-                    )
-                    // The dragged row lifts and tracks the cursor with NO
-                    // animation (its slot jumps are cancelled by dragOffset);
-                    // every other row springs to its new slot.
-                    .scaleEffect(draggingID == item.id ? 1.03 : 1, anchor: .leading)
-                    .shadow(color: .black.opacity(draggingID == item.id ? 0.5 : 0),
-                            radius: draggingID == item.id ? 10 : 0, y: 4)
-                    .offset(y: draggingID == item.id ? dragOffset : 0)
-                    .zIndex(draggingID == item.id ? 1 : 0)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                    .animation(draggingID == item.id ? nil : reorderSpring, value: store.items.map(\.id))
-                    .id(item.id)
+                    if !(item.isTask && item.done) {
+                        taskRow($item, proxy)
+                    }
                 }
+                completedSection(proxy)
             }
             .padding(.horizontal, 14)
             .padding(.top, 2)
@@ -585,6 +529,106 @@ private struct StickyCard: View {
         // shows permanently under the "Show scroll bars: Always" system setting.
         // The list still scrolls (wheel/trackpad).
         .scrollIndicators(.hidden)
+        }
+    }
+
+    /// One configured task row with all of its drag / height-measure / animation
+    /// modifiers. Shared by the unfinished list and the completed section.
+    @ViewBuilder
+    private func taskRow(_ binding: Binding<NoteItem>, _ proxy: ScrollViewProxy) -> some View {
+        let item = binding.wrappedValue
+        NoteRow(
+            item: binding,
+            isFocused: focusedRow == item.id,
+            onFocus: { focusedRow = item.id; focused = nil },
+            suppressHover: suppressHover,
+            isSending: ai.isRunning(item.id),
+            isDragging: draggingID == item.id,
+            onToggle: { withAnimation(reorderSpring) { store.cycle(item.id) } },
+            onComplete: { withAnimation(reorderSpring) { store.toggleDone(item.id) } },
+            onSubmit: {
+                let id = store.insertTask(after: item.id)
+                focusRow(id)
+                scrollTo(id, proxy)
+            },
+            onDelete: { withAnimation(reorderSpring) { store.remove(item.id) } },
+            onSend: {
+                let t = item.text.trimmingCharacters(in: .whitespaces)
+                if !t.isEmpty { ai.sendToDefault(tasks: [t], taskIDs: [item.id]) }
+            },
+            otherNotes: store.noteNames.filter { $0 != store.activeName },
+            onMove: { name in
+                withAnimation(reorderSpring) { store.moveTask(item.id, toNote: name) }
+            },
+            onMoveToNew: {
+                withAnimation(reorderSpring) { store.moveTaskToNewNote(item.id) }
+            },
+            onDragChanged: { dy in dragChanged(item.id, dy) },
+            onDragEnded: { dragEnded() },
+            landing: pendingCaret,
+            onLandingConsumed: { pendingCaret = nil },
+            onMoveUp: { x in
+                if let i = store.items.firstIndex(where: { $0.id == item.id }), i > 0 {
+                    pendingCaret = CaretLanding(x: x, fromTop: false) // land on the row above's last line
+                    focusedRow = store.items[i - 1].id
+                }
+            },
+            onMoveDown: { x in
+                if let i = store.items.firstIndex(where: { $0.id == item.id }), i < store.items.count - 1 {
+                    pendingCaret = CaretLanding(x: x, fromTop: true) // land on the row below's first line
+                    focusedRow = store.items[i + 1].id
+                }
+            }
+        )
+        // Measure each row's natural height (before the drag scale/offset) so
+        // reordering can account for multi-line rows.
+        .background(
+            GeometryReader { g in
+                Color.clear.preference(key: RowHeightKey.self, value: [item.id: g.size.height])
+            }
+        )
+        // The dragged row lifts and tracks the cursor with NO animation (its slot
+        // jumps are cancelled by dragOffset); every other row springs to its slot.
+        .scaleEffect(draggingID == item.id ? 1.03 : 1, anchor: .leading)
+        .shadow(color: .black.opacity(draggingID == item.id ? 0.5 : 0),
+                radius: draggingID == item.id ? 10 : 0, y: 4)
+        .offset(y: draggingID == item.id ? dragOffset : 0)
+        .zIndex(draggingID == item.id ? 1 : 0)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+        .animation(draggingID == item.id ? nil : reorderSpring, value: store.items.map(\.id))
+        .id(item.id)
+    }
+
+    /// Completed tasks live in a collapsible section at the bottom, hidden by
+    /// default behind a "N completed" toggle so finished work doesn't crowd the note.
+    @ViewBuilder
+    private func completedSection(_ proxy: ScrollViewProxy) -> some View {
+        let completed = store.items.filter { $0.isTask && $0.done }
+        if !completed.isEmpty {
+            Button {
+                withAnimation(reorderSpring) { showCompleted.toggle() }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: showCompleted ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text("\(completed.count) completed")
+                        .font(.system(size: 11, weight: .medium))
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
+
+            if showCompleted {
+                ForEach($store.items) { $item in
+                    if item.isTask && item.done {
+                        taskRow($item, proxy)
+                    }
+                }
+            }
         }
     }
 
