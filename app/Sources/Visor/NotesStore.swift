@@ -196,18 +196,32 @@ final class NotesStore: ObservableObject {
     func cycle(_ id: UUID) {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
         items[i].status = items[i].status.next
+        reflowCompleted()
     }
 
     /// Jump straight to done (or back to open if already done) — for a long-press.
     func toggleDone(_ id: UUID) {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
         items[i].status = items[i].status == .done ? .open : .done
+        reflowCompleted()
+    }
+
+    /// Keep finished tasks sunk to the bottom: unfinished tasks and plain lines
+    /// keep their relative order on top, completed tasks collect below (in their
+    /// own order). Stable, so it only mutates `items` when something crossed the
+    /// done boundary — avoiding needless churn (and sync pushes).
+    func reflowCompleted() {
+        let sunk = items.filter { !($0.isTask && $0.done) } + items.filter { $0.isTask && $0.done }
+        if sunk.map(\.id) != items.map(\.id) { items = sunk }
     }
 
     @discardableResult
     func addTask(_ text: String = "") -> UUID {
         let item = NoteItem(text: text, isTask: true)
-        items.append(item)
+        // New tasks land at the bottom of the *unfinished* group — above any
+        // completed tasks, which stay sunk at the very bottom.
+        let insertAt = items.firstIndex { $0.isTask && $0.done } ?? items.count
+        items.insert(item, at: insertAt)
         return item.id
     }
 

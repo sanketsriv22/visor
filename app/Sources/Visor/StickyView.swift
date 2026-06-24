@@ -509,6 +509,7 @@ private struct StickyCard: View {
         ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 1) {
+                addRow(proxy).id(addFieldID)
                 ForEach($store.items) { $item in
                     NoteRow(
                         item: $item,
@@ -517,8 +518,8 @@ private struct StickyCard: View {
                         suppressHover: suppressHover,
                         isSending: ai.isRunning(item.id),
                         isDragging: draggingID == item.id,
-                        onToggle: { store.cycle(item.id) },
-                        onComplete: { store.toggleDone(item.id) },
+                        onToggle: { withAnimation(reorderSpring) { store.cycle(item.id) } },
+                        onComplete: { withAnimation(reorderSpring) { store.toggleDone(item.id) } },
                         onSubmit: {
                             let id = store.insertTask(after: item.id)
                             focusRow(id)
@@ -575,7 +576,6 @@ private struct StickyCard: View {
                     .animation(draggingID == item.id ? nil : reorderSpring, value: store.items.map(\.id))
                     .id(item.id)
                 }
-                addRow(proxy).id(addFieldID)
             }
             .padding(.horizontal, 14)
             .padding(.top, 2)
