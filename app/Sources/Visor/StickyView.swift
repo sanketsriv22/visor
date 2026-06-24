@@ -131,6 +131,9 @@ private struct TaskEditor: NSViewRepresentable {
     var onLandingConsumed: () -> Void
     var onMoveUp: (CGFloat) -> Void
     var onMoveDown: (CGFloat) -> Void
+    /// Backspace pressed in an empty row. Returns true if the parent handled it
+    /// (e.g. deleted an empty note), in which case the editor swallows the key.
+    var onDeleteBackwardWhenEmpty: () -> Bool
 
     static let font = NSFont.systemFont(ofSize: 13)
     static let maxLines = 6
@@ -202,6 +205,11 @@ private struct TaskEditor: NSViewRepresentable {
                 return false
             case #selector(NSResponder.moveDown(_:)):
                 if caretAtLastLine(tv) { parent.onMoveDown(caretX(tv)); return true }
+                return false
+            case #selector(NSResponder.deleteBackward(_:)):
+                // Backspace in an already-empty row: let the parent delete the
+                // note if the whole note is empty. Otherwise fall through.
+                if tv.string.isEmpty, parent.onDeleteBackwardWhenEmpty() { return true }
                 return false
             default:
                 return false
@@ -583,7 +591,8 @@ private struct StickyCard: View {
                     pendingCaret = CaretLanding(x: x, fromTop: true) // land on the row below's first line
                     focusedRow = store.items[i + 1].id
                 }
-            }
+            },
+            onDeleteBackwardWhenEmpty: { deleteNoteIfEmpty() }
         )
         // Measure each row's natural height (before the drag scale/offset) so
         // reordering can account for multi-line rows.
@@ -707,6 +716,17 @@ private struct StickyCard: View {
 
     private func focusRow(_ id: UUID) {
         DispatchQueue.main.async { focused = nil; focusedRow = id }
+    }
+
+    /// Backspace in an empty row, when the whole note is empty (no title, no task
+    /// text), deletes the note. Returns true if it acted so the editor swallows
+    /// the keystroke.
+    private func deleteNoteIfEmpty() -> Bool {
+        let titleEmpty = store.title.trimmingCharacters(in: .whitespaces).isEmpty
+        let bodyEmpty = store.items.allSatisfy { $0.text.trimmingCharacters(in: .whitespaces).isEmpty }
+        guard titleEmpty && bodyEmpty else { return false }
+        withAnimation(reorderSpring) { store.deleteNote(store.activeName) }
+        return true
     }
 
     /// Scroll the task list so `id` is visible (used when a new task is added past
@@ -844,6 +864,7 @@ private struct NoteRow: View {
     var onLandingConsumed: () -> Void
     var onMoveUp: (CGFloat) -> Void
     var onMoveDown: (CGFloat) -> Void
+    var onDeleteBackwardWhenEmpty: () -> Bool
 
     @State private var hovering = false
     @State private var checkboxBump = false
@@ -936,7 +957,8 @@ private struct NoteRow: View {
                 onSubmit: onSubmit,
                 onLandingConsumed: onLandingConsumed,
                 onMoveUp: onMoveUp,
-                onMoveDown: onMoveDown
+                onMoveDown: onMoveDown,
+                onDeleteBackwardWhenEmpty: onDeleteBackwardWhenEmpty
             )
             .frame(height: editorHeight)
         }
