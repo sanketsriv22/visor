@@ -305,7 +305,6 @@ private struct StickyCard: View {
     @FocusState private var focused: UUID?
     @State private var focusedRow: UUID?
     @State private var pendingCaret: CaretLanding?  // column to preserve on ↑/↓ jumps
-    @State private var newTask = ""
     @State private var hostWindow: NSWindow?
     @State private var beamHover = false
     private let addFieldID = UUID()
@@ -689,38 +688,27 @@ private struct StickyCard: View {
         lastDY = 0
     }
 
+    /// A button (not a text field) — tapping it drops a fresh empty task at the
+    /// bottom of the unfinished group and focuses its editor to type into. Using a
+    /// real task-row editor (NSTextView) avoids the non-activating panel's flaky
+    /// SwiftUI-TextField focus.
     private func addRow(_ proxy: ScrollViewProxy) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "plus.circle")
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
-            TextField("Add a task…", text: $newTask)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .focused($focused, equals: addFieldID)
-                .onSubmit { commitNewTask(proxy) }
-                // A click straight on the field text needs the app active too, or
-                // the non-activating panel won't let it take focus.
-                .simultaneousGesture(TapGesture().onEnded { NSApp.activate(ignoringOtherApps: true) })
-        }
-        .padding(.vertical, 2)
-        .contentShape(Rectangle())
-        // The notch panel is non-activating, so a SwiftUI TextField won't accept
-        // focus on click unless the app activates first. Activate, then focus the
-        // field — so tapping the +, the label, or empty space all start a new task.
-        .onTapGesture {
+        Button {
             NSApp.activate(ignoringOtherApps: true)
-            focused = addFieldID
+            let id = withAnimation(reorderSpring) { store.addTask("") }
+            focusRow(id)
+            scrollTo(id, proxy)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "plus.circle").font(.system(size: 14))
+                Text("Add a task").font(.system(size: 13))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
         }
-    }
-
-    private func commitNewTask(_ proxy: ScrollViewProxy) {
-        let trimmed = newTask.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        let id = withAnimation(reorderSpring) { store.addTask(trimmed) }
-        newTask = ""
-        focused = addFieldID // stay in the add field for rapid entry
-        scrollTo(id, proxy) // keep the freshly added task (and add field) in view
+        .buttonStyle(.plain)
     }
 
     private func focusRow(_ id: UUID) {
