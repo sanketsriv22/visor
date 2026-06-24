@@ -751,6 +751,25 @@ private struct StickyCard: View {
     }
 }
 
+/// Hover affordance for the small row action icons (✈ send / ✕ delete): they
+/// brighten and lift slightly on hover so it's clear they're clickable before
+/// you click. onContinuousHover clears reliably on exit inside the panel.
+private struct IconHoverGlow: ViewModifier {
+    @State private var over = false
+    func body(content: Content) -> some View {
+        content
+            .brightness(over ? 0.3 : 0)
+            .scaleEffect(over ? 1.18 : 1)
+            .animation(.easeInOut(duration: 0.12), value: over)
+            .onContinuousHover { phase in
+                switch phase {
+                case .active: over = true
+                case .ended:  over = false
+                }
+            }
+    }
+}
+
 /// A single editable line: a clickable checkbox + inline text for tasks, or
 /// plain text otherwise. A delete affordance appears on hover.
 private struct NoteRow: View {
@@ -912,6 +931,7 @@ private struct NoteRow: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .modifier(IconHoverGlow())
                         .help("Send just this task to the chosen agent")
                     }
                     Button(action: onDelete) {
@@ -920,6 +940,7 @@ private struct NoteRow: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .modifier(IconHoverGlow())
                     .help("Delete task")
                 }
             }
