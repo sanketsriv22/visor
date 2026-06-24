@@ -193,9 +193,17 @@ final class NotesStore: ObservableObject {
     // MARK: - Mutations
 
     /// Advance a task to its next state: open → doing → blocked → done → open.
+    /// Tap-cycle a task's status, skipping `done` — completing is long-press only
+    /// (see `toggleDone`). So a tap goes open → doing → blocked → open, and tapping
+    /// a finished task un-completes it back to open.
     func cycle(_ id: UUID) {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
-        items[i].status = items[i].status.next
+        switch items[i].status {
+        case .open:    items[i].status = .doing
+        case .doing:   items[i].status = .blocked
+        case .blocked: items[i].status = .open
+        case .done:    items[i].status = .open
+        }
         reflowCompleted()
     }
 
