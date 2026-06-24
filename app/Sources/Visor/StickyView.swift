@@ -461,12 +461,15 @@ private struct StickyCard: View {
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(2)
                     .foregroundStyle(.secondary)
+                    .fixedSize()                 // never wrap VISOR onto two lines
+                Spacer(minLength: 8)
                 Text("\(store.openTaskCount) open")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(store.openTaskCount > 0 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
-                Spacer(minLength: 0)
+                    .fixedSize()                 // hug the notch's left edge, right-justified
             }
             .padding(.leading, 16)
+            .padding(.trailing, 4)
             .frame(width: shoulder, alignment: .leading)
             Spacer(minLength: 0).frame(width: gap)
             HStack(spacing: 8) {
