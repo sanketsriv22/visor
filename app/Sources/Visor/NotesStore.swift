@@ -215,6 +215,28 @@ final class NotesStore: ObservableObject {
         if sunk.map(\.id) != items.map(\.id) { items = sunk }
     }
 
+    /// Sort tasks top-to-bottom by progress: untouched → in-progress → blocked →
+    /// finished. Stable within each group (and plain non-task lines stay on top).
+    func sortByProgress() {
+        func rank(_ it: NoteItem) -> Int {
+            guard it.isTask else { return -1 }
+            switch it.status {
+            case .open: return 0
+            case .doing: return 1
+            case .blocked: return 2
+            case .done: return 3
+            }
+        }
+        // enumerate so the offset breaks ties — Swift's sort isn't stable on its own.
+        let sorted = items.enumerated()
+            .sorted { a, b in
+                let ra = rank(a.element), rb = rank(b.element)
+                return ra != rb ? ra < rb : a.offset < b.offset
+            }
+            .map(\.element)
+        if sorted.map(\.id) != items.map(\.id) { items = sorted }
+    }
+
     @discardableResult
     func addTask(_ text: String = "") -> UUID {
         let item = NoteItem(text: text, isTask: true)

@@ -354,6 +354,11 @@ private struct StickyCard: View {
                     }
                     Divider()
                     Button("New note", action: store.newNote)
+                    Button {
+                        withAnimation(reorderSpring) { store.sortByProgress() }
+                    } label: {
+                        Label("Clean up — sort by progress", systemImage: "arrow.up.arrow.down")
+                    }
                     Button("Copy live link") { copyBeamLink() }
                     Button("Archive this note") { store.archiveCurrent() }
                     Button("Delete this note", role: .destructive) { confirmDeleteActiveNote() }
