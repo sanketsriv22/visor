@@ -49,7 +49,7 @@ fi
 if [ ! -x "$SIGN_TOOL" ]; then
   echo "Downloading Sparkle CLI tools…"
   mkdir -p "$TOOLS"
-  SPARKLE_VER="2.7.5"
+  SPARKLE_VER="2.9.4"
   curl -sL "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VER}/Sparkle-${SPARKLE_VER}.tar.xz" \
     | tar -xJ -C "$TOOLS" bin/sign_update bin/generate_keys 2>/dev/null \
     || tar -xJ -C "$TOOLS" --include='*/sign_update' --include='*/generate_keys' \

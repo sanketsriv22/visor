@@ -3,6 +3,10 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.35 — 2026-07-15
+
+- **Links on tasks.** Attach a URL to any task with the link button on its row — tap to open it in your browser, or right-click for Add / Edit / Remove link. Linked tasks show a filled blue link icon. The URL is tucked into the markdown as a trailing comment, so your notes stay clean and agents still read plain text.
+
 ## 1.0-beta.34 — 2026-06-24
 
 - **Completed tasks tuck away.** Finishing a task sinks it to the bottom, and completed tasks collapse under a "N completed" toggle so they don't crowd your list.
