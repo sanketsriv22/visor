@@ -42,14 +42,18 @@ struct NoteItem: Identifiable, Equatable {
     var text: String
     var isTask: Bool
     var status: TaskStatus
+    /// Optional per-task URL. Persisted as a hidden markdown comment so task text
+    /// stays clean in the app while the note remains plain text on disk.
+    var link: String?
 
     var done: Bool { status == .done }
 
-    init(id: UUID = UUID(), text: String, isTask: Bool, status: TaskStatus = .open) {
+    init(id: UUID = UUID(), text: String, isTask: Bool, status: TaskStatus = .open, link: String? = nil) {
         self.id = id
         self.text = text
         self.isTask = isTask
         self.status = status
+        self.link = link
     }
 }
 
@@ -270,6 +274,13 @@ final class NotesStore: ObservableObject {
         items.removeAll { $0.id == id }
     }
 
+    /// Attach, replace, or clear the browser link for one task.
+    func setLink(_ link: String?, for id: UUID) {
+        guard let i = items.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = link?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        items[i].link = trimmed.isEmpty ? nil : trimmed
+    }
+
     /// Move a task out of the current note and append it to another note's file.
     func moveTask(_ id: UUID, toNote name: String) {
         guard name != activeName,
@@ -319,6 +330,7 @@ final class NotesStore: ObservableObject {
     // MARK: - Persistence
 
     private static let taskRE = try! NSRegularExpression(pattern: #"^\s*-\s*\[([ xX/!\-])\]\s?(.*)$"#)
+    private static let linkRE = try! NSRegularExpression(pattern: #"\s*<!--\s*visor-link:\s*(.*?)\s*-->\s*$"#)
 
     static func parse(_ s: String) -> [NoteItem] {
         var items = s.split(separator: "\n", omittingEmptySubsequences: false).map { sub -> NoteItem in
@@ -328,7 +340,8 @@ final class NotesStore: ObservableObject {
                let markR = Range(m.range(at: 1), in: line),
                let textR = Range(m.range(at: 2), in: line) {
                 let marker = line[markR].first ?? " "
-                return NoteItem(text: String(line[textR]), isTask: true, status: .from(marker: marker))
+                let (text, link) = extractLink(from: String(line[textR]))
+                return NoteItem(text: text, isTask: true, status: .from(marker: marker), link: link)
             }
             return NoteItem(text: line, isTask: false)
         }
@@ -338,6 +351,18 @@ final class NotesStore: ObservableObject {
             items.removeLast()
         }
         return items
+    }
+
+    private static func extractLink(from rawText: String) -> (text: String, link: String?) {
+        let range = NSRange(rawText.startIndex..., in: rawText)
+        guard let match = linkRE.firstMatch(in: rawText, range: range),
+              let fullRange = Range(match.range(at: 0), in: rawText),
+              let linkRange = Range(match.range(at: 1), in: rawText) else {
+            return (rawText, nil)
+        }
+        let text = rawText[..<fullRange.lowerBound].trimmingCharacters(in: .whitespaces)
+        let link = rawText[linkRange].trimmingCharacters(in: .whitespacesAndNewlines)
+        return (String(text), link.isEmpty ? nil : String(link))
     }
 
     /// Split a document into its title (leading `# …` line, if any) and body
@@ -367,7 +392,12 @@ final class NotesStore: ObservableObject {
         // spaces so a wrapped task can't split into bogus extra lines.
         lines += items.map { item -> String in
             let text = item.text.replacingOccurrences(of: "\n", with: " ")
-            return item.isTask ? "- [\(item.status.marker)] \(text)" : text
+            if item.isTask {
+                let link = item.link?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let suffix = link.isEmpty ? "" : " <!-- visor-link: \(link.replacingOccurrences(of: "-->", with: "%2D%2D%3E")) -->"
+                return "- [\(item.status.marker)] \(text)\(suffix)"
+            }
+            return text
         }
         return lines.joined(separator: "\n") + "\n"
     }
@@ -616,7 +646,7 @@ final class NotesStore: ObservableObject {
         // churns and flickers on each incoming keystroke from a peer.
         var it = parsed
         for i in it.indices where i < items.count {
-            it[i] = NoteItem(id: items[i].id, text: it[i].text, isTask: it[i].isTask, status: it[i].status)
+            it[i] = NoteItem(id: items[i].id, text: it[i].text, isTask: it[i].isTask, status: it[i].status, link: it[i].link)
         }
         applyingRemote = true
         suppressDirty = true
