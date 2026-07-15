@@ -607,6 +607,9 @@ private struct StickyCard: View {
                 let t = item.text.trimmingCharacters(in: .whitespaces)
                 if !t.isEmpty { ai.sendToDefault(tasks: [t], taskIDs: [item.id]) }
             },
+            onOpenOrAddLink: { openOrAddLink(for: item.id) },
+            onEditLink: { promptForLink(for: item.id) },
+            onRemoveLink: { store.setLink(nil, for: item.id) },
             otherNotes: store.noteNames.filter { $0 != store.activeName },
             onMove: { name in
                 withAnimation(reorderSpring) { store.moveTask(item.id, toNote: name) }
@@ -812,6 +815,46 @@ private struct StickyCard: View {
         }
     }
 
+    /// Row link button behavior: if a task already has a link, open it in the
+    /// default browser; otherwise prompt once to attach one.
+    private func openOrAddLink(for id: UUID) {
+        guard let idx = store.items.firstIndex(where: { $0.id == id }) else { return }
+        if let raw = store.items[idx].link, let url = normalizedURL(raw) {
+            NSWorkspace.shared.open(url)
+        } else {
+            promptForLink(for: id)
+        }
+    }
+
+    private func promptForLink(for id: UUID) {
+        guard let idx = store.items.firstIndex(where: { $0.id == id }) else { return }
+        let current = store.items[idx].link ?? ""
+        let alert = NSAlert()
+        alert.messageText = current.isEmpty ? "Add link" : "Edit link"
+        alert.informativeText = "Paste a URL for this task. Leave it blank and save to remove the link."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let field = NSTextField(string: current)
+        field.placeholderString = "https://example.com"
+        field.frame = NSRect(x: 0, y: 0, width: 320, height: 24)
+        alert.accessoryView = field
+
+        NSApp.activate(ignoringOtherApps: true)
+        let panelLevel = hostWindow?.level ?? .statusBar
+        alert.window.level = NSWindow.Level(rawValue: panelLevel.rawValue + 1)
+        if alert.runModal() == .alertFirstButtonReturn {
+            store.setLink(field.stringValue, for: id)
+        }
+    }
+
+    private func normalizedURL(_ raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let url = URL(string: trimmed), url.scheme != nil { return url }
+        return URL(string: "https://\(trimmed)")
+    }
+
     // Sending is per-task (the ✈ on each row), and runs are concurrent. The
     // footer shows how many are running, else the last run's result. Which
     // agent it goes to is set in the menu-bar settings.
@@ -881,6 +924,9 @@ private struct NoteRow: View {
     var onSubmit: () -> Void
     var onDelete: () -> Void
     var onSend: () -> Void
+    var onOpenOrAddLink: () -> Void
+    var onEditLink: () -> Void
+    var onRemoveLink: () -> Void
     var otherNotes: [String]
     var onMove: (String) -> Void
     var onMoveToNew: () -> Void
@@ -998,6 +1044,16 @@ private struct NoteRow: View {
         .contentShape(Rectangle())
         .onHover { h in withAnimation(.easeInOut(duration: 0.12)) { hovering = h } }
         .contextMenu {
+            if item.isTask {
+                if item.link?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                    Button("Open link", action: onOpenOrAddLink)
+                    Button("Edit link", action: onEditLink)
+                    Button("Remove link", action: onRemoveLink)
+                } else {
+                    Button("Add link", action: onEditLink)
+                }
+                Divider()
+            }
             Menu("Move to") {
                 Button("New note") { onMoveToNew() }
                 if !otherNotes.isEmpty {
@@ -1041,6 +1097,18 @@ private struct NoteRow: View {
                     .buttonStyle(.plain)
                     .modifier(IconHoverGlow())
                     .help("Delete task")
+                    if item.isTask {
+                        Button(action: onOpenOrAddLink) {
+                            Image(systemName: item.link?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? "link.circle.fill" : "link")
+                                .font(.system(size: 13))
+                                .foregroundStyle(item.link?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? Color.blue : Color.secondary)
+                                .frame(width: 24, height: 24)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .modifier(IconHoverGlow())
+                        .help(item.link?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? "Open link" : "Add link")
+                    }
                 }
             }
             .padding(.leading, 28)
