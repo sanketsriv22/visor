@@ -6,7 +6,10 @@ import Foundation
 struct AIProvider: Codable, Identifiable, Equatable {
     /// How a send reaches the agent: run a local CLI, or POST to the Devin
     /// cloud API and open the resulting session.
-    enum Kind: String, Codable { case cli, devinCloud }
+    /// - cli: run a local command-line agent
+    /// - devinCloud: POST to Devin's REST API and open the session
+    /// - openRouter: talk to a model directly, in the notch
+    enum Kind: String, Codable { case cli, devinCloud, openRouter }
 
     var name: String          // shown in the UI, e.g. "Devin"
     var command: String       // executable name or absolute path, e.g. "devin"
@@ -15,11 +18,27 @@ struct AIProvider: Codable, Identifiable, Equatable {
     var interactiveArgs: [String]?  // args used in Terminal mode instead of `args`, to run the
                                     // CLI interactively (e.g. claude with no -p). Falls back to `args`.
     var kind: Kind?           // nil / .cli = local CLI; .devinCloud = Devin REST API
+    /// OpenRouter model id for `.openRouter` agents, e.g. "anthropic/claude-sonnet-4".
+    var model: String?
+    /// Optional persona prepended to every conversation with this agent.
+    var systemPrompt: String?
     var id: String { name }
 
     var isDevinCloud: Bool { kind == .devinCloud }
+    /// Runs a conversation in the notch rather than handing off to a CLI or
+    /// the Devin API.
+    var isChat: Bool { kind == .openRouter }
     /// Whether this provider authenticates with a stored key (env var or Bearer token).
-    var needsKey: Bool { apiKeyEnv != nil || isDevinCloud }
+    var needsKey: Bool { apiKeyEnv != nil || isDevinCloud || isChat }
+
+    /// Which Keychain account holds this agent's key.
+    ///
+    /// Every OpenRouter agent shares one entry: a user who names five agents
+    /// pointing at five models has one OpenRouter account behind all of them,
+    /// and should paste the key once. CLI and Devin agents keep their own.
+    var keyAccount: String {
+        isChat ? OpenRouterClient.sharedKeyAccount : name
+    }
 }
 
 private struct ProvidersConfig: Codable {
@@ -191,6 +210,16 @@ final class AIRunner: ObservableObject {
         guard !tasks.isEmpty else { return } // no single-run guard: runs are concurrent
         lastSessionURL = nil
         setResult(.none)   // a new send supersedes whatever the footer showed
+        if provider.isChat {
+            // Chat agents answer in the notch: hand the tasks to the composer
+            // rather than opening a Terminal or a browser tab.
+            lastProviderName = provider.name
+            NotificationCenter.default.post(
+                name: .visorRunInNotch, object: nil,
+                userInfo: ["provider": provider.name,
+                           "prompt": buildPrompt(tasks, includeWorkdir: true)])
+            return
+        }
         if provider.isDevinCloud {
             sendToDevinCloud(tasks: tasks, provider: provider, taskIDs: taskIDs)
             return
@@ -460,19 +489,24 @@ final class AIRunner: ObservableObject {
 
     func remove(_ provider: AIProvider) {
         providers.removeAll { $0.name == provider.name }
-        Keychain.delete(provider.name)
+        // Only drop the key if no remaining agent shares that account — chat
+        // agents all point at the one OpenRouter entry.
+        if !providers.contains(where: { $0.keyAccount == provider.keyAccount }) {
+            Keychain.delete(provider.keyAccount)
+        }
         if defaultProviderName == provider.name { defaultProviderName = providers.first?.name ?? "" }
         persist()
     }
 
     /// Whether a key has been stored for an agent that needs one.
     func hasKey(_ provider: AIProvider) -> Bool {
-        provider.needsKey && Keychain.has(provider.name)
+        provider.needsKey && Keychain.has(provider.keyAccount)
     }
 
     /// Save (or clear, if empty) an agent's API key in the Keychain.
     func setKey(_ value: String, for provider: AIProvider) {
-        Keychain.set(value.trimmingCharacters(in: .whitespacesAndNewlines), account: provider.name)
+        Keychain.set(value.trimmingCharacters(in: .whitespacesAndNewlines),
+                     account: provider.keyAccount)
         objectWillChange.send()
     }
 
@@ -537,6 +571,10 @@ final class AIRunner: ObservableObject {
 }
 
 extension Notification.Name {
+    /// Posted when tasks are sent to a chat agent, which answers in the notch.
+    /// userInfo: "provider" (agent name), "prompt".
+    static let visorRunInNotch = Notification.Name("visor.runInNotch")
+
     /// Posted when a send can't proceed because that agent has no API key
     /// stored yet. The app opens Settings on the agent; the note stays clean.
     static let visorProviderNeedsKey = Notification.Name("visor.providerNeedsKey")
