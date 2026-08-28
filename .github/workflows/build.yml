@@ -64,6 +64,14 @@ jobs:
           APP=dist/Visor.app
           ls -la "$APP/Contents/Resources/AppIcon.icns"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist"
+          # An Apple Silicon runner will happily produce an arm64-only bundle
+          # that simply never launches on an Intel Mac, with no error anywhere.
+          ARCHS=$(lipo -archs "$APP/Contents/MacOS/Visor")
+          echo "architectures: $ARCHS"
+          case "$ARCHS" in
+            *arm64*x86_64*|*x86_64*arm64*) ;;
+            *) echo "::error::bundle is not universal ($ARCHS)"; exit 1 ;;
+          esac
 
       # ditto, not zip: an .app bundle contains symlinks (Sparkle.framework's
       # Versions/Current especially), and a naive zip flattens them into copies

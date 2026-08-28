@@ -25,11 +25,24 @@ BUILD_ONLY=""
 [ -n "${CI:-}" ] && BUILD_ONLY=1
 
 cd "$REPO/app"
-swift build -c release
+# Universal by default: a release built only on an Apple Silicon runner won't
+# launch on an Intel Mac at all, and macOS fails that silently rather than
+# saying why. Set VISOR_ARCHS=native for a single-slice build when iterating
+# locally — it's noticeably faster.
+if [ "${VISOR_ARCHS:-universal}" = "native" ]; then
+    swift build -c release
+    BIN=".build/release/Visor"
+else
+    swift build -c release --arch arm64 --arch x86_64
+    # A multi-arch build lands under .build/apple/Products, not .build/release.
+    BIN="$(find .build/apple/Products/Release -maxdepth 1 -name Visor -type f 2>/dev/null | head -1)"
+    [ -n "$BIN" ] || BIN=".build/release/Visor"
+fi
 
 rm -rf "$REPO/dist"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
-cp .build/release/Visor "$APP/Contents/MacOS/Visor"
+cp "$BIN" "$APP/Contents/MacOS/Visor"
+echo "architectures: $(lipo -archs "$APP/Contents/MacOS/Visor" 2>/dev/null)"
 
 # Embed Sparkle.framework so the app can find it at runtime.
 SPARKLE_FW=$(find .build -path '*/Sparkle.framework' -type d -maxdepth 6 | head -1)
