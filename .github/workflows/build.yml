@@ -7,7 +7,11 @@ name: build
 on:
   push:
     branches: ['**']
+  # Only for forks — a same-repo PR already ran on push, and running both
+  # builds the identical SHA twice.
   pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 concurrency:
@@ -55,3 +59,16 @@ jobs:
           APP=dist/Visor.app
           ls -la "$APP/Contents/Resources/AppIcon.icns"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist"
+
+      # ditto, not zip: an .app bundle contains symlinks (Sparkle.framework's
+      # Versions/Current especially), and a naive zip flattens them into copies
+      # that macOS then refuses to launch.
+      - name: Archive app
+        run: ditto -c -k --keepParent dist/Visor.app dist/Visor.zip
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Visor-app
+          path: dist/Visor.zip
+          retention-days: 14
