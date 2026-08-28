@@ -390,14 +390,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func showSettings(focusing provider: String?) {
         if let provider { SettingsFocus.shared.provider = provider }
         if settingsWindow == nil {
+            // Settings needs a real window now: agents have names, models,
+            // personas and keys, plus memory and MCP panes. Resizable, because
+            // model ids and MCP commands are long.
+            guard let controller else { return }
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 500, height: 480),
-                styleMask: [.titled, .closable],
+                contentRect: NSRect(x: 0, y: 0, width: 820, height: 580),
+                styleMask: [.titled, .closable, .resizable],
                 backing: .buffered,
                 defer: false
             )
             window.title = "Visor Settings"
-            window.contentView = NSHostingView(rootView: SettingsView(ai: ai))
+            window.contentView = NSHostingView(
+                rootView: SettingsView(ai: ai, chat: controller.chat))
             window.isReleasedWhenClosed = false
             window.center()
             settingsWindow = window
