@@ -17,7 +17,10 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-14
+    # macos-15, not macos-14: Firebase 11.15 uses the `sending` keyword, so it
+    # needs a Swift 6 compiler (Xcode 16+), which the -14 image doesn't default
+    # to. The package itself stays on Swift 5 language mode.
+    runs-on: macos-15
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
