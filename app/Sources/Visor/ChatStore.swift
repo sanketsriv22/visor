@@ -1,8 +1,10 @@
 import Foundation
 
-/// A stored conversation. Chats live next to notes under ~/StickyNotes so
-/// everything Visor owns is in one visible, backup-able place — the same
-/// reasoning that keeps notes as plain markdown rather than a database.
+/// A stored conversation. Chats live under ~/StickyNotes alongside Visor's
+/// other working data (run logs, staged prompts) rather than in Application
+/// Support, so everything the app owns stays visible and backup-able — the
+/// same reasoning that keeps notes as plain markdown rather than a database.
+/// Note documents themselves live in ~/Documents/Visor and are mirrored here.
 struct Conversation: Codable, Identifiable, Equatable {
     var id: UUID = UUID()
     /// Derived from the first user turn, or renamed by the user.
