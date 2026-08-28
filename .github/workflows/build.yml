@@ -28,6 +28,11 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          # make-app.sh bakes CFBundleVersion from the commit count, and
+          # Sparkle compares that number. A shallow clone makes it 1, which
+          # reads as older than every installed build.
+          fetch-depth: 0
 
       - name: Toolchain
         run: swift --version && xcodebuild -version

@@ -3,7 +3,8 @@ node_modules/
 dist/
 .DS_Store
 .sparkle-tools/
-.sparkle-keys/
+.sparkle-keys/*
+!.sparkle-keys/ed25519-public.pem
 # Firebase config — secret, kept untracked at the repo root (or outside it).
 GoogleService-Info.plist
 # Firebase CLI local deploy cache.
