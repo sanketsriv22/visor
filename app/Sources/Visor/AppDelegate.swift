@@ -87,8 +87,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         #endif
 
         setUpMainMenu()
-        controller = NotchController(startExpanded: args.contains("--expanded"), ai: ai)
+        // The status item goes up before anything heavier runs. Its menu only
+        // touches `controller` through optionals, and putting it first means a
+        // failure further down degrades a feature instead of leaving the user
+        // with a running app they have no way to reach.
         setUpStatusItem()
+        controller = NotchController(startExpanded: args.contains("--expanded"), ai: ai)
 
         // Re-launching Visor (e.g. from Spotlight) brings the note down.
         DistributedNotificationCenter.default().addObserver(

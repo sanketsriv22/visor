@@ -1,11 +1,31 @@
 #if canImport(FirebaseFirestore) && canImport(FirebaseDatabase) && canImport(Automerge)
 import Automerge
+import FirebaseCore
 import FirebaseDatabase
 import FirebaseFirestore
 import Foundation
 
 extension NoteSyncFactory {
-    static func makeBackend() -> NoteSyncing? { SharedNoteSync() }
+    /// Live sharing needs a configured Firebase app.
+    ///
+    /// `SharedNoteSync` calls `Firestore.firestore()` in a stored-property
+    /// initialiser, and with no bundled GoogleService-Info.plist that raises an
+    /// uncaught Objective-C exception (FIRIllegalStateException). Because this
+    /// is built during launch, that exception aborted
+    /// applicationDidFinishLaunching partway through: no menu-bar icon, no
+    /// global shortcut, no notch panel — while the process stayed alive, so it
+    /// looked like the app had launched and done nothing.
+    ///
+    /// Returning nil is the path this function already documents for "sharing
+    /// unavailable"; it just wasn't taken. Checking FirebaseApp directly rather
+    /// than our own flag means it's correct even if bootstrap never ran.
+    static func makeBackend() -> NoteSyncing? {
+        guard FirebaseApp.app() != nil else {
+            NSLog("[Visor] Firebase not configured — live note sharing unavailable.")
+            return nil
+        }
+        return SharedNoteSync()
+    }
 }
 
 /// Live sync for one shared note at a time, using a two-tier transport.
