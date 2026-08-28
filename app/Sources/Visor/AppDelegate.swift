@@ -105,6 +105,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.controller?.toggle()
         }
 
+        // Tasks sent to a chat agent are answered in the notch itself.
+        NotificationCenter.default.addObserver(
+            forName: .visorRunInNotch, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let prompt = note.userInfo?["prompt"] as? String else { return }
+            self?.controller?.runInNotch(
+                prompt: prompt, agentName: note.userInfo?["provider"] as? String)
+        }
+
         // A send against an agent with no key stored opens Settings instead of
         // leaving a warning under the user's tasks.
         NotificationCenter.default.addObserver(

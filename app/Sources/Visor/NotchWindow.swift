@@ -20,17 +20,70 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
+/// Which surface the notch is showing. Visor is one window with two faces,
+/// not two windows.
+enum VisorMode: String, CaseIterable, Identifiable, Codable {
+    case notes, chat
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .notes: return "Notes"
+        case .chat:  return "Chat"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .notes: return "checklist"
+        case .chat:  return "bubble.left.and.bubble.right"
+        }
+    }
+}
+
 final class UIState: ObservableObject {
     @Published var expanded = false
+    /// Restored on launch, so the notch reopens on whichever face you left it.
+    @Published var mode: VisorMode = .notes
     @Published var notchSize = CGSize(width: 200, height: 32)
     /// True briefly while the card animates open. Rows pass under the cursor
     /// during the slide, so hover affordances are suppressed until it settles.
     @Published var settling = false
 }
 
+/// Main-actor isolated: it owns the panel and drives the chat controller, both
+/// of which are main-actor state.
+@MainActor
 final class NotchController {
+    /// The notes card keeps its established size; chat needs more room for a
+    /// transcript and a composer.
     static let cardHeight: CGFloat = 260
     static let cardWidth: CGFloat = 420
+    static let chatCardHeight: CGFloat = 440
+    static let chatCardWidth: CGFloat = 640
+
+    /// The window is sized to the larger of the two modes for as long as it's
+    /// open, so switching modes resizes *nothing*.
+    ///
+    /// The alternative — resizing the panel per mode — means driving an
+    /// NSWindow frame animation alongside the SwiftUI spring and hoping the two
+    /// timing curves agree. They don't, and the card visibly lags its own
+    /// window. Holding the window at the union lets SwiftUI animate the card
+    /// alone, which is what makes the horizontal growth fluid. The extra
+    /// window area is transparent, and transparent SwiftUI content doesn't
+    /// hit-test, so clicks still pass through to whatever is underneath.
+    static var maxCardSize: CGSize {
+        CGSize(width: max(cardWidth, chatCardWidth),
+               height: max(cardHeight, chatCardHeight))
+    }
+
+    static func cardSize(for mode: VisorMode) -> CGSize {
+        switch mode {
+        case .notes: return CGSize(width: cardWidth, height: cardHeight)
+        case .chat:  return CGSize(width: chatCardWidth, height: chatCardHeight)
+        }
+    }
     /// The cursor is invisible inside the notch, so people naturally click
     /// slightly below it. Extend the collapsed hit area this far beneath.
     private static let underhang: CGFloat = 8
@@ -45,12 +98,15 @@ final class NotchController {
     private let store = NotesStore()
     private let ui = UIState()
     let ai: AIRunner
+    let chat: ChatController
+    private let modeKey = "visor.mode"
     private var screenObserver: Any?
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
 
     init(startExpanded: Bool, ai: AIRunner) {
         self.ai = ai
+        self.chat = ChatController(ai: ai)
         panel = NotchPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -66,9 +122,15 @@ final class NotchController {
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
 
-        let root = StickyRootView(store: store, ui: ui, ai: ai) { [weak self] in
-            self?.toggle()
+        if let saved = UserDefaults.standard.string(forKey: modeKey),
+           let mode = VisorMode(rawValue: saved) {
+            ui.mode = mode
         }
+
+        let root = StickyRootView(
+            store: store, ui: ui, ai: ai, chat: chat,
+            onToggle: { [weak self] in self?.toggle() },
+            onMode: { [weak self] mode in self?.setMode(mode) })
         panel.contentView = FirstMouseHostingView(rootView: root)
 
         ui.expanded = startExpanded
@@ -132,6 +194,24 @@ final class NotchController {
     }
 
     func saveNow() { store.saveNow() }
+
+    /// Switch faces, animating the card between the two widths. No-op if we're
+    /// already there, so a repeated ⌘1 doesn't restart the spring.
+    func setMode(_ mode: VisorMode) {
+        guard ui.mode != mode else { return }
+        UserDefaults.standard.set(mode.rawValue, forKey: modeKey)
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+            ui.mode = mode
+        }
+    }
+
+    /// Open the notch on the chat face with a prompt already running — how
+    /// tasks sent to a chat agent surface.
+    func runInNotch(prompt: String, agentName: String?) {
+        setMode(.chat)
+        showNote()
+        chat.seed(prompt: prompt, agentName: agentName)
+    }
 
     /// Import a note from an incoming beam URL and slide the note down to show
     /// it. No-op if the URL's payload can't be decoded.
@@ -252,9 +332,9 @@ final class NotchController {
         let frame: NSRect
         if expanded {
             ui.notchSize = notch.size
-            let cardW = max(Self.cardWidth, notch.width)
+            let cardW = max(Self.maxCardSize.width, notch.width)
             let width = cardW + Self.shadowPadX * 2
-            let height = notch.height + Self.cardHeight + Self.shadowPadBottom
+            let height = notch.height + Self.maxCardSize.height + Self.shadowPadBottom
             frame = NSRect(
                 x: notch.midX - width / 2,
                 y: screen.frame.maxY - height,

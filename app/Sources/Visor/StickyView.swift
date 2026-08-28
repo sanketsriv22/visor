@@ -5,7 +5,9 @@ struct StickyRootView: View {
     @ObservedObject var store: NotesStore
     @ObservedObject var ui: UIState
     @ObservedObject var ai: AIRunner
+    @ObservedObject var chat: ChatController
     var onToggle: () -> Void
+    var onMode: (VisorMode) -> Void
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -13,8 +15,20 @@ struct StickyRootView: View {
                 // The card extends up behind the notch (topInset) so the notch
                 // overlaps its top edge — the note looks like it slides out
                 // from *behind* the notch, not off its bottom lip.
-                StickyCard(store: store, ai: ai, topInset: ui.notchSize.height, notchWidth: ui.notchSize.width, suppressHover: ui.settling, onClose: onToggle)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                //
+                // Both faces live in one ZStack and the window never resizes
+                // between them, so switching modes is a pure SwiftUI
+                // animation: the card grows sideways instead of the window
+                // snapping to a new size under it.
+                ZStack(alignment: .top) {
+                    switch ui.mode {
+                    case .notes:
+                        StickyCard(store: store, ai: ai, topInset: ui.notchSize.height, notchWidth: ui.notchSize.width, suppressHover: ui.settling, mode: ui.mode, onMode: onMode, onClose: onToggle)
+                    case .chat:
+                        ChatCard(chat: chat, ai: ai, topInset: ui.notchSize.height, mode: ui.mode, onMode: onMode, onClose: onToggle)
+                    }
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
             } else {
                 NotchStrip(size: ui.notchSize, expanded: false, suppressHover: ui.settling)
             }
@@ -73,7 +87,7 @@ private struct NotchStrip: View {
 /// The card's outline minus the top edge — traces left, bottom (rounded), and
 /// right. Used for the card border so the top (which sits at the black screen
 /// edge) isn't stroked.
-private struct CardEdgeBorder: Shape {
+struct CardEdgeBorder: Shape {
     var radius: CGFloat = 18
     func path(in rect: CGRect) -> Path {
         let r = min(radius, rect.height)
@@ -297,6 +311,8 @@ private struct StickyCard: View {
     var notchWidth: CGFloat
     /// Suppress per-row hover affordances while the card animates open.
     var suppressHover: Bool
+    var mode: VisorMode
+    var onMode: (VisorMode) -> Void
     var onClose: () -> Void
 
     // @FocusState owns the SwiftUI text fields (title + add row). Task rows are
@@ -460,10 +476,7 @@ private struct StickyCard: View {
             // VISOR stays whole and left-justified; the count is right-justified
             // against the notch and truncates (never overflows under it).
             HStack(spacing: 4) {
-                Text("VISOR")
-                    .font(.system(size: 11, weight: .semibold))
-                    .tracking(1)
-                    .foregroundStyle(.secondary)
+                ModeSwitcher(mode: mode, onSelect: onMode)
                     .fixedSize()
                     .layoutPriority(1)
                 Spacer(minLength: 4)
