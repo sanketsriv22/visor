@@ -3,6 +3,19 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.36 — 2026-08-28
+
+- **Visor has a second face: chat.** Press ⌘⇧K, hit ⌘2, and type — replies stream straight into the notch. The card grows sideways when you switch; the notch stays the notch. Switch with the control in the notch's left shoulder (where VISOR used to sit) or ⌘1 / ⌘2.
+- **Name your own agents.** Settings → Agents lets you create as many as you like, each on its own model — the list is fetched live from OpenRouter, so it's never a stale hard-coded menu — with an optional persona prepended to every conversation. One OpenRouter key is shared by all of them and lives in your Keychain, so you paste it once.
+- **Agents run in the notch.** Send a task to a chat agent and it answers right there instead of opening a Terminal. CLI agents (Claude Code, Codex, Devin) work exactly as before.
+- **Chats remember.** Visor embeds every turn on-device, so an agent can recall what you talked about weeks ago. Nothing leaves your Mac to do it and there's no embedding bill. Deleting a chat forgets it.
+- **Export any chat** as markdown or JSON, or copy it to the clipboard.
+- **⌘⇧K opens and closes the notch** from any app — no Accessibility permission needed.
+- **Settings is a real window now**, with panes for Agents, Workspace, MCP and Memory. The menu-bar dropdown couldn't hold a form.
+- **MCP, both ways.** Ready-to-paste setup for Claude Code, Codex, Cursor and Devin, plus new chat tools — agents can list, read and search your conversations, and `post_to_chat` writes back so their answer lands where you'll see it.
+- **No more red warning under your tasks.** A missing API key isn't a failed run: it opens Settings on that agent instead. And no run outcome is permanent any more — the footer clears itself.
+- **New app icon.**
+
 ## 1.0-beta.35 — 2026-07-15
 
 - **Links on tasks.** Attach a URL to any task with the link button on its row — tap to open it in your browser, or right-click for Add / Edit / Remove link. Linked tasks show a filled blue link icon. The URL is tucked into the markdown as a trailing comment, so your notes stay clean and agents still read plain text.
