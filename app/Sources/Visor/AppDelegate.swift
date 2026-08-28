@@ -11,6 +11,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var runModeMenu: NSMenu?
     private var runInFolderMenu: NSMenu?
     private var settingsWindow: NSWindow?
+    /// ⌘⇧K toggles the notch from anywhere. Held for the app's lifetime;
+    /// releasing it unregisters the shortcut.
+    private var toggleHotKey: HotKey?
 
     /// Posted by a second launch so the already-running instance shows its note.
     private static let showNoteNotification = Notification.Name("com.kitalabs.visor.showNote")
@@ -95,6 +98,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             forName: NSApplication.willResignActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
             self?.controller?.saveNow()
+        }
+
+        // ⌘⇧K from any app slides the notch down (and back up).
+        toggleHotKey = HotKey(keyCode: Shortcut.kKey, modifiers: Shortcut.commandShift) { [weak self] in
+            self?.controller?.toggle()
+        }
+
+        // A send against an agent with no key stored opens Settings instead of
+        // leaving a warning under the user's tasks.
+        NotificationCenter.default.addObserver(
+            forName: .visorProviderNeedsKey, object: nil, queue: .main
+        ) { [weak self] note in
+            self?.openSettings(focusing: note.userInfo?["provider"] as? String)
         }
 
         if args.contains("--settings") { openSettings() }
@@ -353,7 +369,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    @objc private func openSettings() {
+    @objc private func openSettings() { openSettings(focusing: nil) }
+
+    /// Show the Settings window, optionally scrolled to a specific agent (used
+    /// when a send is blocked on a missing API key).
+    private func openSettings(focusing provider: String?) {
+        if let provider { SettingsFocus.shared.provider = provider }
         if settingsWindow == nil {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 500, height: 480),

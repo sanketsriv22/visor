@@ -67,6 +67,32 @@ final class AIRunner: ObservableObject {
     var isBusy: Bool { runningCount > 0 }
     private var lastLogURL: URL?
 
+    /// How long a finished run's status stays in the note footer before it
+    /// clears itself.
+    private static let resultLinger: TimeInterval = 12
+    /// Pending auto-clear of `lastResult`, cancelled if a new run starts first.
+    private var resultClear: DispatchWorkItem?
+
+    /// Publish a run outcome, then clear it after `resultLinger`.
+    ///
+    /// A run outcome is transient status, not a standing condition. Assigning
+    /// `lastResult` directly used to park the result under the user's tasks
+    /// until the *next* send — so a single failure read as a permanently
+    /// broken app. Nothing in the footer is permanent any more.
+    private func setResult(_ result: RunResult) {
+        resultClear?.cancel()
+        resultClear = nil
+        lastResult = result
+        guard result != .none else { return }
+        let work = DispatchWorkItem { [weak self] in
+            // A run that started in the meantime owns the footer now.
+            guard let self, self.runningCount == 0 else { return }
+            self.lastResult = .none
+        }
+        resultClear = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.resultLinger, execute: work)
+    }
+
     private var homeDir: URL { FileManager.default.homeDirectoryForCurrentUser }
 
     /// Where agents run: the user-chosen project folder if set and present,
@@ -164,13 +190,14 @@ final class AIRunner: ObservableObject {
     func send(tasks: [String], provider: AIProvider, taskIDs: [UUID] = []) {
         guard !tasks.isEmpty else { return } // no single-run guard: runs are concurrent
         lastSessionURL = nil
+        setResult(.none)   // a new send supersedes whatever the footer showed
         if provider.isDevinCloud {
             sendToDevinCloud(tasks: tasks, provider: provider, taskIDs: taskIDs)
             return
         }
         guard let exe = resolveExecutable(provider.command) else {
             lastProviderName = provider.name
-            lastResult = .failed("\(provider.name) not found (\(provider.command))")
+            setResult(.failed("\(provider.name) not found (\(provider.command))"))
             return
         }
         lastProviderName = provider.name
@@ -207,7 +234,12 @@ final class AIRunner: ObservableObject {
     private func sendToDevinCloud(tasks: [String], provider: AIProvider, taskIDs: [UUID]) {
         lastProviderName = provider.name
         guard let key = Keychain.get(provider.name), !key.isEmpty else {
-            lastResult = .failed("Add a Devin API key in Settings")
+            // Not a failure — the agent was simply never configured. Open
+            // Settings on it rather than leaving a warning in the note.
+            setResult(.none)
+            NotificationCenter.default.post(
+                name: .visorProviderNeedsKey, object: nil,
+                userInfo: ["provider": provider.name])
             return
         }
         guard let url = URL(string: "https://api.devin.ai/v1/sessions") else { return }
@@ -236,12 +268,12 @@ final class AIRunner: ObservableObject {
                 }
                 self.lastProviderName = provider.name
                 if let error {
-                    self.lastResult = .failed(error.localizedDescription)
+                    self.setResult(.failed(error.localizedDescription))
                     return
                 }
                 let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
                 guard (200..<300).contains(code) else {
-                    self.lastResult = .failed("Devin API error \(code)")
+                    self.setResult(.failed("Devin API error \(code)"))
                     return
                 }
                 if let data,
@@ -250,7 +282,7 @@ final class AIRunner: ObservableObject {
                     self.lastSessionURL = sessionURL
                     NSWorkspace.shared.open(sessionURL)
                 }
-                self.lastResult = .done
+                self.setResult(.done)
             }
         }.resume()
     }
@@ -290,7 +322,7 @@ final class AIRunner: ObservableObject {
                     let n = (self.runningTaskIDs[id] ?? 0) - 1
                     if n <= 0 { self.runningTaskIDs[id] = nil } else { self.runningTaskIDs[id] = n }
                 }
-                self.lastResult = proc.terminationStatus == 0 ? .done : .failed("exit \(proc.terminationStatus)")
+                self.setResult(proc.terminationStatus == 0 ? .done : .failed("exit \(proc.terminationStatus)"))
                 self.lastProviderName = provider.name
                 self.lastLogURL = logURL
             }
@@ -302,7 +334,7 @@ final class AIRunner: ObservableObject {
             for id in taskIDs { runningTaskIDs[id, default: 0] += 1 }
             lastLogURL = logURL
         } catch {
-            lastResult = .failed(error.localizedDescription)
+            setResult(.failed(error.localizedDescription))
         }
     }
 
@@ -326,7 +358,7 @@ final class AIRunner: ObservableObject {
         do {
             try prompt.write(to: promptURL, atomically: true, encoding: .utf8)
         } catch {
-            lastResult = .failed("couldn't stage prompt: \(error.localizedDescription)")
+            setResult(.failed("couldn't stage prompt: \(error.localizedDescription)"))
             return
         }
 
@@ -360,7 +392,7 @@ final class AIRunner: ObservableObject {
             try FileManager.default.setAttributes(
                 [.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
         } catch {
-            lastResult = .failed("couldn't stage run: \(error.localizedDescription)")
+            setResult(.failed("couldn't stage run: \(error.localizedDescription)"))
             return
         }
 
@@ -502,4 +534,10 @@ final class AIRunner: ObservableObject {
         let dirs = ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
         return dirs.map { "\($0)/\(command)" }.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
+}
+
+extension Notification.Name {
+    /// Posted when a send can't proceed because that agent has no API key
+    /// stored yet. The app opens Settings on the agent; the note stays clean.
+    static let visorProviderNeedsKey = Notification.Name("visor.providerNeedsKey")
 }

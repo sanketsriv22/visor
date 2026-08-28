@@ -1,10 +1,20 @@
 import SwiftUI
 import AppKit
 
+/// Lets the app point Settings at one agent when it opens — used when a send
+/// is blocked because that agent has no API key stored yet, so the user lands
+/// on the field they need instead of hunting for it.
+final class SettingsFocus: ObservableObject {
+    static let shared = SettingsFocus()
+    @Published var provider: String?
+    private init() {}
+}
+
 /// Visor settings: manage the agent CLIs tasks are sent to, and securely store
 /// an API key for any agent that authenticates with one.
 struct SettingsView: View {
     @ObservedObject var ai: AIRunner
+    @ObservedObject private var focus = SettingsFocus.shared
 
     @State private var keyDraft: [String: String] = [:]
     @State private var newName = ""
@@ -59,12 +69,18 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(ai.providers) { provider in
-                        providerRow(provider)
-                        Divider()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(ai.providers) { provider in
+                            providerRow(provider).id(provider.name)
+                            Divider()
+                        }
                     }
+                }
+                .onChange(of: focus.provider) { name in
+                    guard let name else { return }
+                    withAnimation { proxy.scrollTo(name, anchor: .center) }
                 }
             }
 
@@ -75,7 +91,8 @@ struct SettingsView: View {
     }
 
     private func providerRow(_ p: AIProvider) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let wanted = focus.provider == p.name
+        return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 HStack(spacing: 6) {
                     Text(p.name).font(.headline)
@@ -108,11 +125,21 @@ struct SettingsView: View {
                     Button("Save") {
                         ai.setKey(keyDraft[p.name] ?? "", for: p)
                         keyDraft[p.name] = ""
+                        if focus.provider == p.name { focus.provider = nil }
                     }
                     .disabled((keyDraft[p.name] ?? "").isEmpty)
                 }
+                if wanted && !ai.hasKey(p) {
+                    Text("Add a key here to send tasks to \(p.name).")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
+        .padding(.horizontal, 6).padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(wanted ? Color.accentColor.opacity(0.12) : .clear))
+        .animation(.easeInOut(duration: 0.25), value: wanted)
     }
 
     private var addAgentForm: some View {

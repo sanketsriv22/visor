@@ -1,0 +1,50 @@
+# Compiles the app on every push. Visor is built locally by scripts/release.sh,
+# which needs a full Xcode — so a machine with only Command Line Tools can't
+# type-check a change at all. This runner is the verification loop for those
+# machines, and the gate that a branch actually compiles before it merges.
+name: build
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A new push supersedes an in-flight run on the same branch.
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: swift --version && xcodebuild -version
+
+      # Firebase + Automerge + Sparkle dominate build time; cache the resolved
+      # checkouts and object files across runs on the same dependency set.
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: app/.build
+          key: spm-${{ runner.os }}-${{ hashFiles('app/Package.swift', 'app/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build
+        working-directory: app
+        run: swift build -c release
+
+      # Catches packaging regressions (Info.plist, icon, Sparkle framework)
+      # that a plain `swift build` would miss.
+      - name: Package .app
+        run: ./scripts/make-app.sh --build-only
+
+      - name: Verify bundle
+        run: |
+          APP=dist/Visor.app
+          ls -la "$APP/Contents/Resources/AppIcon.icns"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist"
