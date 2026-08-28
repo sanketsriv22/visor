@@ -277,6 +277,7 @@ private struct MessageRow: View {
     let agentName: String
     let isStreaming: Bool
 
+    @ViewBuilder
     var body: some View {
         if message.role == .user {
             HStack {
@@ -295,7 +296,7 @@ private struct MessageRow: View {
                     .font(.system(size: 8, weight: .semibold))
                     .tracking(0.6)
                     .foregroundStyle(.white.opacity(0.32))
-                body
+                replyText
             }
         }
     }
@@ -304,7 +305,7 @@ private struct MessageRow: View {
     /// attributed string on every streamed token is the difference between a
     /// smooth stream and a stuttering one.
     @ViewBuilder
-    private var body: some View {
+    private var replyText: some View {
         if isStreaming {
             Text(message.content)
                 .font(.system(size: 12))

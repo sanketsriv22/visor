@@ -2,6 +2,11 @@ import AppKit
 import Sparkle
 import SwiftUI
 
+/// Main-actor isolated: every member touches AppKit or the notch controller,
+/// which is itself main-actor state. The Apple Event handlers below are the
+/// reason this is explicit — they arrive as plain @objc selectors with no
+/// isolation of their own.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var controller: NotchController?
     private var statusItem: NSStatusItem?
