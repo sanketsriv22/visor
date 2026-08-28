@@ -110,7 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NotificationCenter.default.addObserver(
             forName: .visorProviderNeedsKey, object: nil, queue: .main
         ) { [weak self] note in
-            self?.openSettings(focusing: note.userInfo?["provider"] as? String)
+            self?.showSettings(focusing: note.userInfo?["provider"] as? String)
         }
 
         if args.contains("--settings") { openSettings() }
@@ -369,11 +369,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    @objc private func openSettings() { openSettings(focusing: nil) }
+    @objc private func openSettings() { showSettings(focusing: nil) }
 
     /// Show the Settings window, optionally scrolled to a specific agent (used
     /// when a send is blocked on a missing API key).
-    private func openSettings(focusing provider: String?) {
+    private func showSettings(focusing provider: String?) {
         if let provider { SettingsFocus.shared.provider = provider }
         if settingsWindow == nil {
             let window = NSWindow(
