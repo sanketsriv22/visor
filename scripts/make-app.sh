@@ -29,7 +29,20 @@ cd "$REPO/app"
 # launch on an Intel Mac at all, and macOS fails that silently rather than
 # saying why. Set VISOR_ARCHS=native for a single-slice build when iterating
 # locally — it's noticeably faster.
-if [ "${VISOR_ARCHS:-universal}" = "native" ]; then
+# A universal build shells out to xcbuild, which only ships with Xcode.
+# Command Line Tools alone can build a single architecture perfectly well, so
+# fall back rather than fail — but say so loudly, because an arm64-only bundle
+# will not launch on an Intel Mac and macOS reports that as nothing happening.
+XCBUILD="/Library/Developer/SharedFrameworks/XCBuild.framework/Versions/A/Support/xcbuild"
+WANT_UNIVERSAL=1
+[ "${VISOR_ARCHS:-universal}" = "native" ] && WANT_UNIVERSAL=0
+if [ "$WANT_UNIVERSAL" = "1" ] && [ ! -x "$XCBUILD" ]; then
+    echo "warning: no Xcode found (xcbuild missing) — building for this machine only." >&2
+    echo "         The result is NOT suitable for release; CI produces the universal build." >&2
+    WANT_UNIVERSAL=0
+fi
+
+if [ "$WANT_UNIVERSAL" = "0" ]; then
     swift build -c release
     BIN=".build/release/Visor"
 else
