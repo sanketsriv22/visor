@@ -209,11 +209,14 @@ final class NotchController {
         }
     }
 
-    /// Flip to the other face. Bound to a global shortcut, so it also opens
-    /// the notch if it's closed — otherwise the key would appear to do nothing.
+    /// Flip to the other face, only when the notch is already open.
+    ///
+    /// Deliberately a no-op when closed: ⌘⇧K is the key that opens the notch,
+    /// and having a second one that also opens it makes the two shortcuts feel
+    /// like the same key. Swapping a surface nobody is looking at isn't a swap.
     func swapMode() {
+        guard ui.expanded else { return }
         setMode(ui.mode == .notes ? .chat : .notes)
-        showNote()
     }
 
     /// Select the nth agent and show the chat face — the notch's whole point
