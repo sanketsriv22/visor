@@ -609,6 +609,7 @@ private struct WorkspacePane: View {
 
 private struct MemoryPane: View {
     @ObservedObject var chat: ChatController
+    @State private var voiceEntries: [VoiceEntry] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -629,7 +630,12 @@ private struct MemoryPane: View {
             HStack(spacing: 24) {
                 stat("\(chat.store.summaries.count)", "chats")
                 stat("\(chat.store.summaries.reduce(0) { $0 + $1.messageCount })", "messages")
+                stat("\(voiceEntries.count)", "dictated")
             }
+
+            Divider()
+
+            voiceLogSection
 
             Divider()
 
@@ -652,6 +658,54 @@ private struct MemoryPane: View {
             }
         }
     }
+
+    /// Everything dictated, whether or not it ever reached a chat.
+    private var voiceLogSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Voice log").font(.headline)
+                Spacer()
+                Button("Reveal") {
+                    NSWorkspace.shared.activateFileViewerSelecting([VoiceLog.url])
+                }
+                .disabled(voiceEntries.isEmpty)
+                Button("Refresh") { voiceEntries = VoiceLog.recent(limit: 30) }
+            }
+            if voiceEntries.isEmpty {
+                Text("Nothing dictated yet. ⌘⇧V, or hold your push-to-talk key.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(voiceEntries) { entry in
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(entry.text)
+                                    .font(.system(size: 11))
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Text(Self.stamp.string(from: entry.date)
+                                     + (entry.duration.map { String(format: " · %.1fs", $0) } ?? ""))
+                                    .font(.caption2).foregroundStyle(.tertiary)
+                            }
+                            Divider()
+                        }
+                    }
+                }
+                .frame(maxHeight: 150)
+            }
+            Text("Appended one line per utterance to voice-log.jsonl, so writing the ten-thousandth costs the same as the first.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .onAppear { voiceEntries = VoiceLog.recent(limit: 30) }
+    }
+
+    private static let stamp: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .short
+        f.timeStyle = .short
+        return f
+    }()
 
     private func stat(_ value: String, _ label: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {

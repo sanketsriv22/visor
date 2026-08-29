@@ -27,6 +27,8 @@ final class ChatController: ObservableObject {
     private let client = OpenRouterClient()
     private unowned let ai: AIRunner
     private var streamTask: Task<Void, Never>?
+    /// Set by the notch controller: is the composer on screen right now?
+    var isComposerVisible: (() -> Bool)?
 
     /// Recent turns sent verbatim. Older context arrives through recall
     /// instead, which is what keeps a long history from growing the bill on
@@ -44,9 +46,15 @@ final class ChatController: ObservableObject {
         self.memory = memory
         self.conversation = Self.blank(agent: nil)
         self.conversation = Self.blank(agent: chatAgents.first)
+        voice.currentConversation = { [weak self] in self?.conversation.id }
         voice.onTranscript = { [weak self] text in
             guard let self else { return }
-            // Appended, so dictation can extend something already typed.
+            // Only fill the composer when it's actually on screen. Dictating
+            // with the notch shut is a note to self, not a message being
+            // written — piling those into a draft you can't see means finding
+            // ten unrelated utterances stacked up next time you open chat.
+            // Either way it's already in the voice log.
+            guard self.isComposerVisible?() ?? false else { return }
             self.draft = self.draft.isEmpty
                 ? text
                 : self.draft.trimmingCharacters(in: .whitespaces) + " " + text

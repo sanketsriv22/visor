@@ -46,7 +46,19 @@ struct StickyRootView: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             } else {
-                NotchStrip(size: ui.notchSize, expanded: false, suppressHover: ui.settling)
+                // Collapsed. The strip sits over the physical notch; the
+                // listening pill extends to its right, so the notch appears to
+                // widen rather than a window opening beside it.
+                HStack(spacing: 0) {
+                    NotchStrip(size: ui.notchSize, expanded: false, suppressHover: ui.settling)
+                    if ui.listening {
+                        ListeningPill(voice: chat.voice, height: ui.notchSize.height)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .leading).combined(with: .opacity),
+                                removal: .opacity))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

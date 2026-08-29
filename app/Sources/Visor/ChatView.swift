@@ -1134,3 +1134,49 @@ struct DictationControl: View {
         }
     }
 }
+
+/// The notch growing sideways while you dictate.
+///
+/// Painted the same black as the notch and squared off on its leading edge, so
+/// it reads as the camera housing widening rather than a panel appearing next
+/// to it. It shows only the level while recording and only the dot matrix while
+/// transcribing — there's nothing else worth saying in 86 points, and anything
+/// more would make it a UI rather than an indicator.
+struct ListeningPill: View {
+    @ObservedObject var voice: VoiceInput
+    var height: CGFloat
+
+    var body: some View {
+        ZStack {
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 11,
+                bottomTrailingRadius: 11,
+                topTrailingRadius: 0)
+                .fill(Color.black)
+
+            content
+        }
+        .frame(width: NotchController.listeningPillWidth, height: height)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch voice.state {
+        case .transcribing:
+            DotMatrixIndicator(size: 13)
+        case .recording:
+            AudioLevelMeter(level: voice.level, columns: 9, rows: 4, cell: 2.5)
+        case .denied:
+            Image(systemName: "mic.slash")
+                .font(.system(size: 10))
+                .foregroundStyle(.red.opacity(0.8))
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(.orange)
+        case .idle:
+            EmptyView()
+        }
+    }
+}

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Borderless panel that can become key (for the text editor) without
@@ -63,6 +64,9 @@ final class UIState: ObservableObject {
     /// True briefly while the card animates open. Rows pass under the cursor
     /// during the slide, so hover affordances are suppressed until it settles.
     @Published var settling = false
+    /// True while dictation is recording or transcribing. Drives the listening
+    /// pill beside the notch, independently of whether the card is open.
+    @Published var listening = false
 }
 
 /// Main-actor isolated: it owns the panel and drives the chat controller, both
@@ -103,6 +107,11 @@ final class NotchController {
     static let shoulderWidth: CGFloat = 106
     static let notchClearance: CGFloat = 18
 
+    /// How far the notch grows to the right while dictating. Wide enough for
+    /// the level meter and a little breathing room, narrow enough that it
+    /// still reads as the notch rather than a panel.
+    static let listeningPillWidth: CGFloat = 86
+
     static func cardSize(for mode: VisorMode) -> CGSize {
         switch mode {
         case .notes: return CGSize(width: cardWidth, height: cardHeight)
@@ -133,6 +142,7 @@ final class NotchController {
     let chat: ChatController
     private let modeKey = "visor.mode"
     private var screenObserver: Any?
+    private var voiceObserver: AnyCancellable?
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
 
@@ -153,6 +163,11 @@ final class NotchController {
         panel.isMovable = false
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
+
+        chat.isComposerVisible = { [weak ui] in
+            guard let ui else { return false }
+            return ui.expanded && ui.mode != .notes
+        }
 
         if let saved = UserDefaults.standard.string(forKey: modeKey),
            let mode = VisorMode(rawValue: saved) {
@@ -213,6 +228,29 @@ final class NotchController {
                 self.toggle()
             }
         }
+
+        // Dictation grows the notch sideways even when the card is shut, so the
+        // window has to be resized for it.
+        voiceObserver = chat.voice.$state
+            .receive(on: RunLoop.main)
+            .sink { [weak self] state in
+                guard let self else { return }
+                let listening = state.isBusy
+                guard listening != self.ui.listening else { return }
+                // Grow before showing, shrink after hiding — same reason as the
+                // HUD: the window must never be smaller than what's animating
+                // inside it.
+                if listening { self.ui.listening = true; self.applyFrame(expanded: self.ui.expanded) }
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) {
+                    self.ui.listening = listening
+                }
+                if !listening {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.36) { [weak self] in
+                        guard let self, !self.ui.listening else { return }
+                        self.applyFrame(expanded: self.ui.expanded)
+                    }
+                }
+            }
 
         // Re-anchor under the notch when displays change (lid, monitors, resolution).
         screenObserver = NotificationCenter.default.addObserver(
@@ -460,7 +498,12 @@ final class NotchController {
         } else {
             let hit = collapsedHitRect(on: screen)
             ui.notchSize = hit.size
-            frame = hit
+            // While dictating, the strip extends to the right of the notch for
+            // the level meter.
+            frame = ui.listening
+                ? NSRect(x: hit.minX, y: hit.minY,
+                         width: hit.width + Self.listeningPillWidth, height: hit.height)
+                : hit
         }
         panel.setFrame(frame, display: true)
     }

@@ -33,6 +33,9 @@ final class VoiceInput: NSObject, ObservableObject {
     private var recorder: AVAudioRecorder?
     private var meterTimer: Timer?
     private var fileURL: URL?
+    private var startedAt: Date?
+    /// Set by the owner so a logged utterance records where it went.
+    var currentConversation: (() -> UUID?)?
     /// Called with the transcript when one arrives.
     var onTranscript: ((String) -> Void)?
 
@@ -88,6 +91,7 @@ final class VoiceInput: NSObject, ObservableObject {
             }
             self.recorder = recorder
             self.fileURL = url
+            self.startedAt = Date()
             state = .recording
             startMetering()
         } catch {
@@ -181,7 +185,15 @@ final class VoiceInput: NSObject, ObservableObject {
             }
             state = .idle
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { onTranscript?(trimmed) }
+            guard !trimmed.isEmpty else { return }
+            // Logged whether or not anything is listening for it: a transcript
+            // that only ever existed in a composer you then closed is gone.
+            VoiceLog.append(VoiceEntry(
+                text: trimmed,
+                duration: startedAt.map { Date().timeIntervalSince($0) },
+                conversation: currentConversation?()))
+            startedAt = nil
+            onTranscript?(trimmed)
         } catch {
             state = .failed(error.localizedDescription)
         }
