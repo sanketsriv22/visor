@@ -156,7 +156,7 @@ private struct AgentsPane: View {
     private var openRouterKey: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Text("OpenRouter key").font(.headline)
+                Text("API key").font(.headline)
                 if OpenRouterClient.hasKey {
                     Label("set", systemImage: "checkmark.circle.fill")
                         .font(.caption2).foregroundStyle(.green)
@@ -165,7 +165,7 @@ private struct AgentsPane: View {
             HStack {
                 SecureField(OpenRouterClient.hasKey
                             ? "•••••• (set) — type to replace"
-                            : "paste your OpenRouter key",
+                            : "paste your API key",
                             text: $keyDraft)
                     .textFieldStyle(.roundedBorder)
                 Button("Save") {
@@ -182,7 +182,7 @@ private struct AgentsPane: View {
                     }
                 }
             }
-            Text("Shared by every chat agent, and stored in your macOS Keychain — never in a file.")
+            Text("Shared by every chat agent, and stored in your macOS Keychain — never in a file. Keys come from openrouter.ai, which reaches every model in the picker below.")
                 .font(.caption).foregroundStyle(.secondary)
             if catalog.isLoading {
                 Text("Loading models…").font(.caption2).foregroundStyle(.secondary)

@@ -16,14 +16,6 @@ struct ChatCard: View {
     @FocusState private var composerFocused: Bool
     @State private var copied = false
 
-    private var shape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            topLeadingRadius: 0,
-            bottomLeadingRadius: 18,
-            bottomTrailingRadius: 18,
-            topTrailingRadius: 0)
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             Color.clear.frame(height: topInset)   // the strip behind the notch
@@ -36,13 +28,9 @@ struct ChatCard: View {
                 composer
             }
         }
-        .frame(width: NotchController.chatCardWidth,
-               height: NotchController.chatCardHeight + topInset)
-        .background(
-            shape
-                .fill(Color.black)
-                .shadow(color: .black.opacity(0.35), radius: 5, y: 2))
-        .overlay(CardEdgeBorder(radius: 18).stroke(.white.opacity(0.14), lineWidth: 1))
+        // Chrome and size belong to StickyRootView, so the card morphs between
+        // modes as one shape instead of cross-fading with the note card.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onExitCommand(perform: onClose)
     }
 
@@ -198,7 +186,7 @@ struct ChatCard: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white.opacity(0.75))
             Text(chat.chatAgents.isEmpty
-                 ? "Add one in Settings with your OpenRouter key, and pick which model it runs."
+                 ? "Add one in Settings with an API key, and pick which model it runs."
                  : "Replies stream here. ⌘1 switches back to your notes.")
                 .font(.system(size: 10))
                 .foregroundStyle(.white.opacity(0.4))
@@ -211,13 +199,10 @@ struct ChatCard: View {
 
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("Message…", text: $chat.draft, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.92))
-                .lineLimit(1...5)
-                .focused($composerFocused)
-                .onSubmit(chat.send)
+            ComposerField(text: $chat.draft,
+                          placeholder: "Message…",
+                          onSubmit: chat.send)
+                .frame(height: composerHeight)
 
             Button(action: chat.send) {
                 Image(systemName: "arrow.up.circle.fill")
@@ -237,7 +222,13 @@ struct ChatCard: View {
                     .stroke(.white.opacity(0.09), lineWidth: 1)))
         .padding(.horizontal, 12)
         .padding(.bottom, 12)
-        .onAppear { composerFocused = true }
+    }
+
+    /// Grow with the draft, up to a ceiling — past that the field scrolls
+    /// rather than eating the transcript.
+    private var composerHeight: CGFloat {
+        let lines = chat.draft.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
+        return min(max(CGFloat(lines) * 15 + 3, 18), 90)
     }
 
     private var canSend: Bool {
@@ -394,5 +385,79 @@ struct ModeSwitcher: View {
             }
         }
         .animation(.easeInOut(duration: 0.15), value: mode)
+    }
+}
+
+/// The message composer.
+///
+/// An NSTextView rather than SwiftUI's TextField: `TextField` on macOS gives
+/// you no usable selection — you can't drag-select, and ⌘C on a partial
+/// selection doesn't work — which is unacceptable for a field people paste
+/// prompts into and edit. NSTextView is what the note rows already use, for
+/// the same reason.
+private struct ComposerField: NSViewRepresentable {
+    @Binding var text: String
+    var placeholder: String
+    var onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSTextView.scrollableTextView()
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = false
+        scroll.verticalScrollElasticity = .none
+
+        guard let view = scroll.documentView as? NSTextView else { return scroll }
+        view.delegate = context.coordinator
+        view.drawsBackground = false
+        view.font = .systemFont(ofSize: 12)
+        view.textColor = NSColor.white.withAlphaComponent(0.92)
+        view.insertionPointColor = NSColor.white.withAlphaComponent(0.8)
+        view.textContainerInset = NSSize(width: 0, height: 1)
+        view.isRichText = false
+        view.isAutomaticQuoteSubstitutionEnabled = false
+        view.isAutomaticDashSubstitutionEnabled = false
+        view.allowsUndo = true
+        view.string = text
+        context.coordinator.placeholderView = view
+
+        // The composer is the reason the panel takes focus at all, so claim it
+        // as soon as the card is on screen.
+        DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        guard let view = scroll.documentView as? NSTextView else { return }
+        // Only write back when the model genuinely diverges, or every keystroke
+        // would reset the insertion point to the end.
+        if view.string != text { view.string = text }
+        view.needsDisplay = true
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        private let parent: ComposerField
+        weak var placeholderView: NSTextView?
+
+        init(_ parent: ComposerField) { self.parent = parent }
+
+        func textDidChange(_ notification: Notification) {
+            guard let view = notification.object as? NSTextView else { return }
+            parent.text = view.string
+        }
+
+        /// Return sends; Shift-Return inserts a newline. Both arrive as
+        /// insertNewline:, so the modifier on the live event is what separates
+        /// them.
+        func textView(_ view: NSTextView, doCommandBy selector: Selector) -> Bool {
+            guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
+            if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
+                view.insertNewlineIgnoringFieldEditor(nil)
+                return true
+            }
+            parent.onSubmit()
+            return true
+        }
     }
 }

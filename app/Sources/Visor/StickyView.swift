@@ -20,21 +20,61 @@ struct StickyRootView: View {
                 // between them, so switching modes is a pure SwiftUI
                 // animation: the card grows sideways instead of the window
                 // snapping to a new size under it.
-                ZStack(alignment: .top) {
-                    switch ui.mode {
-                    case .notes:
-                        StickyCard(store: store, ai: ai, topInset: ui.notchSize.height, notchWidth: ui.notchSize.width, suppressHover: ui.settling, mode: ui.mode, onMode: onMode, onClose: onToggle)
-                    case .chat:
-                        ChatCard(chat: chat, ai: ai, topInset: ui.notchSize.height, mode: ui.mode, onMode: onMode, onClose: onToggle)
-                    }
-                }
-                .transition(.move(edge: .top).combined(with: .opacity))
+                morphingCard
+                    .transition(.move(edge: .top).combined(with: .opacity))
             } else {
                 NotchStrip(size: ui.notchSize, expanded: false, suppressHover: ui.settling)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(\.colorScheme, .dark)
+    }
+
+    private var cardShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: 0,
+            bottomLeadingRadius: 18,
+            bottomTrailingRadius: 18,
+            topTrailingRadius: 0)
+    }
+
+    /// One card that changes shape, rather than two cards dissolving into each
+    /// other.
+    ///
+    /// The chrome — fill, border, shadow — is a single persistent view whose
+    /// frame animates between the two modes' sizes, so the black card visibly
+    /// grows and shrinks along the spring. Only the *contents* swap, and they
+    /// cross-fade quickly inside the moving shape.
+    ///
+    /// Previously each mode drew its own background at its own fixed size,
+    /// which gave SwiftUI two unrelated views and no choice but to dissolve
+    /// one into the other — that's the fade this replaces. Content is clipped
+    /// to the shape so a view still laid out at the old width can't spill past
+    /// the edge mid-morph.
+    private var morphingCard: some View {
+        let size = NotchController.cardSize(for: ui.mode)
+        return ZStack(alignment: .top) {
+            Group {
+                switch ui.mode {
+                case .notes:
+                    StickyCard(store: store, ai: ai, topInset: ui.notchSize.height,
+                               notchWidth: ui.notchSize.width, cardWidth: size.width,
+                               suppressHover: ui.settling, mode: ui.mode,
+                               onMode: onMode, onClose: onToggle)
+                case .chat:
+                    ChatCard(chat: chat, ai: ai, topInset: ui.notchSize.height,
+                             mode: ui.mode, onMode: onMode, onClose: onToggle)
+                }
+            }
+            // Short and eased: the shape's travel should read as the motion,
+            // not the contents flickering.
+            .transition(.opacity.animation(.easeInOut(duration: 0.16)))
+        }
+        .frame(width: size.width, height: size.height + ui.notchSize.height)
+        .background(cardShape.fill(Color.black))
+        .clipShape(cardShape)
+        .overlay(CardEdgeBorder(radius: 18).stroke(.white.opacity(0.14), lineWidth: 1))
+        .shadow(color: .black.opacity(0.35), radius: 5, y: 2)
     }
 }
 
@@ -309,6 +349,9 @@ private struct StickyCard: View {
     var topInset: CGFloat
     /// Width of the notch, so the top band can flank it instead of overlapping.
     var notchWidth: CGFloat
+    /// Current card width — animated by the root view during a mode morph, so
+    /// the notch band's shoulders track the edge instead of jumping at the end.
+    var cardWidth: CGFloat
     /// Suppress per-row hover affordances while the card animates open.
     var suppressHover: Bool
     var mode: VisorMode
@@ -437,17 +480,9 @@ private struct StickyCard: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
         }
-        .frame(width: NotchController.cardWidth, height: NotchController.cardHeight + topInset)
-        .background(
-            shape
-                .fill(Color.black)
-                .shadow(color: .black.opacity(0.35), radius: 5, y: 2)
-        )
-        .overlay(
-            // Border on the left, bottom, and right only — no top edge, which sat
-            // at the black screen edge and read as an odd light line.
-            CardEdgeBorder(radius: 18).stroke(.white.opacity(0.14), lineWidth: 1)
-        )
+        // Chrome and size are the root view's job now, so the card can morph
+        // between modes as one shape.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(WindowReader { hostWindow = $0 })
         .onExitCommand(perform: onClose)
         // Focusing a SwiftUI field (title/add row) means no task row is focused.
@@ -470,7 +505,7 @@ private struct StickyCard: View {
     /// right edge. A gap in the middle clears the physical notch.
     private var notchBand: some View {
         let gap = notchWidth + 18 // notch + a little clearance on each side
-        let shoulder = max(0, (NotchController.cardWidth - gap) / 2)
+        let shoulder = max(0, (cardWidth - gap) / 2)
         return HStack(spacing: 0) {
             // The shoulder is only ~101pt (card 420, notch 200), so keep this tight:
             // VISOR stays whole and left-justified; the count is right-justified

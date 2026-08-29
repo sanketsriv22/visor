@@ -60,8 +60,8 @@ final class NotchController {
     /// transcript and a composer.
     static let cardHeight: CGFloat = 260
     static let cardWidth: CGFloat = 420
-    static let chatCardHeight: CGFloat = 440
-    static let chatCardWidth: CGFloat = 640
+    static let chatCardHeight: CGFloat = 330
+    static let chatCardWidth: CGFloat = 530
 
     /// The window is sized to the larger of the two modes for as long as it's
     /// open, so switching modes resizes *nothing*.
@@ -200,7 +200,9 @@ final class NotchController {
     func setMode(_ mode: VisorMode) {
         guard ui.mode != mode else { return }
         UserDefaults.standard.set(mode.rawValue, forKey: modeKey)
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+        // Loose enough to read as elastic, damped enough not to wobble: this
+        // is the curve the card's width and height are morphing along.
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
             ui.mode = mode
         }
     }
