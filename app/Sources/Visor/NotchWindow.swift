@@ -303,24 +303,18 @@ final class NotchController {
         }
     }
 
-    /// Start or stop dictating. Opens the notch on the chat face first —
-    /// dictating into a composer you can't see would be a guess.
-    func toggleDictation() {
-        if !ui.expanded || ui.mode == .notes {
-            setMode(.chat)
-            showNote()
-        }
-        chat.toggleDictation()
-    }
+    /// Start or stop dictating.
+    ///
+    /// Deliberately doesn't open the notch. Dictation is meant to be usable
+    /// without looking at anything — the listening pill beside the notch is the
+    /// whole feedback you need — and having a voice key throw a card over your
+    /// work every time is exactly the interruption it exists to avoid. If the
+    /// notch is already open it stays open, on whichever face you left it.
+    func toggleDictation() { chat.toggleDictation() }
 
-    /// Begin a hold-to-talk recording, showing the composer it dictates into.
-    func beginDictation() {
-        if !ui.expanded || ui.mode == .notes {
-            setMode(.chat)
-            showNote()
-        }
-        chat.voice.start()
-    }
+    /// Begin a hold-to-talk recording. Like `toggleDictation`, this never opens
+    /// the notch.
+    func beginDictation() { chat.voice.start() }
 
     /// End a hold-to-talk recording and transcribe it.
     func endDictation() { chat.voice.finish() }
