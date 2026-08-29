@@ -217,7 +217,7 @@ final class AIRunner: ObservableObject {
             NotificationCenter.default.post(
                 name: .visorRunInNotch, object: nil,
                 userInfo: ["provider": provider.name,
-                           "prompt": buildPrompt(tasks, includeWorkdir: true)])
+                           "prompt": buildPrompt(tasks, style: .plain)])
             return
         }
         if provider.isDevinCloud {
@@ -233,29 +233,61 @@ final class AIRunner: ObservableObject {
         // Local CLI agents run in the chosen project folder, so the prompt frames
         // the task for that repo. Devin Cloud works in its own sandbox, so it omits
         // the local working-directory line.
-        let prompt = buildPrompt(tasks, includeWorkdir: true)
+        let prompt = buildPrompt(tasks, style: .coding, includeWorkdir: true)
         switch runMode {
         case .terminal:   runInTerminal(exe: exe, provider: provider, prompt: prompt)
         case .background: runInBackground(exe: exe, provider: provider, prompt: prompt, taskIDs: taskIDs)
         }
     }
 
-    private func buildPrompt(_ tasks: [String], includeWorkdir: Bool) -> String {
-        let list = tasks.map { "- \($0)" }.joined(separator: "\n")
-        let context = includeWorkdir
-            ? "\nYou're working in \(workDirDisplay) (the current directory) — treat these "
-              + "as tasks for that project, and you have access to all of its code.\n"
-            : ""
-        return """
-        Here are tasks from my sticky note:
+    /// How a task is framed for the agent receiving it.
+    private enum PromptStyle {
+        /// A coding agent with a checkout and a shell.
+        case coding
+        /// A conversation. No repo, no tools, no PRs.
+        case plain
+    }
 
-        \(list)
-        \(context)
-        Work through them. For each task, do whatever it takes to finish it — you \
-        have my permission to run any tools and to spin up additional agents or \
-        sessions as needed. Make the actual changes (and open PRs where that fits). \
-        When you complete a task, say so clearly. End with a short summary.
-        """
+    /// Turn selected tasks into a prompt.
+    ///
+    /// The framing has to match the agent, which it previously didn't: every
+    /// send got the coding preamble, so "order hand soap" arrived at a chat
+    /// model as a task for a repository, with permission to spin up sessions
+    /// and open pull requests. That reads as a broken app, and it drags the
+    /// model's answer somewhere useless.
+    ///
+    /// A conversation gets the task close to verbatim. A single task is sent
+    /// exactly as written — the user already said what they wanted, and
+    /// wrapping it only gives the model something else to respond to.
+    private func buildPrompt(_ tasks: [String], style: PromptStyle,
+                             includeWorkdir: Bool = false) -> String {
+        let list = tasks.map { "- \($0)" }.joined(separator: "\n")
+
+        switch style {
+        case .plain:
+            guard tasks.count > 1 else { return tasks[0] }
+            return """
+            Help me with these:
+
+            \(list)
+            """
+
+        case .coding:
+            let context = includeWorkdir
+                ? "\nYou're working in \(workDirDisplay) (the current directory) — treat these "
+                  + "as tasks for that project, and you have access to all of its code.\n"
+                : ""
+            return """
+            Here are tasks from my sticky note:
+
+            \(list)
+            \(context)
+            Work through them. For each task, do whatever it takes to finish it — you \
+            have my permission to run any tools and to spin up additional agents or \
+            sessions as needed. Make the actual changes (and open PRs where that fits). \
+            When you complete a task, say so clearly. End with a short summary.
+            """
+        }
     }
 
     /// Create a Devin cloud session via the REST API and open it in the Devin
@@ -277,7 +309,7 @@ final class AIRunner: ObservableObject {
         req.httpMethod = "POST"
         req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        var body: [String: Any] = ["prompt": buildPrompt(tasks, includeWorkdir: false)]
+        var body: [String: Any] = ["prompt": buildPrompt(tasks, style: .coding)]
         if let first = tasks.first?.trimmingCharacters(in: .whitespaces), !first.isEmpty {
             body["title"] = String(first.prefix(60))
         }
