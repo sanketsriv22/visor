@@ -363,6 +363,9 @@ struct ChatCard: View {
 struct MessageRow: View {
     let message: ChatMessage
     let isStreaming: Bool
+    /// 1.0 in the notch; the HUD raises it so the transcript grows with the
+    /// rails rather than staying notch-sized on a full screen.
+    @Environment(\.hudScale) private var scale
 
     @ViewBuilder
     var body: some View {
@@ -370,7 +373,7 @@ struct MessageRow: View {
             HStack {
                 Spacer(minLength: 40)
                 Text(message.content)
-                    .font(.system(size: 12))
+                    .font(.system(size: 12 * scale))
                     .foregroundStyle(.white.opacity(0.92))
                     .textSelection(.enabled)
                     .padding(.horizontal, 10)
@@ -389,7 +392,7 @@ struct MessageRow: View {
                         // message. No name, no empty bubble text — just the
                         // thing that says work is happening, at a size you can
                         // read without leaning in.
-                        DotMatrixIndicator(size: 30)
+                        DotMatrixIndicator(size: 30 * scale)
                             .padding(.vertical, 6)
                             .padding(.horizontal, 4)
                     } else {
@@ -417,11 +420,11 @@ struct MessageRow: View {
     private var replyText: some View {
         if isStreaming {
             Text(message.content)
-                .font(.system(size: 12))
+                .font(.system(size: 12 * scale))
                 .foregroundStyle(.white.opacity(0.88))
         } else {
             Text(Self.rendered(message.content))
-                .font(.system(size: 12))
+                .font(.system(size: 12 * scale))
                 .foregroundStyle(.white.opacity(0.88))
                 .textSelection(.enabled)
         }
@@ -760,35 +763,44 @@ struct HUDView: View {
 
     @State private var railsIn = false
     /// Persisted so the HUD reopens at the density you left it.
-    @AppStorage("visor.hudOpacity") private var glass: Double = 0.45
+    @AppStorage("visor.hudOpacity") private var glass: Double = 0.8
+    /// Everything in the HUD scales from this, so it can be read from across
+    /// the room or packed in tight.
+    @AppStorage("visor.hudScale") private var scale: Double = 1.0
 
     var body: some View {
         ZStack(alignment: .top) {
             // The glass. Dark enough to read against, sheer enough that the
             // desktop underneath still reads as "overlay", not "app".
+            // The slider fades the *material* as well as the tint. Previously
+            // only the black overlay moved, so the blur stayed at full strength
+            // and the HUD could never be more than translucent no matter how
+            // far the slider went.
             RoundedRectangle(cornerRadius: 26, style: .continuous)
                 .fill(.ultraThinMaterial)
                 .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .fill(Color.black.opacity(glass)))
+                    .fill(Color.black.opacity(0.55)))
+                .opacity(glass)
                 .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .stroke(.white.opacity(0.12), lineWidth: 1))
+                    .stroke(.white.opacity(0.06 + 0.1 * glass), lineWidth: 1))
 
             HStack(alignment: .top, spacing: 18) {
                 rail(title: "Agents") { agentsRail }
-                    .frame(width: 210)
+                    .frame(width: 210 * scale)
                     .offset(x: railsIn ? 0 : -140)
                     .opacity(railsIn ? 1 : 0)
 
                 centre
 
                 rail(title: "Open tasks") { tasksRail }
-                    .frame(width: 230)
+                    .frame(width: 230 * scale)
                     .offset(x: railsIn ? 0 : 140)
                     .opacity(railsIn ? 1 : 0)
             }
             .padding(.horizontal, 22)
             .padding(.top, topInset + 16)
             .padding(.bottom, 20)
+            .environment(\.hudScale, scale)
         }
         .onAppear {
             // Rails follow the card rather than racing it, so the eye reads one
@@ -818,11 +830,23 @@ struct HUDView: View {
                     Image(systemName: "circle.lefthalf.filled")
                         .font(.system(size: 9))
                         .foregroundStyle(.white.opacity(0.35))
-                    Slider(value: $glass, in: 0.08...0.92)
+                    // Down to zero: fully clear is a legitimate setting for an
+                    // overlay you want to see through completely.
+                    Slider(value: $glass, in: 0...1)
                         .controlSize(.mini)
-                        .frame(width: 90)
+                        .frame(width: 80)
                 }
-                .help("How opaque the HUD is")
+                .help("How opaque the HUD is — all the way down is fully clear")
+
+                HStack(spacing: 5) {
+                    Image(systemName: "textformat.size")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.35))
+                    Slider(value: $scale, in: 0.85...1.8)
+                        .controlSize(.mini)
+                        .frame(width: 80)
+                }
+                .help("How big everything in the HUD is")
 
                 Button(action: onExit) {
                     Image(systemName: "arrow.down.right.and.arrow.up.left")
@@ -850,7 +874,7 @@ struct HUDView: View {
                                      @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title.uppercased())
-                .font(.system(size: 8, weight: .semibold))
+                .font(.system(size: 9 * scale, weight: .semibold))
                 .tracking(0.8)
                 .foregroundStyle(.white.opacity(0.35))
             content()
@@ -879,11 +903,11 @@ struct HUDView: View {
                             .frame(width: 5, height: 5)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(agent.name)
-                                .font(.system(size: 11))
+                                .font(.system(size: 12 * scale))
                                 .foregroundStyle(.white.opacity(0.85))
                                 .lineLimit(1)
                             Text(agent.model ?? ChatController.defaultModel)
-                                .font(.system(size: 8))
+                                .font(.system(size: 9 * scale))
                                 .foregroundStyle(.white.opacity(0.3))
                                 .lineLimit(1).truncationMode(.middle)
                         }
@@ -924,7 +948,7 @@ struct HUDView: View {
     }
 
     private var tasksRail: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 3) {
             let open = store.items.filter { $0.isTask && !$0.done }
             if open.isEmpty {
                 Text("Nothing open")
@@ -936,21 +960,23 @@ struct HUDView: View {
                 // open -> doing -> blocked, long-press completes. Anything
                 // else would make this a read-only copy of the tasks rather
                 // than the tasks.
-                HStack(alignment: .top, spacing: 6) {
+                HStack(alignment: .top, spacing: 8) {
                     Button { store.cycle(item.id) } label: {
                         Image(systemName: symbol(for: item.status))
-                            .font(.system(size: 9))
+                            .font(.system(size: 13 * scale))
                             .foregroundStyle(tint(for: item.status))
-                            .frame(width: 12, height: 12)
+                            // The glyph is 13pt; the hit area is 24. A target
+                            // the size of its icon is a target you miss.
+                            .frame(width: 24 * scale, height: 24 * scale)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .padding(.top, 1)
 
                     Text(item.text)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.72))
-                        .lineLimit(2)
+                        .font(.system(size: 13 * scale))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .lineLimit(3)
+                        .padding(.top, 4 * scale)
                     Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
@@ -1178,5 +1204,19 @@ struct ListeningPill: View {
         case .idle:
             EmptyView()
         }
+    }
+}
+
+
+/// How large everything in the HUD is drawn. 1.0 in the notch card; the HUD
+/// sets it from its own slider so the transcript scales with the rails.
+private struct HUDScaleKey: EnvironmentKey {
+    static let defaultValue: Double = 1.0
+}
+
+extension EnvironmentValues {
+    var hudScale: Double {
+        get { self[HUDScaleKey.self] }
+        set { self[HUDScaleKey.self] = newValue }
     }
 }
