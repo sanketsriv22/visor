@@ -61,8 +61,14 @@ final class VoiceInput: NSObject, ObservableObject {
             return
         }
         // Asking every time is cheap and handles the user revoking access.
+        // Step the notch down first: it draws above the menu bar, which means
+        // it draws above this dialog too.
+        NotificationCenter.default.post(name: .visorSystemPrompt, object: nil,
+                                        userInfo: ["showing": true])
         AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
             Task { @MainActor in
+                NotificationCenter.default.post(name: .visorSystemPrompt, object: nil,
+                                                userInfo: ["showing": false])
                 guard let self else { return }
                 guard granted else { self.state = .denied; return }
                 self.beginRecording()

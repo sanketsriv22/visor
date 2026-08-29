@@ -229,6 +229,12 @@ final class NotchController {
             }
         }
 
+        NotificationCenter.default.addObserver(
+            forName: .visorSystemPrompt, object: nil, queue: .main
+        ) { [weak self] note in
+            self?.suppressForSystemPrompt(note.userInfo?["showing"] as? Bool ?? false)
+        }
+
         // Dictation grows the notch sideways even when the card is shut, so the
         // window has to be resized for it.
         voiceObserver = chat.voice.$state
@@ -264,6 +270,16 @@ final class NotchController {
     }
 
     func saveNow() { store.saveNow() }
+
+    /// Step the panel below ordinary windows while a system dialog is up.
+    ///
+    /// The notch has to sit at `.statusBar` to draw over the menu bar, but that
+    /// also puts it above permission prompts — so the dialog asking to use your
+    /// microphone opens *behind* the app asking for it, which reads as the app
+    /// having hung.
+    func suppressForSystemPrompt(_ showing: Bool) {
+        panel.level = showing ? .normal : .statusBar
+    }
 
     /// Switch faces, animating the card between the two widths. No-op if we're
     /// already there, so a repeated ⌘1 doesn't restart the spring.

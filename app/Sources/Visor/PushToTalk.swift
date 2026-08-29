@@ -95,8 +95,15 @@ final class PushToTalk: ObservableObject {
 
     /// Ask for Accessibility, showing the system prompt.
     func requestTrust() {
+        NotificationCenter.default.post(name: .visorSystemPrompt, object: nil,
+                                        userInfo: ["showing": true])
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
         _ = AXIsProcessTrustedWithOptions(options as CFDictionary)
+        // The prompt is non-blocking; give it long enough to come forward.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+            NotificationCenter.default.post(name: .visorSystemPrompt, object: nil,
+                                            userInfo: ["showing": false])
+        }
     }
 
     // MARK: - Configuration

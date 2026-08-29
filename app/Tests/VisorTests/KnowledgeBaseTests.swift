@@ -56,10 +56,13 @@ final class KnowledgeBaseTests: XCTestCase {
             role: .user,
             content: "The kitchen tap has been dripping since last Thursday and needs a new washer.")
         kb.index(message, in: chat)
-        XCTAssertFalse(kb.recall("dripping tap washer").isEmpty)
+        // minimumScore 0: this is testing that forget() removes an entry, not
+        // how semantically close Apple's embedding thinks two phrases are.
+        // Threshold-dependent assertions make the test a verdict on the OS.
+        XCTAssertFalse(kb.recall("dripping tap washer", minimumScore: 0).isEmpty)
 
         kb.forget(conversation: chat.id)
-        XCTAssertTrue(kb.recall("dripping tap washer").isEmpty)
+        XCTAssertTrue(kb.recall("dripping tap washer", minimumScore: 0).isEmpty)
     }
 
     /// Recall excludes the conversation in progress, whose recent turns are
@@ -75,7 +78,8 @@ final class KnowledgeBaseTests: XCTestCase {
             content: "Remember that the spare key is under the third plant pot by the door."),
                  in: chat)
 
-        XCTAssertFalse(kb.recall("where is the spare key").isEmpty)
-        XCTAssertTrue(kb.recall("where is the spare key", excluding: chat.id).isEmpty)
+        XCTAssertFalse(kb.recall("where is the spare key", minimumScore: 0).isEmpty)
+        XCTAssertTrue(
+            kb.recall("where is the spare key", excluding: chat.id, minimumScore: 0).isEmpty)
     }
 }

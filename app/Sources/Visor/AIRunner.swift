@@ -634,6 +634,12 @@ final class AIRunner: ObservableObject {
 }
 
 extension Notification.Name {
+    /// Posted around anything that raises a system prompt (microphone,
+    /// Accessibility). The notch sits above the menu bar, which means it also
+    /// sits above those dialogs — so it steps down while one is up.
+    /// userInfo: "showing" (Bool).
+    static let visorSystemPrompt = Notification.Name("visor.systemPrompt")
+
     /// Posted from the notch to open the Settings window. The notch has no
     /// menu bar of its own, so this is how a dead end there ("no agents yet")
     /// offers a way out.

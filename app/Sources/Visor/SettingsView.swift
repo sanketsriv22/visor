@@ -458,10 +458,7 @@ private struct ModelPickerButton: View {
     private var matches: [String] {
         var ids = catalog.ids
         if !ids.contains(selection) { ids.insert(selection, at: 0) }
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return ids }
-        // Match on the whole id so "anthropic" and "sonnet" both work.
-        return ids.filter { $0.lowercased().contains(q) }
+        return ModelSearch.filter(ids, query: query)
     }
 
     var body: some View {

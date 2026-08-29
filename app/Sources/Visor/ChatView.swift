@@ -92,8 +92,6 @@ struct ChatCard: View {
     private var agentBar: some View {
         HStack(spacing: 8) {
             agentPicker
-            Text("·").foregroundStyle(.white.opacity(0.25)).font(.system(size: 9))
-            modelPicker
             Spacer(minLength: 0)
             DictationControl(voice: chat.voice, onToggle: chat.toggleDictation)
         }
@@ -149,26 +147,6 @@ struct ChatCard: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-    }
-
-    /// Change the running model without a trip to Settings — the agent's
-    /// stored default updates with it.
-    private var modelPicker: some View {
-        Menu {
-            ForEach(chat.modelOptions, id: \.self) { id in
-                Button(id) { chat.useModel(id) }
-            }
-        } label: {
-            Text(chat.shortModelName)
-                .font(.system(size: 9))
-                .foregroundStyle(.white.opacity(0.45))
-                .lineLimit(1)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .disabled(chat.agent == nil)
-        .help("Model this agent runs")
     }
 
     private var exportMenu: some View {
@@ -676,10 +654,7 @@ struct InlineModelPicker: View {
     @State private var query = ""
 
     private var matches: [String] {
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        let ids = chat.modelOptions
-        guard !q.isEmpty else { return ids }
-        return ids.filter { $0.lowercased().contains(q) }
+        ModelSearch.filter(chat.modelOptions, query: query)
     }
 
     var body: some View {
@@ -1218,5 +1193,37 @@ extension EnvironmentValues {
     var hudScale: Double {
         get { self[HUDScaleKey.self] }
         set { self[HUDScaleKey.self] = newValue }
+    }
+}
+
+
+/// Matching for the model pickers.
+///
+/// Plain substring matching failed the obvious case: typing "glm 5.3" found
+/// nothing because the id is "glm-5.3-flash" — the separators differ and the
+/// name has a suffix. Both the query and the id are stripped to letters and
+/// digits before comparing, and a multi-word query matches when every word
+/// appears somewhere, so "flash glm" works too.
+enum ModelSearch {
+    static func filter(_ ids: [String], query: String) -> [String] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return ids }
+
+        let squashed = normalise(trimmed)
+        let words = trimmed
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map { normalise(String($0)) }
+            .filter { !$0.isEmpty }
+
+        return ids.filter { id in
+            let target = normalise(id)
+            // "glm53" against "glm53flash", or every word present in any order.
+            if !squashed.isEmpty && target.contains(squashed) { return true }
+            return !words.isEmpty && words.allSatisfy { target.contains($0) }
+        }
+    }
+
+    private static func normalise(_ text: String) -> String {
+        text.lowercased().filter { $0.isLetter || $0.isNumber }
     }
 }
