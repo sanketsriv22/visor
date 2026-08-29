@@ -55,6 +55,11 @@ jobs:
       - name: Package .app
         run: ./scripts/make-app.sh --build-only
 
+      # Gate, not decoration: a red test fails the branch.
+      - name: Test
+        working-directory: app
+        run: swift test
+
       - name: Build MCP server
         working-directory: mcp-server
         run: npm ci && npx tsc --noEmit && npm run build

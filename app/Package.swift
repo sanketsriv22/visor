@@ -27,6 +27,14 @@ let package = Package(
             // copies them into the .app's Contents/Resources. They're not SPM
             // resources, so exclude them to keep the build quiet.
             exclude: ["Resources"]
-        )
+        ),
+        // Covers the pure layers — storage, memory, the voice log, prompt
+        // shaping. The UI isn't testable without a display, and that's exactly
+        // why everything that *can* live outside a view does.
+        .testTarget(
+            name: "VisorTests",
+            dependencies: ["Visor"],
+            path: "Tests/VisorTests"
+        ),
     ]
 )
