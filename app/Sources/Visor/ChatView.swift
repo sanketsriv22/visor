@@ -9,6 +9,9 @@ struct ChatCard: View {
     @ObservedObject var ai: AIRunner
     /// Height of the notch the card tucks up behind.
     var topInset: CGFloat
+    /// Width of the notch, so the band can flank it exactly as the note card's
+    /// does — same geometry both sides means nothing shifts on a mode swap.
+    var notchWidth: CGFloat
     var mode: VisorMode
     var onMode: (VisorMode) -> Void
     var onClose: () -> Void
@@ -18,8 +21,8 @@ struct ChatCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: topInset)   // the strip behind the notch
-            header
+            notchBand
+            agentBar
             Divider().overlay(Color.white.opacity(0.08))
             if chat.showingHistory {
                 history
@@ -36,39 +39,56 @@ struct ChatCard: View {
 
     // MARK: - Header
 
-    private var header: some View {
-        HStack(spacing: 8) {
-            // Same slot as on the note card, so the control doesn't move when
-            // you use it.
-            ModeSwitcher(mode: mode, onSelect: onMode)
-
-            VStack(alignment: .leading, spacing: 0) {
-                agentPicker
-                modelPicker
+    /// Identical geometry to the note card's band — centred on the notch,
+    /// fixed shoulders — so the switcher and the action icons occupy the same
+    /// screen position in both faces and don't move on a swap.
+    private var notchBand: some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            HStack(spacing: 4) {
+                ModeSwitcher(mode: mode, onSelect: onMode)
+                    .fixedSize()
+                Spacer(minLength: 0)
             }
-
-            Spacer(minLength: 4)
-
-            if chat.isStreaming {
-                Button(action: chat.stop) {
-                    Image(systemName: "stop.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.orange)
+            .frame(width: NotchController.shoulderWidth, alignment: .leading)
+            Spacer(minLength: 0)
+                .frame(width: notchWidth + NotchController.notchClearance)
+            HStack(spacing: 2) {
+                Spacer(minLength: 0)
+                if chat.isStreaming {
+                    Button(action: chat.stop) {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.orange)
+                            .frame(width: 22, height: 22)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop the reply — this also stops it being billed")
                 }
-                .buttonStyle(.plain)
-                .frame(width: 22)
-                .help("Stop the reply — this also stops it being billed")
+                headerButton("square.and.pencil", "New chat") { chat.newChat() }
+                headerButton("clock.arrow.circlepath", "Past chats") {
+                    withAnimation(.easeInOut(duration: 0.18)) { chat.showingHistory.toggle() }
+                }
+                exportMenu.frame(width: 22)
             }
-
-            // Fixed widths so the row doesn't reflow as buttons come and go.
-            headerButton("square.and.pencil", "New chat") { chat.newChat() }
-            headerButton("clock.arrow.circlepath", "Past chats") {
-                withAnimation(.easeInOut(duration: 0.18)) { chat.showingHistory.toggle() }
-            }
-            exportMenu.frame(width: 22)
+            .frame(width: NotchController.shoulderWidth, alignment: .trailing)
+            Spacer(minLength: 0)
         }
-        .frame(height: 34)
+        .frame(height: topInset)
+    }
+
+    /// Who you're talking to and on what. Below the notch, where there's width
+    /// for it — the band itself has to stay narrow to match the note card.
+    private var agentBar: some View {
+        HStack(spacing: 8) {
+            agentPicker
+            Text("·").foregroundStyle(.white.opacity(0.25)).font(.system(size: 9))
+            modelPicker
+            Spacer(minLength: 0)
+        }
         .padding(.horizontal, 14)
+        .padding(.vertical, 5)
     }
 
     private func headerButton(_ symbol: String, _ help: String,

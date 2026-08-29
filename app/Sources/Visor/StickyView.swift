@@ -58,11 +58,12 @@ struct StickyRootView: View {
                 switch ui.mode {
                 case .notes:
                     StickyCard(store: store, ai: ai, topInset: ui.notchSize.height,
-                               notchWidth: ui.notchSize.width, cardWidth: size.width,
+                               notchWidth: ui.notchSize.width,
                                suppressHover: ui.settling, mode: ui.mode,
                                onMode: onMode, onClose: onToggle)
                 case .chat:
                     ChatCard(chat: chat, ai: ai, topInset: ui.notchSize.height,
+                             notchWidth: ui.notchSize.width,
                              mode: ui.mode, onMode: onMode, onClose: onToggle)
                 }
             }
@@ -349,9 +350,6 @@ private struct StickyCard: View {
     var topInset: CGFloat
     /// Width of the notch, so the top band can flank it instead of overlapping.
     var notchWidth: CGFloat
-    /// Current card width — animated by the root view during a mode morph, so
-    /// the notch band's shoulders track the edge instead of jumping at the end.
-    var cardWidth: CGFloat
     /// Suppress per-row hover affordances while the card animates open.
     var suppressHover: Bool
     var mode: VisorMode
@@ -503,13 +501,12 @@ private struct StickyCard: View {
     /// The strip at notch height. Left shoulder: VISOR + the open-task count.
     /// Right shoulder: the share/presence beacon, then the beam button at the far
     /// right edge. A gap in the middle clears the physical notch.
+    /// The strip at notch height, centred on the notch rather than stretched
+    /// across the card. Both faces build this the same way and from the same
+    /// constants, so nothing in it moves when the card changes size.
     private var notchBand: some View {
-        let gap = notchWidth + 18 // notch + a little clearance on each side
-        let shoulder = max(0, (cardWidth - gap) / 2)
-        return HStack(spacing: 0) {
-            // The shoulder is only ~101pt (card 420, notch 200), so keep this tight:
-            // VISOR stays whole and left-justified; the count is right-justified
-            // against the notch and truncates (never overflows under it).
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
             HStack(spacing: 4) {
                 ModeSwitcher(mode: mode, onSelect: onMode)
                     .fixedSize()
@@ -520,17 +517,16 @@ private struct StickyCard: View {
                     .foregroundStyle(store.openTaskCount > 0 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                     .lineLimit(1)
             }
-            .padding(.leading, 12)
-            .padding(.trailing, 2)
-            .frame(width: shoulder, alignment: .leading)
-            Spacer(minLength: 0).frame(width: gap)
+            .frame(width: NotchController.shoulderWidth, alignment: .leading)
+            Spacer(minLength: 0)
+                .frame(width: notchWidth + NotchController.notchClearance)
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
                 if store.isActiveNoteShared { sharedBeacon }
                 beamButton
             }
-            .padding(.trailing, 10)
-            .frame(width: shoulder, alignment: .trailing)
+            .frame(width: NotchController.shoulderWidth, alignment: .trailing)
+            Spacer(minLength: 0)
         }
         .frame(height: topInset)
     }

@@ -80,6 +80,18 @@ final class NotchController {
                height: max(cardHeight, chatCardHeight))
     }
 
+    /// Width of each shoulder in the top band, and the clearance kept around
+    /// the physical notch.
+    ///
+    /// Fixed, deliberately. Deriving the shoulder from the card width meant
+    /// every icon in the band slid sideways whenever the card changed size
+    /// between modes — the band was anchored to the card's edges, and those
+    /// edges move. Anchoring to the notch instead (which never moves) keeps
+    /// the controls in one place. 106 is what the narrower card allows:
+    /// 420 - (185 + 18) leaves 217 for two shoulders.
+    static let shoulderWidth: CGFloat = 106
+    static let notchClearance: CGFloat = 18
+
     static func cardSize(for mode: VisorMode) -> CGSize {
         switch mode {
         case .notes: return CGSize(width: cardWidth, height: cardHeight)
