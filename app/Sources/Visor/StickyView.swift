@@ -49,10 +49,13 @@ struct StickyRootView: View {
                 // Collapsed. The strip sits over the physical notch; the
                 // listening pill extends to its right, so the notch appears to
                 // widen rather than a window opening beside it.
-                HStack(spacing: 0) {
+                // .top so the extension lines up with the notch's top edge;
+                // the strip below it is 8pt taller than the hardware because of
+                // the click underhang.
+                HStack(alignment: .top, spacing: 0) {
                     NotchStrip(size: ui.notchSize, expanded: false, suppressHover: ui.settling)
                     if ui.listening {
-                        ListeningPill(voice: chat.voice, height: ui.notchSize.height)
+                        ListeningPill(voice: chat.voice, height: ui.trueNotch.height)
                             .transition(.asymmetric(
                                 insertion: .move(edge: .leading).combined(with: .opacity),
                                 removal: .opacity))

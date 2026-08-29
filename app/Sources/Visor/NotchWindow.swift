@@ -61,6 +61,11 @@ final class UIState: ObservableObject {
     /// Restored on launch, so the notch reopens on whichever face you left it.
     @Published var mode: VisorMode = .notes
     @Published var notchSize = CGSize(width: 200, height: 32)
+    /// The physical notch, without the forgiving click band added underneath
+    /// it. Anything that has to line up with the hardware uses this — the
+    /// collapsed hit rect is 8pt taller, and drawing to that height makes an
+    /// extension that visibly overhangs the notch it's meant to continue.
+    @Published var trueNotch = CGSize(width: 200, height: 32)
     /// True briefly while the card animates open. Rows pass under the cursor
     /// during the slide, so hover affordances are suppressed until it settles.
     @Published var settling = false
@@ -110,7 +115,7 @@ final class NotchController {
     /// How far the notch grows to the right while dictating. Wide enough for
     /// the level meter and a little breathing room, narrow enough that it
     /// still reads as the notch rather than a panel.
-    static let listeningPillWidth: CGFloat = 86
+    static let listeningPillWidth: CGFloat = 66
 
     static func cardSize(for mode: VisorMode) -> CGSize {
         switch mode {
@@ -487,6 +492,7 @@ final class NotchController {
         let mode = mode ?? ui.mode
 
         let frame: NSRect
+        ui.trueNotch = notch.size
         if expanded && mode.isFullScreen {
             // The whole screen, so the HUD's own animation has room to run
             // inside a window that isn't moving.

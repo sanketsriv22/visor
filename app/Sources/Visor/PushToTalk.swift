@@ -16,7 +16,13 @@ final class PushToTalk: ObservableObject {
     /// on the left modifiers constantly, so the right-hand ones and Fn are the
     /// only sane choices.
     enum Trigger: String, CaseIterable, Identifiable, Codable {
-        case off, fn, rightOption, rightCommand
+        case off
+        case fn
+        case rightOption, leftOption
+        case rightCommand
+        case rightControl, leftControl
+        case rightShift
+        case capsLock
 
         var id: String { rawValue }
 
@@ -25,7 +31,12 @@ final class PushToTalk: ObservableObject {
             case .off:           return "Off"
             case .fn:            return "Fn"
             case .rightOption:   return "Right ⌥"
+            case .leftOption:    return "Left ⌥"
             case .rightCommand:  return "Right ⌘"
+            case .rightControl:  return "Right ⌃"
+            case .leftControl:   return "Left ⌃"
+            case .rightShift:    return "Right ⇧"
+            case .capsLock:      return "Caps Lock"
             }
         }
 
@@ -33,18 +44,26 @@ final class PushToTalk: ObservableObject {
         var keyCode: UInt16? {
             switch self {
             case .off:          return nil
-            case .fn:           return 63
-            case .rightOption:  return 61
+            case .capsLock:     return 57
             case .rightCommand: return 54
+            case .leftControl:  return 59
+            case .rightShift:   return 60
+            case .rightOption:  return 61
+            case .rightControl: return 62
+            case .fn:           return 63
+            case .leftOption:   return 58
             }
         }
 
         var flag: NSEvent.ModifierFlags? {
             switch self {
-            case .off:          return nil
-            case .fn:           return .function
-            case .rightOption:  return .option
-            case .rightCommand: return .command
+            case .off:                       return nil
+            case .fn:                        return .function
+            case .rightOption, .leftOption:  return .option
+            case .rightCommand:              return .command
+            case .rightControl, .leftControl: return .control
+            case .rightShift:                return .shift
+            case .capsLock:                  return .capsLock
             }
         }
     }
@@ -74,6 +93,15 @@ final class PushToTalk: ObservableObject {
     private var holdWork: DispatchWorkItem?
 
     private let triggerKey = "visor.pushToTalkTrigger"
+    /// Asked once per launch at most.
+    ///
+    /// AXIsProcessTrusted() keeps returning false after the user approves,
+    /// because TCC binds the grant to the app's code signature and every
+    /// ad-hoc build is a different signature. Re-prompting on that basis sends
+    /// people to System Settings to approve something already listed there. A
+    /// Developer ID signature fixes the underlying problem; until then, ask
+    /// once and say what's happening.
+    private var hasPrompted = false
 
     init() {
         if let raw = UserDefaults.standard.string(forKey: triggerKey),
@@ -113,7 +141,10 @@ final class PushToTalk: ObservableObject {
         UserDefaults.standard.set(trigger.rawValue, forKey: triggerKey)
         stopMonitoring()
         guard trigger != .off else { return }
-        if !isTrusted { requestTrust() }
+        if !isTrusted && !hasPrompted {
+            hasPrompted = true
+            requestTrust()
+        }
         startMonitoring()
     }
 

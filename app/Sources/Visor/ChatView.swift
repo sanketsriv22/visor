@@ -1149,10 +1149,15 @@ struct ListeningPill: View {
 
     var body: some View {
         ZStack {
+            // Square on the leading edge so it butts flush against the notch,
+            // rounded only on the trailing bottom corner to echo the notch's
+            // own. A rounded leading corner drew a visible seam and made this
+            // read as a second notch sitting beside the first, rather than the
+            // one notch getting wider.
             UnevenRoundedRectangle(
                 topLeadingRadius: 0,
-                bottomLeadingRadius: 11,
-                bottomTrailingRadius: 11,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 10,
                 topTrailingRadius: 0)
                 .fill(Color.black)
 
