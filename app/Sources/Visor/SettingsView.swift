@@ -114,6 +114,7 @@ private struct AgentsPane: View {
     @ObservedObject var focus: SettingsFocus
 
     @State private var keyDraft = ""
+    @State private var voiceDraft = ""
     @State private var newAgentName = ""
 
     var body: some View {
@@ -121,6 +122,10 @@ private struct AgentsPane: View {
             header
 
             openRouterKey
+
+            Divider()
+
+            voiceKey
 
             Divider()
 
@@ -192,6 +197,36 @@ private struct AgentsPane: View {
                 Text("\(catalog.models.count) models available")
                     .font(.caption2).foregroundStyle(.secondary)
             }
+        }
+    }
+
+    /// Dictation can't reuse the chat key: OpenRouter is a chat-completions
+    /// gateway and doesn't proxy audio transcription.
+    private var voiceKey: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("Voice key").font(.headline)
+                if VoiceInput.hasKey {
+                    Label("set", systemImage: "checkmark.circle.fill")
+                        .font(.caption2).foregroundStyle(.green)
+                }
+            }
+            HStack {
+                SecureField(VoiceInput.hasKey
+                            ? "•••••• (set) — type to replace"
+                            : "paste an OpenAI key",
+                            text: $voiceDraft)
+                    .textFieldStyle(.roundedBorder)
+                Button("Save") {
+                    Keychain.set(voiceDraft.trimmingCharacters(in: .whitespacesAndNewlines),
+                                 account: VoiceInput.keyAccount)
+                    voiceDraft = ""
+                }
+                .disabled(voiceDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            Text("⌘⇧V dictates into the composer using OpenAI's transcription API. This is a separate key because OpenRouter doesn't carry audio — leave it blank and dictation stays off.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -524,8 +559,12 @@ private struct WorkspacePane: View {
                     Text("opens and closes the notch from any app.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Text("⌘1 and ⌘2 switch between notes and chat while it's open.")
-                    .font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("⌘⇧I swaps between notes and chat.")
+                    Text("⌘⇧M expands chat into the full-screen HUD.")
+                    Text("⌘⇧1–5 jump straight to an agent.")
+                }
+                .font(.caption).foregroundStyle(.secondary)
             }
         }
     }

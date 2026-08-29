@@ -66,6 +66,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSUIElement</key><true/>
+    <!-- Dictation records from the mic; macOS refuses access without a reason
+         string, and the app is killed on first use if this is missing. -->
+    <key>NSMicrophoneUsageDescription</key><string>Visor records your voice so you can dictate into the composer.</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>SUFeedURL</key><string>https://raw.githubusercontent.com/sanketsriv22/visor/main/appcast.xml</string>
     <key>SUPublicEDKey</key><string>${SU_PUBLIC_ED_KEY}</string>

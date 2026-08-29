@@ -255,6 +255,16 @@ final class NotchController {
         }
     }
 
+    /// Start or stop dictating. Opens the notch on the chat face first —
+    /// dictating into a composer you can't see would be a guess.
+    func toggleDictation() {
+        if !ui.expanded || ui.mode == .notes {
+            setMode(.chat)
+            showNote()
+        }
+        chat.toggleDictation()
+    }
+
     /// Toggle the full-screen HUD. Entering from notes goes through chat,
     /// since the HUD is that conversation at another scale.
     func toggleHUD() {

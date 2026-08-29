@@ -21,6 +21,9 @@ final class ChatController: ObservableObject {
     /// Live model list, so the notch's picker offers everything the key can
     /// reach rather than a hard-coded handful.
     let catalog = ModelCatalog()
+    /// Dictation. Transcripts land in the draft rather than sending straight
+    /// off, so a misheard word is editable before it costs a request.
+    let voice = VoiceInput()
     private let client = OpenRouterClient()
     private unowned let ai: AIRunner
     private var streamTask: Task<Void, Never>?
@@ -41,7 +44,17 @@ final class ChatController: ObservableObject {
         self.memory = memory
         self.conversation = Self.blank(agent: nil)
         self.conversation = Self.blank(agent: chatAgents.first)
+        voice.onTranscript = { [weak self] text in
+            guard let self else { return }
+            // Appended, so dictation can extend something already typed.
+            self.draft = self.draft.isEmpty
+                ? text
+                : self.draft.trimmingCharacters(in: .whitespaces) + " " + text
+        }
     }
+
+    /// Start or stop dictating into the composer.
+    func toggleDictation() { voice.toggle() }
 
     // MARK: - Agents
 

@@ -58,14 +58,16 @@ struct ChatCard: View {
             .frame(width: NotchController.shoulderWidth, alignment: .leading)
             Spacer(minLength: 0)
                 .frame(width: notchWidth + NotchController.notchClearance)
-            HStack(spacing: 2) {
+            // 20pt slots with no spacing: five of these have to fit the same
+            // 106pt shoulder the note card uses.
+            HStack(spacing: 0) {
                 Spacer(minLength: 0)
                 if chat.isStreaming {
                     Button(action: chat.stop) {
                         Image(systemName: "stop.circle.fill")
-                            .font(.system(size: 12))
+                            .font(.system(size: 11))
                             .foregroundStyle(.orange)
-                            .frame(width: 22, height: 22)
+                            .frame(width: 20, height: 20)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -75,7 +77,9 @@ struct ChatCard: View {
                 headerButton("clock.arrow.circlepath", "Past chats") {
                     withAnimation(.easeInOut(duration: 0.18)) { chat.showingHistory.toggle() }
                 }
-                exportMenu.frame(width: 22)
+                exportMenu.frame(width: 20)
+                headerButton("arrow.up.left.and.arrow.down.right", "Expand to HUD — ⌘⇧M",
+                             action: onHUD)
             }
             .frame(width: NotchController.shoulderWidth, alignment: .trailing)
             Spacer(minLength: 0)
@@ -91,6 +95,7 @@ struct ChatCard: View {
             Text("·").foregroundStyle(.white.opacity(0.25)).font(.system(size: 9))
             modelPicker
             Spacer(minLength: 0)
+            DictationControl(voice: chat.voice, onToggle: chat.toggleDictation)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
@@ -102,7 +107,7 @@ struct ChatCard: View {
             Image(systemName: symbol)
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.6))
-                .frame(width: 22, height: 22)
+                .frame(width: 20, height: 20)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -252,7 +257,7 @@ struct ChatCard: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.white.opacity(0.4))
             } else {
-                Text("Replies stream here. ⌘⇧M switches back to your notes.")
+                Text("Replies stream here. ⌘⇧I switches back to your notes.")
                     .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.4))
                     .fixedSize(horizontal: false, vertical: true)
@@ -281,19 +286,8 @@ struct ChatCard: View {
             HStack(spacing: 6) {
                 InlineModelPicker(chat: chat)
 
-                Button(action: onHUD) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.white.opacity(0.4))
-                        .padding(.horizontal, 5).padding(.vertical, 2)
-                        .background(Capsule().fill(.white.opacity(0.06)))
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .help("Expand to HUD — ⌘⇧H")
-
                 if chat.isStreaming {
-                    ArticulatingSquare(size: 9)
+                    DotMatrixIndicator(size: 11)
                     Text("working")
                         .font(.system(size: 9))
                         .foregroundStyle(.white.opacity(0.4))
@@ -397,7 +391,7 @@ struct MessageRow: View {
                             .font(.system(size: 8, weight: .semibold))
                             .tracking(0.6)
                             .foregroundStyle(.white.opacity(0.4))
-                        if isStreaming { ArticulatingSquare(size: 7) }
+                        if isStreaming { DotMatrixIndicator(size: 9) }
                     }
                     replyText
                 }
@@ -503,7 +497,7 @@ struct ModeSwitcher: View {
                         .foregroundStyle(.white.opacity(candidate == mode ? 0.9 : 0.36))
                 }
                 .buttonStyle(.plain)
-                .help("\(candidate.title) — ⌘⇧M swaps from anywhere")
+                .help("\(candidate.title) — ⌘⇧I swaps from anywhere")
                 .keyboardShortcut(candidate == .notes ? "1" : "2", modifiers: .command)
             }
         }
@@ -597,31 +591,72 @@ struct ComposerField: NSViewRepresentable {
     }
 }
 
-/// The "something is happening" indicator: a small square that rotates and
-/// softens its corners in a continuous loop.
+/// The "something is happening" indicator: a 3x3 grid of dots that light in a
+/// shifting order.
 ///
-/// A spinner reads as *waiting* — a progress bar with no information. This
-/// reads as *working*, which is the honest signal while tokens are arriving.
-/// It's driven by a single repeating animation rather than a timer, so it
-/// costs nothing and stops cleanly when the view goes away.
-struct ArticulatingSquare: View {
-    var size: CGFloat = 10
+/// A spinner reads as *waiting* — a progress bar with no information. A grid
+/// re-firing in a different order every beat reads as *working*, which is the
+/// honest signal while tokens are arriving.
+///
+/// Driven by TimelineView rather than a Timer, so there's nothing to invalidate
+/// when the view goes away and it stops on its own when off-screen. The order
+/// is a deterministic shuffle of the nine cells seeded by the step, so it looks
+/// random without needing a random source.
+struct DotMatrixIndicator: View {
+    var size: CGFloat = 12
     var tint: Color = .white
+    /// Seconds per beat.
+    var beat: Double = 0.16
 
-    @State private var articulating = false
+    private let columns = 3
 
     var body: some View {
-        RoundedRectangle(
-            cornerRadius: articulating ? size * 0.46 : size * 0.17,
-            style: .continuous)
-            .fill(tint.opacity(articulating ? 0.85 : 0.5))
+        TimelineView(.periodic(from: .now, by: beat)) { context in
+            let step = Int(context.date.timeIntervalSinceReferenceDate / beat)
+            let ranks = Self.ranking(for: step)
+            let dot = size / 5
+
+            VStack(spacing: dot / 2) {
+                ForEach(0..<columns, id: \.self) { row in
+                    HStack(spacing: dot / 2) {
+                        ForEach(0..<columns, id: \.self) { column in
+                            let index = row * columns + column
+                            Circle()
+                                .fill(tint.opacity(Self.opacity(forRank: ranks[index])))
+                                .frame(width: dot, height: dot)
+                        }
+                    }
+                }
+            }
             .frame(width: size, height: size)
-            .rotationEffect(.degrees(articulating ? 180 : 0))
-            .scaleEffect(articulating ? 0.78 : 1)
-            .animation(.easeInOut(duration: 0.72).repeatForever(autoreverses: true),
-                       value: articulating)
-            .onAppear { articulating = true }
-            .accessibilityLabel("Working")
+            .animation(.easeInOut(duration: beat * 0.9), value: step)
+        }
+        .accessibilityLabel("Working")
+    }
+
+    /// Rank 0 is brightest. Three lit, three mid, three dim — enough contrast
+    /// to read movement at 12pt without the whole grid flashing.
+    private static func opacity(forRank rank: Int) -> Double {
+        switch rank {
+        case 0..<3: return 0.9
+        case 3..<6: return 0.45
+        default:    return 0.15
+        }
+    }
+
+    /// Fisher-Yates over the nine cells, seeded by the step: same step always
+    /// gives the same pattern, consecutive steps look unrelated.
+    private static func ranking(for step: Int) -> [Int] {
+        var order = Array(0..<9)
+        var seed = UInt64(bitPattern: Int64(step)) &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+        for i in stride(from: 8, through: 1, by: -1) {
+            seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            order.swapAt(i, Int((seed >> 33) % UInt64(i + 1)))
+        }
+        // order[rank] = cell; invert so callers can ask a cell for its rank.
+        var rank = [Int](repeating: 0, count: 9)
+        for (r, cell) in order.enumerated() { rank[cell] = r }
+        return rank
     }
 }
 
@@ -771,7 +806,7 @@ struct HUDView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
-                if chat.isStreaming { ArticulatingSquare(size: 9) }
+                if chat.isStreaming { DotMatrixIndicator(size: 11) }
                 Spacer(minLength: 0)
                 Button(action: onExit) {
                     Image(systemName: "arrow.down.right.and.arrow.up.left")
@@ -781,7 +816,7 @@ struct HUDView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Back to the notch — Esc, or ⌘⇧H")
+                .help("Back to the notch — Esc, or ⌘⇧M")
             }
 
             HUDTranscript(chat: chat)
@@ -935,7 +970,7 @@ private struct HUDComposer: View {
             HStack(spacing: 8) {
                 InlineModelPicker(chat: chat)
                 if chat.isStreaming {
-                    ArticulatingSquare(size: 9)
+                    DotMatrixIndicator(size: 11)
                     Text("working").font(.system(size: 9)).foregroundStyle(.white.opacity(0.4))
                 }
                 Spacer(minLength: 0)
@@ -953,5 +988,104 @@ private struct HUDComposer: View {
             .fill(.white.opacity(0.06)))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
             .stroke(.white.opacity(0.09), lineWidth: 1))
+    }
+}
+
+/// Pixelated input-level meter, shown while dictating.
+///
+/// Deliberately blocky rather than a smooth waveform: at this size a
+/// continuous curve is a wobbling line you can't read, where lit and unlit
+/// cells are legible at a glance and match the dot-matrix indicator's
+/// language.
+struct AudioLevelMeter: View {
+    var level: Float          // 0…1
+    var columns = 5
+    var rows = 4
+    var cell: CGFloat = 2.5
+
+    var body: some View {
+        HStack(spacing: cell / 2) {
+            ForEach(0..<columns, id: \.self) { column in
+                VStack(spacing: cell / 2) {
+                    ForEach(0..<rows, id: \.self) { row in
+                        // Rows fill from the bottom up.
+                        let threshold = Float(rows - row) / Float(rows)
+                        RoundedRectangle(cornerRadius: cell / 4)
+                            .fill(Color.white.opacity(lit(column: column, threshold: threshold)))
+                            .frame(width: cell, height: cell)
+                    }
+                }
+            }
+        }
+        .animation(.easeOut(duration: 0.08), value: level)
+        .accessibilityLabel("Microphone level")
+    }
+
+    /// Outer columns respond a little less than the centre, which reads as a
+    /// meter rather than five identical bars moving in lockstep.
+    private func lit(column: Int, threshold: Float) -> Double {
+        let centre = Float(columns - 1) / 2
+        let falloff = 1 - abs(Float(column) - centre) / (centre + 1) * 0.45
+        return level * falloff >= threshold ? 0.85 : 0.12
+    }
+}
+
+
+/// Microphone toggle plus the live level, on the trailing edge of the chat
+/// header.
+///
+/// The meter only appears while recording — a permanently visible meter reading
+/// zero is noise, and its arrival is the clearest signal that the mic is
+/// actually open.
+struct DictationControl: View {
+    @ObservedObject var voice: VoiceInput
+    var onToggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if voice.state == .recording {
+                AudioLevelMeter(level: voice.level)
+            } else if voice.state == .transcribing {
+                DotMatrixIndicator(size: 10)
+            }
+
+            Button(action: onToggle) {
+                Image(systemName: symbol)
+                    .font(.system(size: 10))
+                    .foregroundStyle(tint)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(helpText)
+        }
+    }
+
+    private var symbol: String {
+        switch voice.state {
+        case .recording:    return "mic.fill"
+        case .transcribing: return "waveform"
+        case .denied:       return "mic.slash"
+        default:            return "mic"
+        }
+    }
+
+    private var tint: Color {
+        switch voice.state {
+        case .recording:         return .orange
+        case .denied:            return .red.opacity(0.7)
+        case .failed:            return .orange.opacity(0.8)
+        default:                 return .white.opacity(0.45)
+        }
+    }
+
+    private var helpText: String {
+        switch voice.state {
+        case .recording:    return "Stop and transcribe — ⌘⇧V"
+        case .transcribing: return "Transcribing…"
+        case .denied:       return "Microphone access denied — enable it in System Settings > Privacy"
+        case .failed(let why): return why
+        case .idle:         return "Dictate — ⌘⇧V"
+        }
     }
 }

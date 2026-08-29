@@ -79,7 +79,8 @@ final class HotKey {
 enum Shortcut {
     static let kKey = UInt32(kVK_ANSI_K)
     static let mKey = UInt32(kVK_ANSI_M)
-    static let hKey = UInt32(kVK_ANSI_H)
+    static let iKey = UInt32(kVK_ANSI_I)
+    static let vKey = UInt32(kVK_ANSI_V)
     static let commandShift = UInt32(cmdKey | shiftKey)
 
     /// Number-row 1…5, for picking an agent. Carbon key codes aren't
