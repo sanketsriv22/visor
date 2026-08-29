@@ -23,14 +23,24 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
 /// Which surface the notch is showing. Visor is one window with two faces,
 /// not two windows.
 enum VisorMode: String, CaseIterable, Identifiable, Codable {
-    case notes, chat
+    case notes, chat, hud
 
     var id: String { rawValue }
+
+    /// The two faces the switcher offers. HUD is entered from chat rather than
+    /// picked from a list — it's the same conversation at another scale, not a
+    /// third sibling.
+    static var switchable: [VisorMode] { [.notes, .chat] }
+
+    /// HUD covers the screen, so the window has to be resized for it rather
+    /// than sharing the fixed union the other two live in.
+    var isFullScreen: Bool { self == .hud }
 
     var title: String {
         switch self {
         case .notes: return "Notes"
         case .chat:  return "Chat"
+        case .hud:   return "HUD"
         }
     }
 
@@ -40,6 +50,7 @@ enum VisorMode: String, CaseIterable, Identifiable, Codable {
         // the generic checklist glyph read as clip-art next to the chat bubble.
         case .notes: return "note.text"
         case .chat:  return "bubble.left.and.bubble.right"
+        case .hud:   return "rectangle.inset.filled.and.person.filled"
         }
     }
 }
@@ -96,7 +107,14 @@ final class NotchController {
         switch mode {
         case .notes: return CGSize(width: cardWidth, height: cardHeight)
         case .chat:  return CGSize(width: chatCardWidth, height: chatCardHeight)
+        case .hud:   return .zero   // sized to the screen; see hudSize(on:)
         }
+    }
+
+    /// HUD fills the screen minus a margin, so it reads as an overlay rather
+    /// than a takeover and the desktop stays visible at the edges.
+    static func hudSize(on screen: NSScreen) -> CGSize {
+        CGSize(width: screen.frame.width - 120, height: screen.frame.height - 90)
     }
     /// The cursor is invisible inside the notch, so people naturally click
     /// slightly below it. Extend the collapsed hit area this far beneath.
@@ -213,12 +231,35 @@ final class NotchController {
     /// already there, so a repeated ⌘1 doesn't restart the spring.
     func setMode(_ mode: VisorMode) {
         guard ui.mode != mode else { return }
+        let leavingFullScreen = ui.mode.isFullScreen && !mode.isFullScreen
         UserDefaults.standard.set(mode.rawValue, forKey: modeKey)
+
+        // Grow the window *before* the content animates into it, so the HUD
+        // has room to expand inside a window that isn't itself moving. The
+        // reverse — shrinking first — would clip the card mid-flight.
+        if mode.isFullScreen { applyFrame(expanded: true, mode: mode) }
+
         // Loose enough to read as elastic, damped enough not to wobble: this
         // is the curve the card's width and height are morphing along.
         withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
             ui.mode = mode
         }
+
+        // Coming back down, the window can only shrink once the card has
+        // finished travelling — otherwise it's cut off on the way.
+        if leavingFullScreen {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
+                guard let self, !self.ui.mode.isFullScreen, self.ui.expanded else { return }
+                self.applyFrame(expanded: true)
+            }
+        }
+    }
+
+    /// Toggle the full-screen HUD. Entering from notes goes through chat,
+    /// since the HUD is that conversation at another scale.
+    func toggleHUD() {
+        guard ui.expanded else { return }
+        setMode(ui.mode.isFullScreen ? .chat : .hud)
     }
 
     /// Flip to the other face, only when the notch is already open.
@@ -228,6 +269,7 @@ final class NotchController {
     /// like the same key. Swapping a surface nobody is looking at isn't a swap.
     func swapMode() {
         guard ui.expanded else { return }
+        // From the HUD, swapping means coming back down to the note.
         setMode(ui.mode == .notes ? .chat : .notes)
     }
 
@@ -359,11 +401,19 @@ final class NotchController {
         return NSRect(x: notch.minX - 4, y: notch.minY, width: notch.width + 8, height: notch.height + 8)
     }
 
-    private func applyFrame(expanded: Bool) {
+    private func applyFrame(expanded: Bool, mode: VisorMode? = nil) {
         guard let screen = targetScreen else { return }
         let notch = stripRect(on: screen)
+        let mode = mode ?? ui.mode
 
         let frame: NSRect
+        if expanded && mode.isFullScreen {
+            // The whole screen, so the HUD's own animation has room to run
+            // inside a window that isn't moving.
+            ui.notchSize = notch.size
+            panel.setFrame(screen.frame, display: true)
+            return
+        }
         if expanded {
             ui.notchSize = notch.size
             let cardW = max(Self.maxCardSize.width, notch.width)

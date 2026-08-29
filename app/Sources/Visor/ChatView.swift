@@ -13,7 +13,9 @@ struct ChatCard: View {
     /// does — same geometry both sides means nothing shifts on a mode swap.
     var notchWidth: CGFloat
     var mode: VisorMode
+    var namespace: Namespace.ID
     var onMode: (VisorMode) -> Void
+    var onHUD: () -> Void
     var onClose: () -> Void
 
     @FocusState private var composerFocused: Bool
@@ -28,7 +30,9 @@ struct ChatCard: View {
                 history
             } else {
                 transcript
+                    .matchedGeometryEffect(id: "transcript", in: namespace)
                 composer
+                    .matchedGeometryEffect(id: "composer", in: namespace)
             }
         }
         // Chrome and size belong to StickyRootView, so the card morphs between
@@ -277,6 +281,17 @@ struct ChatCard: View {
             HStack(spacing: 6) {
                 InlineModelPicker(chat: chat)
 
+                Button(action: onHUD) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.4))
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Capsule().fill(.white.opacity(0.06)))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help("Expand to HUD — ⌘⇧H")
+
                 if chat.isStreaming {
                     ArticulatingSquare(size: 9)
                     Text("working")
@@ -352,7 +367,7 @@ struct ChatCard: View {
 
 /// One turn. The user's turn is a right-aligned bubble; the agent's is plain
 /// text on the card, which keeps long replies readable at this width.
-private struct MessageRow: View {
+struct MessageRow: View {
     let message: ChatMessage
     let agentName: String
     let isStreaming: Bool
@@ -477,7 +492,7 @@ struct ModeSwitcher: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(VisorMode.allCases) { candidate in
+            ForEach(VisorMode.switchable) { candidate in
                 Button { onSelect(candidate) } label: {
                     Image(systemName: candidate.symbol)
                         .font(.system(size: 9, weight: .semibold))
@@ -503,7 +518,7 @@ struct ModeSwitcher: View {
 /// selection doesn't work — which is unacceptable for a field people paste
 /// prompts into and edit. NSTextView is what the note rows already use, for
 /// the same reason.
-private struct ComposerField: NSViewRepresentable {
+struct ComposerField: NSViewRepresentable {
     @Binding var text: String
     var onSubmit: () -> Void
 
@@ -609,7 +624,7 @@ struct ArticulatingSquare: View {
 /// The model is a decision about the message you're writing, so it belongs
 /// next to where you write it — and with several hundred models behind the
 /// key, a plain menu is a scrolling column you can't navigate.
-private struct InlineModelPicker: View {
+struct InlineModelPicker: View {
     @ObservedObject var chat: ChatController
 
     @State private var showing = false
@@ -679,5 +694,258 @@ private struct InlineModelPicker: View {
             }
             .frame(width: 340)
         }
+    }
+}
+
+/// Full-screen HUD: the same conversation at another scale.
+///
+/// Deliberately built from the *same* pieces as the chat card rather than as a
+/// separate screen — the transcript and composer carry matched-geometry ids, so
+/// SwiftUI interpolates their frames and they physically travel into this
+/// layout instead of cross-fading into a different one.
+///
+/// Everything emanates from the notch. Rails arrive at the screen edges, but
+/// they start from behind the notch to get there: two motion origins would
+/// fight, and one origin is what keeps this feeling like the notch opening up
+/// rather than an unrelated window appearing.
+struct HUDView: View {
+    @ObservedObject var chat: ChatController
+    @ObservedObject var store: NotesStore
+    var namespace: Namespace.ID
+    var notchWidth: CGFloat
+    var topInset: CGFloat
+    var onExit: () -> Void
+
+    @State private var railsIn = false
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            // The glass. Dark enough to read against, sheer enough that the
+            // desktop underneath still reads as "overlay", not "app".
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .fill(Color.black.opacity(0.45)))
+                .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .stroke(.white.opacity(0.12), lineWidth: 1))
+
+            HStack(alignment: .top, spacing: 18) {
+                rail(title: "Agents") { agentsRail }
+                    .frame(width: 210)
+                    .offset(x: railsIn ? 0 : -140)
+                    .opacity(railsIn ? 1 : 0)
+
+                centre
+
+                rail(title: "Open tasks") { tasksRail }
+                    .frame(width: 230)
+                    .offset(x: railsIn ? 0 : 140)
+                    .opacity(railsIn ? 1 : 0)
+            }
+            .padding(.horizontal, 22)
+            .padding(.top, topInset + 16)
+            .padding(.bottom, 20)
+        }
+        .onAppear {
+            // Rails follow the card rather than racing it, so the eye reads one
+            // motion opening into three.
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.85).delay(0.12)) {
+                railsIn = true
+            }
+        }
+        .onExitCommand(perform: onExit)
+    }
+
+    // MARK: Centre column
+
+    private var centre: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Text(chat.conversation.title.isEmpty ? "New conversation" : chat.conversation.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                if chat.isStreaming { ArticulatingSquare(size: 9) }
+                Spacer(minLength: 0)
+                Button(action: onExit) {
+                    Image(systemName: "arrow.down.right.and.arrow.up.left")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Back to the notch — Esc, or ⌘⇧H")
+            }
+
+            HUDTranscript(chat: chat)
+                .matchedGeometryEffect(id: "transcript", in: namespace)
+
+            HUDComposer(chat: chat)
+                .matchedGeometryEffect(id: "composer", in: namespace)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: Rails
+
+    private func rail<Content: View>(title: String,
+                                     @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased())
+                .font(.system(size: 8, weight: .semibold))
+                .tracking(0.8)
+                .foregroundStyle(.white.opacity(0.35))
+            content()
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(.white.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(.white.opacity(0.07), lineWidth: 1))
+    }
+
+    private var agentsRail: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if chat.chatAgents.isEmpty {
+                Text("No agents yet")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.35))
+            }
+            ForEach(Array(chat.chatAgents.enumerated()), id: \.element.id) { index, agent in
+                Button { chat.use(agent) } label: {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(agent.name == chat.agent?.name
+                                  ? Color.orange : Color.white.opacity(0.25))
+                            .frame(width: 5, height: 5)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(agent.name)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.white.opacity(0.85))
+                                .lineLimit(1)
+                            Text(agent.model ?? ChatController.defaultModel)
+                                .font(.system(size: 8))
+                                .foregroundStyle(.white.opacity(0.3))
+                                .lineLimit(1).truncationMode(.middle)
+                        }
+                        Spacer(minLength: 0)
+                        if index < 5 {
+                            Text("⌘⇧\(index + 1)")
+                                .font(.system(size: 8, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.22))
+                        }
+                    }
+                    .padding(.horizontal, 6).padding(.vertical, 5)
+                    .background(RoundedRectangle(cornerRadius: 6)
+                        .fill(agent.name == chat.agent?.name
+                              ? Color.white.opacity(0.07) : .clear))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var tasksRail: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            let open = store.items.filter { $0.isTask && !$0.done }
+            if open.isEmpty {
+                Text("Nothing open")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.35))
+            }
+            ForEach(open.prefix(12)) { item in
+                HStack(alignment: .top, spacing: 6) {
+                    Circle()
+                        .stroke(.white.opacity(0.3), lineWidth: 1)
+                        .frame(width: 8, height: 8)
+                        .padding(.top, 3)
+                    Text(item.text)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.72))
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+}
+
+/// The transcript, sized for the HUD.
+private struct HUDTranscript: View {
+    @ObservedObject var chat: ChatController
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    ForEach(chat.conversation.messages) { message in
+                        MessageRow(message: message,
+                                   agentName: chat.agent?.name ?? "Agent",
+                                   isStreaming: chat.isStreaming
+                                       && message.id == chat.conversation.messages.last?.id)
+                    }
+                    if let error = chat.error {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.orange)
+                    }
+                    Color.clear.frame(height: 1).id("bottom")
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .onChange(of: chat.conversation.messages.last?.content) { _ in
+                proxy.scrollTo("bottom", anchor: .bottom)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(.white.opacity(0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(.white.opacity(0.07), lineWidth: 1))
+    }
+}
+
+/// The composer, wider and taller than in the notch but the same control.
+private struct HUDComposer: View {
+    @ObservedObject var chat: ChatController
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack(alignment: .topLeading) {
+                if chat.draft.isEmpty {
+                    Text("Message \(chat.agent?.name ?? "your agent")…")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.3))
+                        .allowsHitTesting(false)
+                }
+                ComposerField(text: $chat.draft, onSubmit: chat.send)
+            }
+            .frame(height: 62)
+
+            HStack(spacing: 8) {
+                InlineModelPicker(chat: chat)
+                if chat.isStreaming {
+                    ArticulatingSquare(size: 9)
+                    Text("working").font(.system(size: 9)).foregroundStyle(.white.opacity(0.4))
+                }
+                Spacer(minLength: 0)
+                Button(action: chat.isStreaming ? chat.stop : chat.send) {
+                    Image(systemName: chat.isStreaming
+                          ? "stop.circle.fill" : "arrow.up.circle.fill")
+                        .font(.system(size: 19))
+                        .foregroundStyle(chat.isStreaming ? Color.orange : Color.white.opacity(0.9))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(.white.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(.white.opacity(0.09), lineWidth: 1))
     }
 }

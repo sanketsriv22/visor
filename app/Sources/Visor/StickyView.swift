@@ -8,6 +8,9 @@ struct StickyRootView: View {
     @ObservedObject var chat: ChatController
     var onToggle: () -> Void
     var onMode: (VisorMode) -> Void
+    /// Shared namespace so the composer and transcript interpolate their frames
+    /// between the notch card and the HUD, instead of cross-fading.
+    @Namespace private var morph
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -20,8 +23,19 @@ struct StickyRootView: View {
                 // between them, so switching modes is a pure SwiftUI
                 // animation: the card grows sideways instead of the window
                 // snapping to a new size under it.
-                morphingCard
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                if ui.mode.isFullScreen {
+                    HUDView(chat: chat, store: store, namespace: morph,
+                            notchWidth: ui.notchSize.width,
+                            topInset: ui.notchSize.height,
+                            onExit: { onMode(.chat) })
+                        // Grows from the notch, not from the middle of the
+                        // screen — one motion origin for everything.
+                        .transition(.scale(scale: 0.86, anchor: .top)
+                            .combined(with: .opacity))
+                } else {
+                    morphingCard
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
             } else {
                 NotchStrip(size: ui.notchSize, expanded: false, suppressHover: ui.settling)
             }
@@ -61,10 +75,11 @@ struct StickyRootView: View {
                                notchWidth: ui.notchSize.width,
                                suppressHover: ui.settling, mode: ui.mode,
                                onMode: onMode, onClose: onToggle)
-                case .chat:
+                case .chat, .hud:
                     ChatCard(chat: chat, ai: ai, topInset: ui.notchSize.height,
                              notchWidth: ui.notchSize.width,
-                             mode: ui.mode, onMode: onMode, onClose: onToggle)
+                             mode: ui.mode, namespace: morph, onMode: onMode,
+                             onHUD: { onMode(.hud) }, onClose: onToggle)
                 }
             }
             // Short and eased: the shape's travel should read as the motion,

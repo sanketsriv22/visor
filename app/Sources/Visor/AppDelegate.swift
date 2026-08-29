@@ -114,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // a shortcut that simply does nothing with no way to find out why.
         register("⌘⇧K", Shortcut.kKey) { [weak self] in self?.controller?.toggle() }
         register("⌘⇧M", Shortcut.mKey) { [weak self] in self?.controller?.swapMode() }
+        register("⌘⇧H", Shortcut.hKey) { [weak self] in self?.controller?.toggleHUD() }
         for (i, key) in Shortcut.numberKeys.enumerated() {
             register("⌘⇧\(i + 1)", key) { [weak self] in self?.controller?.selectAgent(i) }
         }
