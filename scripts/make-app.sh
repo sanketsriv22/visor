@@ -33,10 +33,13 @@ cd "$REPO/app"
 # Command Line Tools alone can build a single architecture perfectly well, so
 # fall back rather than fail — but say so loudly, because an arm64-only bundle
 # will not launch on an Intel Mac and macOS reports that as nothing happening.
-XCBUILD="/Library/Developer/SharedFrameworks/XCBuild.framework/Versions/A/Support/xcbuild"
+# Test the capability, not a path: xcbuild lives inside Xcode.app on a runner
+# with Xcode selected and under /Library/Developer with Command Line Tools, so
+# checking one hardcoded location made CI silently fall back to a single-arch
+# build. This is the exact lookup that fails without Xcode.
 WANT_UNIVERSAL=1
 [ "${VISOR_ARCHS:-universal}" = "native" ] && WANT_UNIVERSAL=0
-if [ "$WANT_UNIVERSAL" = "1" ] && [ ! -x "$XCBUILD" ]; then
+if [ "$WANT_UNIVERSAL" = "1" ] && ! xcrun --sdk macosx --show-sdk-platform-path >/dev/null 2>&1; then
     echo "warning: no Xcode found (xcbuild missing) — building for this machine only." >&2
     echo "         The result is NOT suitable for release; CI produces the universal build." >&2
     WANT_UNIVERSAL=0
