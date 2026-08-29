@@ -306,7 +306,7 @@ final class NotchController {
 
         registry.register(ClosureTool(
             name: "list_tasks",
-            description: "List the user's current tasks with their status (open, doing, blocked, done).",
+            toolDescription: "List the user's current tasks with their status (open, doing, blocked, done).",
             parameters: ["type": "object", "properties": [:], "additionalProperties": false]
         ) { _ in
             let items = store.items.filter(\.isTask)
@@ -316,7 +316,7 @@ final class NotchController {
 
         registry.register(ClosureTool(
             name: "add_task",
-            description: "Add a task to the user's note.",
+            toolDescription: "Add a task to the user's note.",
             parameters: [
                 "type": "object",
                 "properties": ["text": ["type": "string", "description": "The task"]],
@@ -335,7 +335,7 @@ final class NotchController {
 
         registry.register(ClosureTool(
             name: "complete_task",
-            description: "Mark a task done. Matches on the task's text, case-insensitively.",
+            toolDescription: "Mark a task done. Matches on the task's text, case-insensitively.",
             parameters: [
                 "type": "object",
                 "properties": ["text": ["type": "string", "description": "Text of the task to complete"]],

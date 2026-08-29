@@ -8,7 +8,10 @@ import WebKit
 @MainActor
 protocol VisorTool {
     var name: String { get }
-    var description: String { get }
+    /// Not `description`: NSObject already has one, and a tool that needs to
+    /// be an NSObject (WKNavigationDelegate, for instance) then can't satisfy
+    /// the protocol with a stored property.
+    var toolDescription: String { get }
     /// JSON Schema for the arguments, as the provider expects it.
     var parameters: [String: Any] { get }
     /// Whether running this without asking could cost money, change something
@@ -23,7 +26,7 @@ extension VisorTool {
     /// The shape the chat API wants in its `tools` array.
     var schema: [String: Any] {
         ["type": "function",
-         "function": ["name": name, "description": description, "parameters": parameters]]
+         "function": ["name": name, "description": toolDescription, "parameters": parameters]]
     }
 }
 
@@ -31,7 +34,7 @@ extension VisorTool {
 @MainActor
 struct ClosureTool: VisorTool {
     let name: String
-    let description: String
+    let toolDescription: String
     let parameters: [String: Any]
     var needsApproval: Bool = false
     let body: ([String: Any]) async throws -> String
@@ -92,7 +95,7 @@ final class ToolRegistry: ObservableObject {
 @MainActor
 final class FetchURLTool: NSObject, VisorTool, WKNavigationDelegate {
     let name = "fetch_url"
-    let description = """
+    let toolDescription = """
         Load a web page and return its visible text. Use this to look something \
         up, check a page, or read documentation. Returns text only — it cannot \
         click, fill forms, or log in.
