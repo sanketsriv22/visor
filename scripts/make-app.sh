@@ -137,7 +137,20 @@ else
     echo "warning: no GoogleService-Info.plist (looked at $GOOGLE_SERVICE_PLIST) — live note sharing disabled" >&2
 fi
 
-codesign --force --sign - --deep "$APP"
+# Prefer a real Developer ID when the machine has one: TCC permissions and
+# Keychain ACLs are bound to the signature, so an ad-hoc build is a different
+# app to macOS every time it's rebuilt — which is what makes Accessibility and
+# Keychain grants evaporate between builds. CI has no certificate, so it falls
+# back to ad-hoc and scripts/sign-and-notarize.sh signs properly afterwards.
+SIGN_ID="${VISOR_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
+  | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)"/\1/')}"
+if [ -n "$SIGN_ID" ] && [ -f "$REPO/app/Visor.entitlements" ]; then
+    echo "signing with: $SIGN_ID"
+    "$REPO/scripts/sign-and-notarize.sh" --skip-notarize
+else
+    echo "no Developer ID found — ad-hoc signing"
+    codesign --force --sign - --deep "$APP"
+fi
 
 if [ -n "$BUILD_ONLY" ]; then
     echo "Built $APP (v${VERSION})"
