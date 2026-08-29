@@ -28,10 +28,19 @@ struct StickyRootView: View {
                             notchWidth: ui.notchSize.width,
                             topInset: ui.notchSize.height,
                             onExit: { onMode(.chat) })
-                        // Grows from the notch, not from the middle of the
-                        // screen — one motion origin for everything.
-                        .transition(.scale(scale: 0.86, anchor: .top)
-                            .combined(with: .opacity))
+                        // Grows out of the notch and collapses back into it.
+                        //
+                        // The window is full-screen here, so .top is the
+                        // screen's top-centre — which is exactly where the
+                        // notch is. Starting near zero rather than at 0.86 is
+                        // what makes it read as emanating from a point instead
+                        // of a panel zooming slightly; at 0.86 the eye sees a
+                        // fade with a nudge, not an origin.
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.04, anchor: .top)
+                                .combined(with: .opacity),
+                            removal: .scale(scale: 0.04, anchor: .top)
+                                .combined(with: .opacity)))
                 } else {
                     morphingCard
                         .transition(.move(edge: .top).combined(with: .opacity))

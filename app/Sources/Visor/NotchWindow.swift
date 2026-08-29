@@ -239,9 +239,19 @@ final class NotchController {
         // reverse — shrinking first — would clip the card mid-flight.
         if mode.isFullScreen { applyFrame(expanded: true, mode: mode) }
 
-        // Loose enough to read as elastic, damped enough not to wobble: this
-        // is the curve the card's width and height are morphing along.
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+        // The HUD travels the whole screen, so it gets a longer, softer spring
+        // than the card morph — the same 0.42 curve over that distance reads
+        // as a snap rather than an expansion. Collapsing is quicker than
+        // opening, which is how things that fall back into place behave.
+        let curve: Animation
+        if mode.isFullScreen {
+            curve = .spring(response: 0.55, dampingFraction: 0.78)
+        } else if leavingFullScreen {
+            curve = .spring(response: 0.42, dampingFraction: 0.86)
+        } else {
+            curve = .spring(response: 0.42, dampingFraction: 0.82)
+        }
+        withAnimation(curve) {
             ui.mode = mode
         }
 
