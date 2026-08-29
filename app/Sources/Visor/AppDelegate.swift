@@ -89,6 +89,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         FirebaseBootstrap.start()
         #endif
 
+        // Before anything reads a key, so the one remaining prompt happens
+        // once at launch rather than the first time a send needs it.
+        Keychain.migrateToOpenAccess()
+
         setUpMainMenu()
         // The status item goes up before anything heavier runs. Its menu only
         // touches `controller` through optionals, and putting it first means a
