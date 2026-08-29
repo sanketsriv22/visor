@@ -699,20 +699,30 @@ struct InlineModelPicker: View {
                                 .padding(9)
                         }
                         ForEach(matches, id: \.self) { id in
+                            let selected = id == chat.conversation.model
                             Button {
                                 chat.useModel(id)
                                 showing = false
                                 query = ""
                             } label: {
-                                HStack {
-                                    Text(id).font(.system(size: 11)).lineLimit(1)
+                                HStack(spacing: 6) {
+                                    // Vendor dimmed, model name normal: the
+                                    // prefix is the same for dozens of rows and
+                                    // shouldn't compete with what differs.
+                                    Text(vendor(of: id))
+                                        .foregroundStyle(.secondary)
+                                    Text(shortName(of: id))
                                     Spacer(minLength: 0)
-                                    if id == chat.conversation.model {
+                                    if selected {
                                         Image(systemName: "checkmark")
                                             .font(.system(size: 9, weight: .bold))
                                     }
                                 }
-                                .padding(.horizontal, 9).padding(.vertical, 4)
+                                .font(.system(size: 11))
+                                .lineLimit(1)
+                                .padding(.horizontal, 9).padding(.vertical, 5)
+                                .background(RoundedRectangle(cornerRadius: 5)
+                                    .fill(selected ? Color.accentColor.opacity(0.16) : .clear))
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
@@ -1257,28 +1267,33 @@ enum ModelSearch {
 struct EffortPicker: View {
     @ObservedObject var chat: ChatController
 
+    /// A click cycles auto -> low -> med -> high.
+    ///
+    /// Not a menu: four options at 9pt made a dropdown that was mostly chrome,
+    /// and SwiftUI's menu rows can't show a tick without stacking two labels,
+    /// which looked broken. Cycling is one click and reads at a glance, which
+    /// is what a control this size needs.
     var body: some View {
-        Menu {
-            ForEach(ChatController.effortLevels, id: \.self) { level in
-                Button {
-                    chat.useEffort(level)
-                } label: {
-                    Text(label(for: level))
-                    if level == chat.effort { Text("✓") }
-                }
-            }
+        Button {
+            let levels = ChatController.effortLevels
+            let current = levels.firstIndex(of: chat.effort) ?? 0
+            chat.useEffort(levels[(current + 1) % levels.count])
         } label: {
-            Text(label(for: chat.effort))
-                .font(.system(size: 9))
-                .foregroundStyle(.white.opacity(chat.effort == nil ? 0.35 : 0.6))
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Capsule().fill(.white.opacity(chat.effort == nil ? 0.05 : 0.1)))
+            HStack(spacing: 3) {
+                Image(systemName: "gauge.medium")
+                    .font(.system(size: 7, weight: .semibold))
+                Text(label(for: chat.effort))
+            }
+            .font(.system(size: 9))
+            .foregroundStyle(.white.opacity(chat.effort == nil ? 0.35 : 0.65))
+            .padding(.horizontal, 6).padding(.vertical, 3)
+            .background(Capsule().fill(.white.opacity(chat.effort == nil ? 0.05 : 0.12)))
+            .contentShape(Capsule())
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
         .fixedSize()
         .disabled(chat.agent == nil)
-        .help("Reasoning effort — ignored by models that don't reason")
+        .help("Reasoning effort: \(label(for: chat.effort)) — click to cycle. Models that don't reason ignore it.")
     }
 
     private func label(for level: String?) -> String {
@@ -1338,5 +1353,16 @@ struct ToolActivityRow: View {
         }
         .padding(.horizontal, 8).padding(.vertical, 4)
         .background(RoundedRectangle(cornerRadius: 7).fill(.white.opacity(0.04)))
+    }
+}
+
+
+extension InlineModelPicker {
+    func vendor(of id: String) -> String {
+        id.contains("/") ? String(id.split(separator: "/")[0]) + " /" : ""
+    }
+
+    func shortName(of id: String) -> String {
+        id.contains("/") ? String(id.split(separator: "/").dropFirst().joined(separator: "/")) : id
     }
 }

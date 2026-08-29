@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import SwiftUI
 
@@ -27,6 +28,7 @@ final class ChatController: ObservableObject {
     private let client = OpenRouterClient()
     private unowned let ai: AIRunner
     private var streamTask: Task<Void, Never>?
+    private var agentObserver: AnyCancellable?
     /// Set by the notch controller: is the composer on screen right now?
     var isComposerVisible: (() -> Bool)?
 
@@ -46,6 +48,14 @@ final class ChatController: ObservableObject {
         self.memory = memory
         self.conversation = Self.blank(agent: nil)
         self.conversation = Self.blank(agent: chatAgents.first)
+        // Model, effort and fast are stored on the agent, which lives in
+        // AIRunner — so changing one published from there and the composer,
+        // which observes this object, never re-rendered. That's why the
+        // controls looked dead.
+        agentObserver = ai.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+
         voice.currentConversation = { [weak self] in self?.conversation.id }
         voice.onTranscript = { [weak self] text in
             guard let self else { return }

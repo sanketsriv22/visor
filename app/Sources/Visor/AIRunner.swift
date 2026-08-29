@@ -168,6 +168,11 @@ final class AIRunner: ObservableObject {
     )
 
     private let defaultKey = "visor.defaultProvider"
+    /// Names of built-in agents the user has deleted.
+    ///
+    /// Without this, the migration below helpfully re-added Devin every launch,
+    /// so deleting it did nothing that survived a restart.
+    private let removedDefaultsKey = "visor.removedDefaultProviders"
     private let runModeKey = "visor.runMode"
     private let projectDirKey = "visor.projectDir"
 
@@ -557,6 +562,11 @@ final class AIRunner: ObservableObject {
     }
 
     func remove(_ provider: AIProvider) {
+        // Remember it was removed, so a built-in doesn't come back next launch.
+        var removed = Set(UserDefaults.standard.stringArray(forKey: removedDefaultsKey) ?? [])
+        removed.insert(provider.name)
+        UserDefaults.standard.set(Array(removed), forKey: removedDefaultsKey)
+
         providers.removeAll { $0.name == provider.name }
         // Only drop the key if no remaining agent shares that account — chat
         // agents all point at the one OpenRouter entry.
@@ -593,9 +603,10 @@ final class AIRunner: ObservableObject {
             providers = cfg.providers
             defaultProviderName = cfg.default
         } else {
-            providers = Self.defaults.providers
-            defaultProviderName = Self.defaults.default
-            saveConfig(Self.defaults)
+            let removed = Set(UserDefaults.standard.stringArray(forKey: removedDefaultsKey) ?? [])
+            providers = Self.defaults.providers.filter { !removed.contains($0.name) }
+            defaultProviderName = providers.first?.name ?? ""
+            saveConfig(ProvidersConfig(default: defaultProviderName, providers: providers))
         }
         // Migrate older configs: Claude Code should run interactively in Terminal
         // mode (no -p) so you watch it work and can follow up. Add it if missing.
@@ -606,8 +617,12 @@ final class AIRunner: ObservableObject {
             providers[i].interactiveArgs = []
             migrated = true
         }
-        // Add the Devin Cloud target if the config predates it.
-        if !providers.contains(where: { $0.isDevinCloud }) {
+        // Add the Devin Cloud target if the config predates it — unless the
+        // user has deleted it, in which case putting it back every launch is
+        // just ignoring them.
+        let removed = Set(UserDefaults.standard.stringArray(forKey: removedDefaultsKey) ?? [])
+        if !providers.contains(where: { $0.isDevinCloud }),
+           !removed.contains("Devin (Cloud)") {
             providers.append(AIProvider(name: "Devin (Cloud)", command: "", args: [], kind: .devinCloud))
             migrated = true
         }

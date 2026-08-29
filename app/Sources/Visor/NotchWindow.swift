@@ -269,9 +269,17 @@ final class NotchController {
                 // isn't drawn, so reframing did nothing except force a redraw
                 // of the whole panel — which flashed the top of the card and
                 // showed the desktop through it for a frame.
+                // The pill is only drawn beside a collapsed notch. While the
+                // card is open, touching ui.listening re-renders the whole root
+                // — and animating it made the card visibly blink at the top.
+                // Nothing there needs to know.
+                guard !self.ui.expanded else {
+                    if self.ui.listening { self.ui.listening = false }
+                    return
+                }
                 if listening {
                     self.ui.listening = true
-                    if !self.ui.expanded { self.applyFrame(expanded: false) }
+                    self.applyFrame(expanded: false)
                 }
                 withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) {
                     self.ui.listening = listening
