@@ -59,8 +59,21 @@ if [ ! -x "$SIGN_TOOL" ]; then
   chmod +x "$TOOLS/sign_update" "$TOOLS/generate_keys" 2>/dev/null || true
 fi
 
-# ── 2. Build ─────────────────────────────────────────────────────────────
+# ── 2. Build, sign, notarize ─────────────────────────────────────────────
 "$REPO_DIR/scripts/make-app.sh" --build-only
+
+# Sign with Developer ID and get Apple's ticket before anything is published.
+# Sparkle's EdDSA signature below proves the *update* came from us;
+# notarization is what stops macOS refusing to open it at all. They're
+# unrelated, and a release needs both.
+#
+# VISOR_SKIP_NOTARIZE=1 for a dry run on a machine with no certificate.
+if [ "${VISOR_SKIP_NOTARIZE:-0}" = "1" ]; then
+  echo "warning: skipping signing/notarization — this build will not open cleanly" >&2
+else
+  "$REPO_DIR/scripts/sign-and-notarize.sh" --dmg
+fi
+
 ditto -c -k --keepParent "$REPO_DIR/dist/Visor.app" "$REPO_DIR/dist/Visor.zip"
 
 # ── 3. Sign the archive ─────────────────────────────────────────────────
@@ -112,6 +125,10 @@ else
   gh release create "$TAG" "$REPO_DIR/dist/Visor.zip" --repo "$SLUG" \
     --title "Visor $VERSION" --notes-file /tmp/visor-notes.md --latest
 fi
+
+# The zip is what Sparkle downloads; the DMG is what a person downloads.
+DMG="$REPO_DIR/dist/Visor-$VERSION.dmg"
+[ -f "$DMG" ] && gh release upload "$TAG" "$DMG" --repo "$SLUG" --clobber
 
 # ── 7. Commit and push appcast ───────────────────────────────────────────
 git -C "$REPO_DIR" add appcast.xml
