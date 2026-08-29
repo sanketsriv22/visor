@@ -212,7 +212,6 @@ struct ChatCard: View {
                     }
                     ForEach(chat.conversation.messages) { message in
                         MessageRow(message: message,
-                                   agentName: chat.agent?.name ?? "Agent",
                                    isStreaming: chat.isStreaming && message.id == chat.conversation.messages.last?.id)
                             .id(message.id)
                     }
@@ -363,7 +362,6 @@ struct ChatCard: View {
 /// text on the card, which keeps long replies readable at this width.
 struct MessageRow: View {
     let message: ChatMessage
-    let agentName: String
     let isStreaming: Bool
 
     @ViewBuilder
@@ -385,15 +383,18 @@ struct MessageRow: View {
             }
         } else {
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 5) {
-                        Text(agentName.uppercased())
-                            .font(.system(size: 8, weight: .semibold))
-                            .tracking(0.6)
-                            .foregroundStyle(.white.opacity(0.4))
-                        if isStreaming { DotMatrixIndicator(size: 9) }
+                Group {
+                    if isStreaming && message.content.isEmpty {
+                        // Waiting on the first token: the indicator *is* the
+                        // message. No name, no empty bubble text — just the
+                        // thing that says work is happening, at a size you can
+                        // read without leaning in.
+                        DotMatrixIndicator(size: 30)
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 4)
+                    } else {
+                        replyText
                     }
-                    replyText
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 7)
@@ -758,6 +759,8 @@ struct HUDView: View {
     var onExit: () -> Void
 
     @State private var railsIn = false
+    /// Persisted so the HUD reopens at the density you left it.
+    @AppStorage("visor.hudOpacity") private var glass: Double = 0.45
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -766,7 +769,7 @@ struct HUDView: View {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
                 .fill(.ultraThinMaterial)
                 .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .fill(Color.black.opacity(0.45)))
+                    .fill(Color.black.opacity(glass)))
                 .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
                     .stroke(.white.opacity(0.12), lineWidth: 1))
 
@@ -808,6 +811,19 @@ struct HUDView: View {
                     .lineLimit(1)
                 if chat.isStreaming { DotMatrixIndicator(size: 11) }
                 Spacer(minLength: 0)
+
+                // Transparency belongs in the HUD, not buried in Settings —
+                // the right value depends on what's behind it right now.
+                HStack(spacing: 5) {
+                    Image(systemName: "circle.lefthalf.filled")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.35))
+                    Slider(value: $glass, in: 0.08...0.92)
+                        .controlSize(.mini)
+                        .frame(width: 90)
+                }
+                .help("How opaque the HUD is")
+
                 Button(action: onExit) {
                     Image(systemName: "arrow.down.right.and.arrow.up.left")
                         .font(.system(size: 11))
@@ -889,6 +905,24 @@ struct HUDView: View {
         }
     }
 
+    private func symbol(for status: TaskStatus) -> String {
+        switch status {
+        case .open:    return "circle"
+        case .doing:   return "circle.lefthalf.filled"
+        case .blocked: return "exclamationmark.circle"
+        case .done:    return "checkmark.circle.fill"
+        }
+    }
+
+    private func tint(for status: TaskStatus) -> Color {
+        switch status {
+        case .open:    return .white.opacity(0.35)
+        case .doing:   return .orange
+        case .blocked: return .red.opacity(0.8)
+        case .done:    return .green.opacity(0.8)
+        }
+    }
+
     private var tasksRail: some View {
         VStack(alignment: .leading, spacing: 5) {
             let open = store.items.filter { $0.isTask && !$0.done }
@@ -898,17 +932,29 @@ struct HUDView: View {
                     .foregroundStyle(.white.opacity(0.35))
             }
             ForEach(open.prefix(12)) { item in
+                // Same gestures as the note itself: tap cycles
+                // open -> doing -> blocked, long-press completes. Anything
+                // else would make this a read-only copy of the tasks rather
+                // than the tasks.
                 HStack(alignment: .top, spacing: 6) {
-                    Circle()
-                        .stroke(.white.opacity(0.3), lineWidth: 1)
-                        .frame(width: 8, height: 8)
-                        .padding(.top, 3)
+                    Button { store.cycle(item.id) } label: {
+                        Image(systemName: symbol(for: item.status))
+                            .font(.system(size: 9))
+                            .foregroundStyle(tint(for: item.status))
+                            .frame(width: 12, height: 12)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 1)
+
                     Text(item.text)
                         .font(.system(size: 11))
                         .foregroundStyle(.white.opacity(0.72))
                         .lineLimit(2)
                     Spacer(minLength: 0)
                 }
+                .contentShape(Rectangle())
+                .onLongPressGesture(minimumDuration: 0.35) { store.toggleDone(item.id) }
             }
         }
     }
@@ -924,7 +970,6 @@ private struct HUDTranscript: View {
                 LazyVStack(alignment: .leading, spacing: 14) {
                     ForEach(chat.conversation.messages) { message in
                         MessageRow(message: message,
-                                   agentName: chat.agent?.name ?? "Agent",
                                    isStreaming: chat.isStreaming
                                        && message.id == chat.conversation.messages.last?.id)
                     }

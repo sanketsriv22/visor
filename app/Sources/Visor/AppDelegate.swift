@@ -19,6 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Global shortcuts, held for the app's lifetime — releasing one
     /// unregisters it.
     private var hotKeys: [HotKey] = []
+    /// Hold-a-modifier dictation. Off unless the user turns it on, because it
+    /// is the only part of Visor that needs Accessibility.
+    let pushToTalk = PushToTalk()
 
     /// Posted by a second launch so the already-running instance shows its note.
     private static let showNoteNotification = Notification.Name("com.kitalabs.visor.showNote")
@@ -116,6 +119,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         register("⌘⇧M", Shortcut.mKey) { [weak self] in self?.controller?.toggleHUD() }
         register("⌘⇧I", Shortcut.iKey) { [weak self] in self?.controller?.swapMode() }
         register("⌘⇧V", Shortcut.vKey) { [weak self] in self?.controller?.toggleDictation() }
+
+        pushToTalk.onHoldStart = { [weak self] in self?.controller?.beginDictation() }
+        pushToTalk.onHoldEnd = { [weak self] in self?.controller?.endDictation() }
+        pushToTalk.onToggle = { [weak self] in self?.controller?.toggleDictation() }
         for (i, key) in Shortcut.numberKeys.enumerated() {
             register("⌘⇧\(i + 1)", key) { [weak self] in self?.controller?.selectAgent(i) }
         }
@@ -428,7 +435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             )
             window.title = "Visor Settings"
             window.contentView = NSHostingView(
-                rootView: SettingsView(ai: ai, chat: controller.chat))
+                rootView: SettingsView(ai: ai, chat: controller.chat, pushToTalk: pushToTalk))
             window.isReleasedWhenClosed = false
             window.center()
             settingsWindow = window

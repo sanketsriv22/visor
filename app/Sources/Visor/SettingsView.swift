@@ -42,6 +42,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 struct SettingsView: View {
     @ObservedObject var ai: AIRunner
     @ObservedObject var chat: ChatController
+    @ObservedObject var pushToTalk: PushToTalk
     @StateObject private var catalog = ModelCatalog()
     @ObservedObject private var focus = SettingsFocus.shared
     @State private var tab: SettingsTab = .agents
@@ -98,7 +99,8 @@ struct SettingsView: View {
     @ViewBuilder
     private var pane: some View {
         switch tab {
-        case .agents:    AgentsPane(ai: ai, catalog: catalog, focus: focus)
+        case .agents:    AgentsPane(ai: ai, catalog: catalog, focus: focus,
+                                    pushToTalk: pushToTalk)
         case .workspace: WorkspacePane(ai: ai)
         case .mcp:       MCPPane()
         case .memory:    MemoryPane(chat: chat)
@@ -112,6 +114,7 @@ private struct AgentsPane: View {
     @ObservedObject var ai: AIRunner
     @ObservedObject var catalog: ModelCatalog
     @ObservedObject var focus: SettingsFocus
+    @ObservedObject var pushToTalk: PushToTalk
 
     @State private var keyDraft = ""
     @State private var voiceDraft = ""
@@ -225,6 +228,26 @@ private struct AgentsPane: View {
                 .disabled(voiceDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             Text("⌘⇧V dictates into the composer using OpenAI's transcription API. This is a separate key because OpenRouter doesn't carry audio — leave it blank and dictation stays off.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Text("Hold to talk").font(.caption).foregroundStyle(.secondary)
+                Picker("", selection: Binding(
+                    get: { pushToTalk.trigger },
+                    set: { pushToTalk.setTrigger($0) })) {
+                        ForEach(PushToTalk.Trigger.allCases) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 130)
+                if pushToTalk.trigger != .off && !pushToTalk.isTrusted {
+                    Button("Grant access…") { pushToTalk.requestTrust() }
+                        .font(.caption)
+                }
+            }
+            Text("Hold the key to record and release to transcribe; double-tap it to toggle. This is the only part of Visor that needs Accessibility — a bare modifier press produces no key equivalent, so it can't use the permission-free shortcut mechanism everything else does.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

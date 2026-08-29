@@ -265,6 +265,18 @@ final class NotchController {
         chat.toggleDictation()
     }
 
+    /// Begin a hold-to-talk recording, showing the composer it dictates into.
+    func beginDictation() {
+        if !ui.expanded || ui.mode == .notes {
+            setMode(.chat)
+            showNote()
+        }
+        chat.voice.start()
+    }
+
+    /// End a hold-to-talk recording and transcribe it.
+    func endDictation() { chat.voice.finish() }
+
     /// Toggle the full-screen HUD. Entering from notes goes through chat,
     /// since the HUD is that conversation at another scale.
     func toggleHUD() {
