@@ -1,9 +1,26 @@
 import Foundation
 
+/// A tool the model asked us to run.
+struct ToolCall: Codable, Equatable, Hashable, Identifiable {
+    /// The provider's id, echoed back so it can match the result to the call.
+    var id: String
+    var name: String
+    /// Raw JSON, kept as a string because it arrives in fragments and is only
+    /// complete once the stream ends.
+    var arguments: String
+
+    var decodedArguments: [String: Any] {
+        guard let data = arguments.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [:] }
+        return object
+    }
+}
+
 /// One turn in a conversation. Persisted verbatim, so this is also the on-disk
 /// shape of a stored chat.
 struct ChatMessage: Codable, Identifiable, Equatable, Hashable {
-    enum Role: String, Codable { case system, user, assistant }
+    enum Role: String, Codable { case system, user, assistant, tool }
 
     var id: UUID = UUID()
     var role: Role
@@ -12,6 +29,12 @@ struct ChatMessage: Codable, Identifiable, Equatable, Hashable {
     /// Which model produced an assistant turn. Nil for user turns, and for
     /// assistant turns from before this was recorded.
     var model: String?
+    /// Tools the model wants run, on an assistant turn.
+    var toolCalls: [ToolCall]?
+    /// Which call this turn is the result of, on a tool turn.
+    var toolCallID: String?
+    /// Set while the user is being asked whether to allow a call.
+    var awaitingApproval: Bool?
 }
 
 /// A failure worth showing a user. Every case is phrased as something they can
@@ -111,12 +134,26 @@ final class OpenRouterClient {
 
     private func body(messages: [ChatMessage], model: String, system: String?,
                       temperature: Double?, stream: Bool,
-                      effort: String? = nil, fast: Bool = false) -> [String: Any] {
-        var wire: [[String: String]] = []
+                      effort: String? = nil, fast: Bool = false,
+                      tools: [[String: Any]] = []) -> [String: Any] {
+        var wire: [[String: Any]] = []
         if let system, !system.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             wire.append(["role": "system", "content": system])
         }
-        wire += messages.map { ["role": $0.role.rawValue, "content": $0.content] }
+        for message in messages {
+            var entry: [String: Any] = ["role": message.role.rawValue,
+                                        "content": message.content]
+            if let calls = message.toolCalls, !calls.isEmpty {
+                entry["tool_calls"] = calls.map { call in
+                    ["id": call.id, "type": "function",
+                     "function": ["name": call.name, "arguments": call.arguments]]
+                }
+            }
+            // A tool result is only matched to its call by this id; without it
+            // the provider rejects the whole request.
+            if let id = message.toolCallID { entry["tool_call_id"] = id }
+            wire.append(entry)
+        }
 
         var body: [String: Any] = ["model": model, "messages": wire, "stream": stream]
         if let temperature { body["temperature"] = temperature }
@@ -127,6 +164,7 @@ final class OpenRouterClient {
         // speeds and prices; by default it optimises for price. This asks for
         // the fastest one instead.
         if fast { body["provider"] = ["sort": "throughput"] }
+        if !tools.isEmpty { body["tools"] = tools }
         return body
     }
 
@@ -135,9 +173,17 @@ final class OpenRouterClient {
     /// Streaming rather than awaiting the whole reply is what makes the notch
     /// feel like a native surface instead of a form submission — the first
     /// token lands in a few hundred milliseconds.
+    /// What a streamed response can produce.
+    enum StreamEvent {
+        case text(String)
+        /// Emitted once, at the end, when the model wants tools run.
+        case toolCalls([ToolCall])
+    }
+
     func stream(messages: [ChatMessage], model: String, system: String? = nil,
                 temperature: Double? = nil, effort: String? = nil,
-                fast: Bool = false) -> AsyncThrowingStream<String, Error> {
+                fast: Bool = false,
+                tools: [[String: Any]] = []) -> AsyncThrowingStream<StreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -145,7 +191,7 @@ final class OpenRouterClient {
                     req.httpBody = try JSONSerialization.data(
                         withJSONObject: body(messages: messages, model: model, system: system,
                                              temperature: temperature, stream: true,
-                                             effort: effort, fast: fast))
+                                             effort: effort, fast: fast, tools: tools))
 
                     let (bytes, response) = try await session.bytes(for: req)
                     if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
@@ -157,6 +203,11 @@ final class OpenRouterClient {
                         throw ChatError.http(status: http.statusCode, body: Self.reason(from: detail))
                     }
 
+                    // Tool calls stream in fragments: the id and name arrive
+                    // once, then the arguments accumulate across many deltas,
+                    // keyed by index. Nothing is usable until the stream ends.
+                    var pending: [Int: ToolCall] = [:]
+
                     for try await line in bytes.lines {
                         // Server-sent events: payload lines start with "data: ";
                         // everything else (comments, blank keep-alives) is noise.
@@ -166,11 +217,35 @@ final class OpenRouterClient {
                         guard let data = payload.data(using: .utf8),
                               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                               let choices = obj["choices"] as? [[String: Any]],
-                              let delta = choices.first?["delta"] as? [String: Any],
-                              let chunk = delta["content"] as? String,
-                              !chunk.isEmpty
+                              let delta = choices.first?["delta"] as? [String: Any]
                         else { continue }
-                        continuation.yield(chunk)
+
+                        if let chunk = delta["content"] as? String, !chunk.isEmpty {
+                            continuation.yield(.text(chunk))
+                        }
+
+                        guard let calls = delta["tool_calls"] as? [[String: Any]] else { continue }
+                        for call in calls {
+                            let index = call["index"] as? Int ?? 0
+                            var entry = pending[index] ?? ToolCall(id: "", name: "", arguments: "")
+                            if let id = call["id"] as? String, !id.isEmpty { entry.id = id }
+                            if let function = call["function"] as? [String: Any] {
+                                if let name = function["name"] as? String, !name.isEmpty {
+                                    entry.name = name
+                                }
+                                if let fragment = function["arguments"] as? String {
+                                    entry.arguments += fragment
+                                }
+                            }
+                            pending[index] = entry
+                        }
+                    }
+
+                    if !pending.isEmpty {
+                        let calls = pending.sorted { $0.key < $1.key }
+                            .map(\.value)
+                            .filter { !$0.name.isEmpty }
+                        if !calls.isEmpty { continuation.yield(.toolCalls(calls)) }
                     }
                     continuation.finish()
                 } catch is CancellationError {

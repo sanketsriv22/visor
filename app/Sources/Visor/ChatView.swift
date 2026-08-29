@@ -349,7 +349,14 @@ struct MessageRow: View {
 
     @ViewBuilder
     var body: some View {
-        if message.role == .user {
+        if message.role == .tool || message.role == .system {
+            // Plumbing. What ran is shown on the assistant turn that asked.
+            EmptyView()
+        } else if message.role == .assistant,
+                  let calls = message.toolCalls, !calls.isEmpty,
+                  message.content.isEmpty {
+            ToolActivityRow(calls: calls)
+        } else if message.role == .user {
             HStack {
                 Spacer(minLength: 40)
                 Text(message.content)
@@ -1306,5 +1313,30 @@ struct FastToggle: View {
         .help(chat.isFast
               ? "Fast: routing to the quickest provider (costs more per token)"
               : "Standard routing — cheapest provider for this model")
+    }
+}
+
+
+/// What the agent did, rather than the raw tool exchange.
+///
+/// The call and its result are both in the transcript because the model needs
+/// them next turn, but neither is something a person wants to read — so the
+/// turn that asked for tools renders as a line naming them.
+struct ToolActivityRow: View {
+    let calls: [ToolCall]
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "wrench.and.screwdriver")
+                .font(.system(size: 9))
+                .foregroundStyle(.white.opacity(0.35))
+            Text(calls.map(\.name).joined(separator: ", "))
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.45))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 7).fill(.white.opacity(0.04)))
     }
 }

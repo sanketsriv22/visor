@@ -230,17 +230,74 @@ final class ChatController: ObservableObject {
 
         streamTask = Task { [weak self] in
             guard let self else { return }
-            do {
-                for try await chunk in self.client.stream(
-                    messages: history, model: model, system: system,
-                    effort: effort, fast: fast) {
-                    self.appendToReply(chunk)
-                }
-                self.finish()
-            } catch {
-                self.fail(error)
-            }
+            await self.runTurn(model: model, system: system, effort: effort,
+                               fast: fast, round: 0)
         }
+    }
+
+    /// How many times a single send may hand control back to the model after
+    /// running tools. A model that keeps calling tools without concluding
+    /// would otherwise loop until the user's credit ran out.
+    private static let maxToolRounds = 6
+
+    /// Stream one assistant turn, run any tools it asked for, and — if it did —
+    /// go round again so it can use the results.
+    private func runTurn(model: String, system: String?, effort: String?,
+                         fast: Bool, round: Int) async {
+        do {
+            // The assistant turn being streamed into is already appended, so
+            // history stops before it.
+            let history = Array(conversation.messages.dropLast().suffix(Self.recentWindow * 2))
+
+            for try await event in client.stream(
+                messages: history, model: model, system: system,
+                effort: effort, fast: fast, tools: ToolRegistry.shared.schemas) {
+                switch event {
+                case .text(let chunk):
+                    appendToReply(chunk)
+                case .toolCalls(let calls):
+                    attachToolCalls(calls)
+                }
+            }
+        } catch {
+            fail(error)
+            return
+        }
+
+        guard let last = conversation.messages.last, last.role == .assistant,
+              let calls = last.toolCalls, !calls.isEmpty else {
+            finish()
+            return
+        }
+
+        guard round < Self.maxToolRounds else {
+            // Say so in the transcript rather than stopping silently — a turn
+            // that just ends looks like a bug.
+            conversation.messages.append(ChatMessage(
+                role: .assistant,
+                content: "_Stopped after \(Self.maxToolRounds) rounds of tool calls._",
+                model: model))
+            finish()
+            return
+        }
+
+        for call in calls {
+            let result = await ToolRegistry.shared.run(call)
+            conversation.messages.append(ChatMessage(
+                role: .tool, content: result, toolCallID: call.id))
+        }
+        store.save(conversation)
+
+        // Fresh assistant turn for the model's response to the results.
+        conversation.messages.append(ChatMessage(role: .assistant, content: "", model: model))
+        await runTurn(model: model, system: system, effort: effort,
+                      fast: fast, round: round + 1)
+    }
+
+    private func attachToolCalls(_ calls: [ToolCall]) {
+        guard let last = conversation.messages.indices.last,
+              conversation.messages[last].role == .assistant else { return }
+        conversation.messages[last].toolCalls = calls
     }
 
     /// Cancel an in-flight reply. Cancelling the task tears down the URLSession
@@ -283,7 +340,9 @@ final class ChatController: ObservableObject {
     /// bubble.
     private func trimEmptyReply() {
         if let last = conversation.messages.last, last.role == .assistant,
-           last.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+           last.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           // An empty turn that carries tool calls is doing work, not nothing.
+           (last.toolCalls?.isEmpty ?? true) {
             conversation.messages.removeLast()
         }
     }

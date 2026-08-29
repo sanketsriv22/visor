@@ -180,6 +180,8 @@ final class NotchController {
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
 
+        registerNoteTools()
+
         chat.isComposerVisible = { [weak ui] in
             guard let ui else { return false }
             return ui.expanded && ui.mode != .notes
@@ -291,6 +293,68 @@ final class NotchController {
             guard let self else { return }
             self.applyFrame(expanded: self.ui.expanded)
         }
+    }
+
+    /// Give agents the note, since this is where the store lives.
+    ///
+    /// Registered here rather than inside ToolRegistry so the registry never
+    /// has to reach for app state it doesn't own — whoever holds the state
+    /// contributes the tool.
+    private func registerNoteTools() {
+        let store = self.store
+        let registry = ToolRegistry.shared
+
+        registry.register(ClosureTool(
+            name: "list_tasks",
+            description: "List the user's current tasks with their status (open, doing, blocked, done).",
+            parameters: ["type": "object", "properties": [:], "additionalProperties": false]
+        ) { _ in
+            let items = store.items.filter(\.isTask)
+            guard !items.isEmpty else { return "The note has no tasks." }
+            return items.map { "- [\($0.status.marker)] \($0.text)" }.joined(separator: "\n")
+        })
+
+        registry.register(ClosureTool(
+            name: "add_task",
+            description: "Add a task to the user's note.",
+            parameters: [
+                "type": "object",
+                "properties": ["text": ["type": "string", "description": "The task"]],
+                "required": ["text"],
+                "additionalProperties": false,
+            ]
+        ) { arguments in
+            guard let text = (arguments["text"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+                return "No task text given."
+            }
+            _ = store.addTask(text)
+            store.saveNow()
+            return "Added: \(text)"
+        })
+
+        registry.register(ClosureTool(
+            name: "complete_task",
+            description: "Mark a task done. Matches on the task's text, case-insensitively.",
+            parameters: [
+                "type": "object",
+                "properties": ["text": ["type": "string", "description": "Text of the task to complete"]],
+                "required": ["text"],
+                "additionalProperties": false,
+            ]
+        ) { arguments in
+            guard let needle = (arguments["text"] as? String)?.lowercased(), !needle.isEmpty else {
+                return "No task text given."
+            }
+            guard let match = store.items.first(where: {
+                $0.isTask && !$0.done && $0.text.lowercased().contains(needle)
+            }) else {
+                return "No open task matching \"\(needle)\"."
+            }
+            store.toggleDone(match.id)
+            store.saveNow()
+            return "Completed: \(match.text)"
+        })
     }
 
     func saveNow() { store.saveNow() }
