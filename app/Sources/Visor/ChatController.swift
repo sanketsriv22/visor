@@ -51,6 +51,37 @@ final class ChatController: ObservableObject {
         chatAgents.first { $0.name == conversation.agentName } ?? chatAgents.first
     }
 
+    /// Select the nth configured agent (⌘⇧1…5). Ignored when there aren't
+    /// that many, so the shortcut is harmless rather than surprising.
+    func useAgent(at index: Int) {
+        guard chatAgents.indices.contains(index) else { return }
+        use(chatAgents[index])
+    }
+
+    /// Models offered in the notch's picker: whatever the agent could be
+    /// switched to, with its current choice guaranteed present.
+    var modelOptions: [String] {
+        var ids = ModelCatalog.fallbackModels
+        if let current = agent?.model, !ids.contains(current) { ids.insert(current, at: 0) }
+        return ids
+    }
+
+    /// Model id minus the vendor prefix — the full id doesn't fit in a notch.
+    var shortModelName: String {
+        let id = conversation.model.isEmpty ? Self.defaultModel : conversation.model
+        return id.contains("/") ? String(id.split(separator: "/").last!) : id
+    }
+
+    /// Point this agent (and this chat) at a different model.
+    func useModel(_ id: String) {
+        conversation.model = id
+        if var agent {
+            agent.model = id
+            ai.upsert(agent)
+        }
+        if !conversation.messages.isEmpty { store.save(conversation) }
+    }
+
     /// Switch the active agent. An in-progress chat keeps its history — the
     /// new agent simply answers the next turn.
     func use(_ agent: AIProvider) {

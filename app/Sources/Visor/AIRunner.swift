@@ -571,6 +571,11 @@ final class AIRunner: ObservableObject {
 }
 
 extension Notification.Name {
+    /// Posted from the notch to open the Settings window. The notch has no
+    /// menu bar of its own, so this is how a dead end there ("no agents yet")
+    /// offers a way out.
+    static let visorOpenSettings = Notification.Name("visor.openSettings")
+
     /// Posted when tasks are sent to a chat agent, which answers in the notch.
     /// userInfo: "provider" (agent name), "prompt".
     static let visorRunInNotch = Notification.Name("visor.runInNotch")

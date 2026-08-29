@@ -16,9 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var runModeMenu: NSMenu?
     private var runInFolderMenu: NSMenu?
     private var settingsWindow: NSWindow?
-    /// ⌘⇧K toggles the notch from anywhere. Held for the app's lifetime;
-    /// releasing it unregisters the shortcut.
-    private var toggleHotKey: HotKey?
+    /// Global shortcuts, held for the app's lifetime — releasing one
+    /// unregisters it.
+    private var hotKeys: [HotKey] = []
 
     /// Posted by a second launch so the already-running instance shows its note.
     private static let showNoteNotification = Notification.Name("com.kitalabs.visor.showNote")
@@ -109,9 +109,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.controller?.saveNow()
         }
 
-        // ⌘⇧K from any app slides the notch down (and back up).
-        toggleHotKey = HotKey(keyCode: Shortcut.kKey, modifiers: Shortcut.commandShift) { [weak self] in
-            self?.controller?.toggle()
+        // Global shortcuts. RegisterEventHotKey fails when another app already
+        // owns a combination, and that used to be swallowed silently — leaving
+        // a shortcut that simply does nothing with no way to find out why.
+        register("⌘⇧K", Shortcut.kKey) { [weak self] in self?.controller?.toggle() }
+        register("⌘⇧M", Shortcut.mKey) { [weak self] in self?.controller?.swapMode() }
+        for (i, key) in Shortcut.numberKeys.enumerated() {
+            register("⌘⇧\(i + 1)", key) { [weak self] in self?.controller?.selectAgent(i) }
+        }
+
+        // The notch asks for Settings (e.g. from "no agents yet").
+        NotificationCenter.default.addObserver(
+            forName: .visorOpenSettings, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.showSettings(focusing: nil)
         }
 
         // Tasks sent to a chat agent are answered in the notch itself.
@@ -384,6 +395,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if panel.runModal() == .OK, let url = panel.url {
             ai.setProjectDir(url)
             rebuildRunInFolderMenu()
+        }
+    }
+
+    /// Bind one global shortcut, reporting the combinations we couldn't get.
+    private func register(_ label: String, _ keyCode: UInt32, _ action: @escaping () -> Void) {
+        if let hotKey = HotKey(keyCode: keyCode, modifiers: Shortcut.commandShift, action: action) {
+            hotKeys.append(hotKey)
+        } else {
+            NSLog("[Visor] Couldn't register \(label) — another app already owns it.")
         }
     }
 

@@ -78,5 +78,13 @@ final class HotKey {
 /// Carbon virtual key codes and modifier masks Visor binds.
 enum Shortcut {
     static let kKey = UInt32(kVK_ANSI_K)
+    static let mKey = UInt32(kVK_ANSI_M)
     static let commandShift = UInt32(cmdKey | shiftKey)
+
+    /// Number-row 1…5, for picking an agent. Carbon key codes aren't
+    /// contiguous across the number row, so they're listed rather than derived.
+    static let numberKeys: [UInt32] = [
+        UInt32(kVK_ANSI_1), UInt32(kVK_ANSI_2), UInt32(kVK_ANSI_3),
+        UInt32(kVK_ANSI_4), UInt32(kVK_ANSI_5),
+    ]
 }

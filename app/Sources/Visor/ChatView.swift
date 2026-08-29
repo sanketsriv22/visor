@@ -42,28 +42,33 @@ struct ChatCard: View {
             // you use it.
             ModeSwitcher(mode: mode, onSelect: onMode)
 
-            agentPicker
+            VStack(alignment: .leading, spacing: 0) {
+                agentPicker
+                modelPicker
+            }
 
             Spacer(minLength: 4)
 
             if chat.isStreaming {
                 Button(action: chat.stop) {
-                    Label("Stop", systemImage: "stop.circle.fill")
-                        .font(.system(size: 10))
+                    Image(systemName: "stop.circle.fill")
+                        .font(.system(size: 12))
                         .foregroundStyle(.orange)
                 }
                 .buttonStyle(.plain)
-                .help("Stop the reply (and stop paying for it)")
+                .frame(width: 22)
+                .help("Stop the reply — this also stops it being billed")
             }
 
+            // Fixed widths so the row doesn't reflow as buttons come and go.
             headerButton("square.and.pencil", "New chat") { chat.newChat() }
-            headerButton("clock.arrow.circlepath", "History") {
+            headerButton("clock.arrow.circlepath", "Past chats") {
                 withAnimation(.easeInOut(duration: 0.18)) { chat.showingHistory.toggle() }
             }
-            exportMenu
+            exportMenu.frame(width: 22)
         }
+        .frame(height: 34)
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
     }
 
     private func headerButton(_ symbol: String, _ help: String,
@@ -72,6 +77,8 @@ struct ChatCard: View {
             Image(systemName: symbol)
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.6))
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(help)
@@ -90,10 +97,12 @@ struct ChatCard: View {
                 }
             }
             if chat.chatAgents.isEmpty {
-                Text("No chat agents yet")
+                Text("No agents yet")
             }
             Divider()
-            Button("Manage agents…") { NSApp.sendAction(Selector(("openSettings")), to: nil, from: nil) }
+            Button("Manage agents…") {
+                NotificationCenter.default.post(name: .visorOpenSettings, object: nil)
+            }
         } label: {
             HStack(spacing: 5) {
                 Circle()
@@ -110,6 +119,26 @@ struct ChatCard: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+    }
+
+    /// Change the running model without a trip to Settings — the agent's
+    /// stored default updates with it.
+    private var modelPicker: some View {
+        Menu {
+            ForEach(chat.modelOptions, id: \.self) { id in
+                Button(id) { chat.useModel(id) }
+            }
+        } label: {
+            Text(chat.shortModelName)
+                .font(.system(size: 9))
+                .foregroundStyle(.white.opacity(0.45))
+                .lineLimit(1)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(chat.agent == nil)
+        .help("Model this agent runs")
     }
 
     private var exportMenu: some View {
@@ -182,15 +211,27 @@ struct ChatCard: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(chat.chatAgents.isEmpty ? "No chat agents yet" : "Ask \(chat.agent?.name ?? "your agent") anything")
+            Text(chat.chatAgents.isEmpty ? "No agents yet" : "Ask \(chat.agent?.name ?? "your agent") anything")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white.opacity(0.75))
-            Text(chat.chatAgents.isEmpty
-                 ? "Add one in Settings with an API key, and pick which model it runs."
-                 : "Replies stream here. ⌘1 switches back to your notes.")
+            if chat.chatAgents.isEmpty {
+                HStack(spacing: 4) {
+                    Text("Add one with an API key in")
+                    Button("Settings") {
+                        NotificationCenter.default.post(name: .visorOpenSettings, object: nil)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                    .underline()
+                }
                 .font(.system(size: 10))
                 .foregroundStyle(.white.opacity(0.4))
-                .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Replies stream here. ⌘⇧M switches back to your notes.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.top, 6)
     }
@@ -199,10 +240,16 @@ struct ChatCard: View {
 
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            ComposerField(text: $chat.draft,
-                          placeholder: "Message…",
-                          onSubmit: chat.send)
-                .frame(height: composerHeight)
+            ZStack(alignment: .topLeading) {
+                if chat.draft.isEmpty {
+                    Text("Message \(chat.agent?.name ?? "your agent")…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.3))
+                        .allowsHitTesting(false)
+                }
+                ComposerField(text: $chat.draft, onSubmit: chat.send)
+            }
+            .frame(height: composerHeight)
 
             Button(action: chat.send) {
                 Image(systemName: "arrow.up.circle.fill")
@@ -380,7 +427,7 @@ struct ModeSwitcher: View {
                         .foregroundStyle(.white.opacity(candidate == mode ? 0.9 : 0.36))
                 }
                 .buttonStyle(.plain)
-                .help("\(candidate.title) (⌘\(candidate == .notes ? "1" : "2"))")
+                .help("\(candidate.title) — ⌘⇧M swaps from anywhere")
                 .keyboardShortcut(candidate == .notes ? "1" : "2", modifiers: .command)
             }
         }
@@ -397,7 +444,6 @@ struct ModeSwitcher: View {
 /// the same reason.
 private struct ComposerField: NSViewRepresentable {
     @Binding var text: String
-    var placeholder: String
     var onSubmit: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -411,6 +457,10 @@ private struct ComposerField: NSViewRepresentable {
         guard let view = scroll.documentView as? NSTextView else { return scroll }
         view.delegate = context.coordinator
         view.drawsBackground = false
+        // Spelled out rather than relying on defaults: selection is the whole
+        // reason this isn't a SwiftUI TextField.
+        view.isEditable = true
+        view.isSelectable = true
         view.font = .systemFont(ofSize: 12)
         view.textColor = NSColor.white.withAlphaComponent(0.92)
         view.insertionPointColor = NSColor.white.withAlphaComponent(0.8)
@@ -420,11 +470,15 @@ private struct ComposerField: NSViewRepresentable {
         view.isAutomaticDashSubstitutionEnabled = false
         view.allowsUndo = true
         view.string = text
-        context.coordinator.placeholderView = view
 
-        // The composer is the reason the panel takes focus at all, so claim it
-        // as soon as the card is on screen.
-        DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
+        // The panel is a non-activating panel that only becomes key when
+        // something needs it, so ask for key status explicitly — otherwise the
+        // text view can be first responder in a window that never took focus,
+        // and selection and typing both go nowhere.
+        DispatchQueue.main.async {
+            view.window?.makeKeyAndOrderFront(nil)
+            view.window?.makeFirstResponder(view)
+        }
         return scroll
     }
 
@@ -438,7 +492,6 @@ private struct ComposerField: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         private let parent: ComposerField
-        weak var placeholderView: NSTextView?
 
         init(_ parent: ComposerField) { self.parent = parent }
 

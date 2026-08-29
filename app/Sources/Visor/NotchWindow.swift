@@ -36,7 +36,9 @@ enum VisorMode: String, CaseIterable, Identifiable, Codable {
 
     var symbol: String {
         switch self {
-        case .notes: return "checklist"
+        // Not "checklist": the note is a note that happens to hold tasks, and
+        // the generic checklist glyph read as clip-art next to the chat bubble.
+        case .notes: return "note.text"
         case .chat:  return "bubble.left.and.bubble.right"
         }
     }
@@ -205,6 +207,21 @@ final class NotchController {
         withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
             ui.mode = mode
         }
+    }
+
+    /// Flip to the other face. Bound to a global shortcut, so it also opens
+    /// the notch if it's closed — otherwise the key would appear to do nothing.
+    func swapMode() {
+        setMode(ui.mode == .notes ? .chat : .notes)
+        showNote()
+    }
+
+    /// Select the nth agent and show the chat face — the notch's whole point
+    /// is not having to go looking for a window first.
+    func selectAgent(_ index: Int) {
+        setMode(.chat)
+        showNote()
+        chat.useAgent(at: index)
     }
 
     /// Open the notch on the chat face with a prompt already running — how
