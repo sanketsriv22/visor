@@ -487,6 +487,37 @@ final class AIRunner: ObservableObject {
         persist()
     }
 
+    /// Rename an agent in place.
+    ///
+    /// Not remove-then-add: that dropped the agent to the end of the list,
+    /// cleared its Keychain entry when no other agent shared the account, and
+    /// lost its default status — so renaming a CLI agent silently deleted its
+    /// key. The name is the identity everywhere else, so the key and the
+    /// default move with it.
+    @discardableResult
+    func rename(_ provider: AIProvider, to newName: String) -> Bool {
+        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != provider.name,
+              !providers.contains(where: { $0.name == name }),
+              let i = providers.firstIndex(where: { $0.name == provider.name })
+        else { return false }
+
+        var renamed = provider
+        renamed.name = name
+        // Carry the key across when it was stored under the old name (CLI and
+        // Devin agents); chat agents share one account, so there's nothing to
+        // move.
+        if provider.keyAccount == provider.name, let key = Keychain.get(provider.name) {
+            Keychain.set(key, account: renamed.keyAccount)
+            Keychain.delete(provider.name)
+        }
+        providers[i] = renamed
+        if defaultProviderName == provider.name { defaultProviderName = name }
+        UserDefaults.standard.set(defaultProviderName, forKey: defaultKey)
+        persist()
+        return true
+    }
+
     func remove(_ provider: AIProvider) {
         providers.removeAll { $0.name == provider.name }
         // Only drop the key if no remaining agent shares that account — chat

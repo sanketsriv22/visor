@@ -35,6 +35,7 @@ struct ChatCard: View {
         // modes as one shape instead of cross-fading with the note card.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onExitCommand(perform: onClose)
+        .task { await chat.loadModels() }
     }
 
     // MARK: - Header
@@ -259,7 +260,7 @@ struct ChatCard: View {
     // MARK: - Composer
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        VStack(spacing: 7) {
             ZStack(alignment: .topLeading) {
                 if chat.draft.isEmpty {
                     Text("Message \(chat.agent?.name ?? "your agent")…")
@@ -271,14 +272,35 @@ struct ChatCard: View {
             }
             .frame(height: composerHeight)
 
-            Button(action: chat.send) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 17))
-                    .foregroundStyle(canSend ? Color.white.opacity(0.9) : Color.white.opacity(0.22))
+            // The model belongs here, not two rows up: it's a decision you
+            // make about the message you're writing.
+            HStack(spacing: 6) {
+                InlineModelPicker(chat: chat)
+
+                if chat.isStreaming {
+                    ArticulatingSquare(size: 9)
+                    Text("working")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+
+                Spacer(minLength: 0)
+
+                Text(chat.isStreaming ? "⌘." : "↩")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.22))
+
+                Button(action: chat.isStreaming ? chat.stop : chat.send) {
+                    Image(systemName: chat.isStreaming ? "stop.circle.fill" : "arrow.up.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(chat.isStreaming
+                                         ? Color.orange
+                                         : (canSend ? Color.white.opacity(0.9) : Color.white.opacity(0.22)))
+                }
+                .buttonStyle(.plain)
+                .disabled(!chat.isStreaming && !canSend)
+                .keyboardShortcut(chat.isStreaming ? "." : .return, modifiers: [.command])
             }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
-            .keyboardShortcut(.return, modifiers: [.command])
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
@@ -346,15 +368,34 @@ private struct MessageRow: View {
                     .textSelection(.enabled)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
-                    .background(RoundedRectangle(cornerRadius: 11).fill(.white.opacity(0.10)))
+                    .background(
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: 11, bottomLeadingRadius: 11,
+                            bottomTrailingRadius: 3, topTrailingRadius: 11)
+                            .fill(.white.opacity(0.11)))
             }
         } else {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(agentName.uppercased())
-                    .font(.system(size: 8, weight: .semibold))
-                    .tracking(0.6)
-                    .foregroundStyle(.white.opacity(0.32))
-                replyText
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 5) {
+                        Text(agentName.uppercased())
+                            .font(.system(size: 8, weight: .semibold))
+                            .tracking(0.6)
+                            .foregroundStyle(.white.opacity(0.4))
+                        if isStreaming { ArticulatingSquare(size: 7) }
+                    }
+                    replyText
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                // Dimmer and squared off on the leading edge, so the two
+                // speakers read as different without shouting.
+                .background(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 11, bottomLeadingRadius: 3,
+                        bottomTrailingRadius: 11, topTrailingRadius: 11)
+                        .fill(.white.opacity(0.045)))
+                Spacer(minLength: 28)
             }
         }
     }
@@ -531,6 +572,112 @@ private struct ComposerField: NSViewRepresentable {
             }
             parent.onSubmit()
             return true
+        }
+    }
+}
+
+/// The "something is happening" indicator: a small square that rotates and
+/// softens its corners in a continuous loop.
+///
+/// A spinner reads as *waiting* — a progress bar with no information. This
+/// reads as *working*, which is the honest signal while tokens are arriving.
+/// It's driven by a single repeating animation rather than a timer, so it
+/// costs nothing and stops cleanly when the view goes away.
+struct ArticulatingSquare: View {
+    var size: CGFloat = 10
+    var tint: Color = .white
+
+    @State private var articulating = false
+
+    var body: some View {
+        RoundedRectangle(
+            cornerRadius: articulating ? size * 0.46 : size * 0.17,
+            style: .continuous)
+            .fill(tint.opacity(articulating ? 0.85 : 0.5))
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(articulating ? 180 : 0))
+            .scaleEffect(articulating ? 0.78 : 1)
+            .animation(.easeInOut(duration: 0.72).repeatForever(autoreverses: true),
+                       value: articulating)
+            .onAppear { articulating = true }
+            .accessibilityLabel("Working")
+    }
+}
+
+/// Model chooser that lives in the composer, with search.
+///
+/// The model is a decision about the message you're writing, so it belongs
+/// next to where you write it — and with several hundred models behind the
+/// key, a plain menu is a scrolling column you can't navigate.
+private struct InlineModelPicker: View {
+    @ObservedObject var chat: ChatController
+
+    @State private var showing = false
+    @State private var query = ""
+
+    private var matches: [String] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let ids = chat.modelOptions
+        guard !q.isEmpty else { return ids }
+        return ids.filter { $0.lowercased().contains(q) }
+    }
+
+    var body: some View {
+        Button { showing = true } label: {
+            HStack(spacing: 3) {
+                Text(chat.shortModelName)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 6, weight: .bold))
+            }
+            .font(.system(size: 9))
+            .foregroundStyle(.white.opacity(0.45))
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Capsule().fill(.white.opacity(0.06)))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(chat.agent == nil)
+        .help("Model for this message")
+        .popover(isPresented: $showing, arrowEdge: .top) {
+            VStack(spacing: 0) {
+                TextField("Search models…", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .padding(7)
+                Divider()
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if matches.isEmpty {
+                            Text("Nothing matches “\(query)”")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .padding(9)
+                        }
+                        ForEach(matches, id: \.self) { id in
+                            Button {
+                                chat.useModel(id)
+                                showing = false
+                                query = ""
+                            } label: {
+                                HStack {
+                                    Text(id).font(.system(size: 11)).lineLimit(1)
+                                    Spacer(minLength: 0)
+                                    if id == chat.conversation.model {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 9, weight: .bold))
+                                    }
+                                }
+                                .padding(.horizontal, 9).padding(.vertical, 4)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(height: 220)
+            }
+            .frame(width: 340)
         }
     }
 }

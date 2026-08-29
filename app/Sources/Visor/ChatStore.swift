@@ -56,19 +56,57 @@ final class ChatStore: ObservableObject {
     private let io = DispatchQueue(label: "com.kitalabs.visor.chatstore")
 
     init(root: URL? = nil) {
-        self.root = root ?? Self.defaultRoot
+        let resolved = root ?? Self.defaultRoot
+        Self.migrateFromLegacyIfNeeded(to: resolved)
+        self.root = resolved
         try? FileManager.default.createDirectory(at: chatsDir, withIntermediateDirectories: true)
         loadIndex()
     }
 
-    /// Where Visor keeps its data. `VISOR_DATA_DIR` overrides it, matching how
+    /// Where Visor keeps its data: the same ~/Documents/Visor folder the notes
+    /// already live in. `VISOR_DATA_DIR` overrides it, matching how
     /// `STICKY_NOTES_FILE` already lets the note be relocated.
+    ///
+    /// Chats used to sit in ~/StickyNotes alongside the run logs, which meant
+    /// the app's own data was split across two folders under two different
+    /// names — neither of them the product's.
     static var defaultRoot: URL {
         if let custom = ProcessInfo.processInfo.environment["VISOR_DATA_DIR"], !custom.isEmpty {
             return URL(fileURLWithPath: (custom as NSString).expandingTildeInPath)
         }
         return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents/Visor", isDirectory: true)
+    }
+
+    /// The pre-1.0-beta.36 location, moved on first launch.
+    private static var legacyRoot: URL {
+        FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("StickyNotes", isDirectory: true)
+    }
+
+    /// Move chats and their index out of the old folder, once.
+    ///
+    /// Only when the destination doesn't exist: a partial merge across two
+    /// locations is worse than either one alone, and this way re-running is a
+    /// no-op.
+    private static func migrateFromLegacyIfNeeded(to root: URL) {
+        let fm = FileManager.default
+        guard root != legacyRoot else { return }
+        let old = legacyRoot.appendingPathComponent("chats", isDirectory: true)
+        let new = root.appendingPathComponent("chats", isDirectory: true)
+        guard fm.fileExists(atPath: old.path), !fm.fileExists(atPath: new.path) else { return }
+        try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+        do {
+            try fm.moveItem(at: old, to: new)
+            let oldIndex = legacyRoot.appendingPathComponent(".chat-index", isDirectory: true)
+            let newIndex = root.appendingPathComponent(".chat-index", isDirectory: true)
+            if fm.fileExists(atPath: oldIndex.path), !fm.fileExists(atPath: newIndex.path) {
+                try? fm.moveItem(at: oldIndex, to: newIndex)
+            }
+            NSLog("[Visor] Moved chats to \(new.path)")
+        } catch {
+            NSLog("[Visor] Couldn't move chats out of ~/StickyNotes: \(error.localizedDescription)")
+        }
     }
 
     private func url(for id: UUID) -> URL {

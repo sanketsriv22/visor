@@ -19,7 +19,7 @@ function expandTilde(p: string): string {
 export function dataRoot(): string {
   const custom = process.env.VISOR_DATA_DIR;
   if (custom) return expandTilde(custom);
-  return join(homedir(), "StickyNotes");
+  return join(homedir(), "Documents", "Visor");
 }
 
 export function chatsDir(): string {

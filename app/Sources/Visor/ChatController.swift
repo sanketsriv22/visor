@@ -18,6 +18,9 @@ final class ChatController: ObservableObject {
 
     let store: ChatStore
     let memory: KnowledgeBase
+    /// Live model list, so the notch's picker offers everything the key can
+    /// reach rather than a hard-coded handful.
+    let catalog = ModelCatalog()
     private let client = OpenRouterClient()
     private unowned let ai: AIRunner
     private var streamTask: Task<Void, Never>?
@@ -58,13 +61,15 @@ final class ChatController: ObservableObject {
         use(chatAgents[index])
     }
 
-    /// Models offered in the notch's picker: whatever the agent could be
-    /// switched to, with its current choice guaranteed present.
+    /// Models offered in the notch's picker: everything the key can reach,
+    /// with the current choice guaranteed present even if it's been retired.
     var modelOptions: [String] {
-        var ids = ModelCatalog.fallbackModels
+        var ids = catalog.ids
         if let current = agent?.model, !ids.contains(current) { ids.insert(current, at: 0) }
         return ids
     }
+
+    func loadModels() async { await catalog.loadIfNeeded() }
 
     /// Model id minus the vendor prefix — the full id doesn't fit in a notch.
     var shortModelName: String {

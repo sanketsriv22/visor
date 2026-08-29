@@ -220,17 +220,20 @@ private struct AgentsPane: View {
     }
 }
 
-/// One agent, editable in place. Renaming rewrites the entry rather than
-/// editing it, because the name is the identity everywhere else.
+/// One agent, editable in place.
+///
+/// Everything is always visible — no disclosure triangle. A freshly added
+/// agent that showed only its name with nothing editable read as broken, and
+/// there are few enough fields that hiding them bought nothing.
 private struct AgentRow: View {
     @ObservedObject var ai: AIRunner
     @ObservedObject var catalog: ModelCatalog
     let provider: AIProvider
     let highlighted: Bool
 
-    @State private var nameDraft = ""
+    @State private var nameDraft: String = ""
     @State private var keyDraft = ""
-    @State private var expanded = false
+    @FocusState private var nameFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -239,12 +242,23 @@ private struct AgentRow: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 16)
 
-                TextField("Agent name", text: Binding(
-                    get: { nameDraft.isEmpty ? provider.name : nameDraft },
-                    set: { nameDraft = $0 }))
+                // Committed on Return *and* on losing focus: requiring Return
+                // meant a name typed and clicked away from was silently thrown
+                // out.
+                TextField("Agent name", text: $nameDraft)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 170)
+                    .frame(width: 180)
+                    .focused($nameFocused)
                     .onSubmit(commitRename)
+                    .onChange(of: nameFocused) { focused in
+                        if !focused { commitRename() }
+                    }
+
+                Text(provider.isChat ? "chat" : "CLI")
+                    .font(.caption2)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(.secondary.opacity(0.18)))
+                    .foregroundStyle(.secondary)
 
                 if provider.name == ai.defaultProviderName {
                     Text("default")
@@ -259,11 +273,6 @@ private struct AgentRow: View {
 
                 Spacer()
 
-                Button { expanded.toggle() } label: {
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                }
-                .buttonStyle(.borderless)
-
                 Button(role: .destructive) { ai.remove(provider) } label: {
                     Image(systemName: "trash")
                 }
@@ -271,117 +280,190 @@ private struct AgentRow: View {
                 .help("Remove this agent")
             }
 
-            if provider.isChat {
-                modelPicker
-            }
-
-            if expanded { details }
+            if provider.isChat { chatFields } else { cliFields }
         }
         .padding(.horizontal, 8).padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 7)
             .fill(highlighted ? Color.accentColor.opacity(0.12) : .clear))
         .animation(.easeInOut(duration: 0.2), value: highlighted)
+        .onAppear { nameDraft = provider.name }
+        .onChange(of: provider.name) { nameDraft = $0 }
     }
 
-    private var modelPicker: some View {
-        HStack(spacing: 8) {
-            Text("Model").font(.caption).foregroundStyle(.secondary).frame(width: 44, alignment: .leading)
-            Picker("", selection: Binding(
-                get: { provider.model ?? ChatController.defaultModel },
-                set: { value in
+    // MARK: Chat
+
+    private var chatFields: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                fieldLabel("Model")
+                ModelPickerButton(catalog: catalog,
+                                  selection: provider.model ?? ChatController.defaultModel) { id in
                     var copy = provider
-                    copy.model = value
+                    copy.model = id
                     ai.upsert(copy)
-                })) {
-                    // A model the user already picked may not be in the live
-                    // list (no key yet, or it was retired); keep it selectable
-                    // so opening Settings never silently rewrites their choice.
-                    ForEach(modelOptions, id: \.self) { id in
-                        Text(catalog.label(for: id)).tag(id)
-                    }
                 }
-                .labelsHidden()
-                .frame(maxWidth: 340)
-        }
-    }
-
-    @ViewBuilder
-    private var details: some View {
-        if provider.isChat {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Persona").font(.caption).foregroundStyle(.secondary)
-                TextEditor(text: Binding(
-                    get: { provider.systemPrompt ?? "" },
-                    set: { value in var p = provider; p.systemPrompt = value; ai.upsert(p) }))
-                    .font(.system(size: 11))
-                    .frame(height: 60)
-                    .overlay(RoundedRectangle(cornerRadius: 5)
-                        .stroke(.secondary.opacity(0.3), lineWidth: 1))
-                Text("Prepended to every conversation with this agent.")
-                    .font(.caption2).foregroundStyle(.secondary)
             }
-        } else {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Command").font(.caption).foregroundStyle(.secondary).frame(width: 62, alignment: .leading)
-                    TextField("claude", text: Binding(
-                        get: { provider.command },
-                        set: { value in var p = provider; p.command = value; ai.upsert(p) }))
-                        .textFieldStyle(.roundedBorder)
-                }
-                HStack {
-                    Text("Args").font(.caption).foregroundStyle(.secondary).frame(width: 62, alignment: .leading)
-                    TextField("space-separated", text: Binding(
-                        get: { provider.args.joined(separator: " ") },
-                        set: { value in
-                            var p = provider
-                            p.args = value.split(separator: " ").map(String.init)
-                            ai.upsert(p)
-                        }))
-                        .textFieldStyle(.roundedBorder)
-                }
-                HStack {
-                    Text("Key env").font(.caption).foregroundStyle(.secondary).frame(width: 62, alignment: .leading)
-                    TextField("e.g. OPENAI_API_KEY — optional", text: Binding(
-                        get: { provider.apiKeyEnv ?? "" },
-                        set: { value in
-                            var p = provider
-                            p.apiKeyEnv = value.isEmpty ? nil : value
-                            ai.upsert(p)
-                        }))
-                        .textFieldStyle(.roundedBorder)
-                }
-                if provider.needsKey && !provider.isChat {
-                    HStack {
-                        SecureField(ai.hasKey(provider) ? "•••••• (set)" : "paste API key",
-                                    text: $keyDraft)
-                            .textFieldStyle(.roundedBorder)
-                        Button("Save") {
-                            ai.setKey(keyDraft, for: provider)
-                            keyDraft = ""
-                        }
-                        .disabled(keyDraft.isEmpty)
-                    }
+            HStack(alignment: .top, spacing: 8) {
+                fieldLabel("Persona")
+                VStack(alignment: .leading, spacing: 2) {
+                    TextEditor(text: Binding(
+                        get: { provider.systemPrompt ?? "" },
+                        set: { value in var p = provider; p.systemPrompt = value; ai.upsert(p) }))
+                        .font(.system(size: 11))
+                        .frame(height: 46)
+                        .overlay(RoundedRectangle(cornerRadius: 5)
+                            .stroke(.secondary.opacity(0.3), lineWidth: 1))
+                    Text("Optional. Prepended to every conversation with this agent.")
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
             }
         }
     }
 
-    private var modelOptions: [String] {
-        var ids = catalog.ids
-        if let current = provider.model, !ids.contains(current) { ids.insert(current, at: 0) }
-        return ids
+    // MARK: CLI
+
+    private var cliFields: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                fieldLabel("Command")
+                TextField("claude", text: Binding(
+                    get: { provider.command },
+                    set: { value in var p = provider; p.command = value; ai.upsert(p) }))
+                    .textFieldStyle(.roundedBorder)
+            }
+            HStack(spacing: 8) {
+                fieldLabel("Args")
+                TextField("space-separated", text: Binding(
+                    get: { provider.args.joined(separator: " ") },
+                    set: { value in
+                        var p = provider
+                        p.args = value.split(separator: " ").map(String.init)
+                        ai.upsert(p)
+                    }))
+                    .textFieldStyle(.roundedBorder)
+            }
+            HStack(spacing: 8) {
+                fieldLabel("Key env")
+                TextField("e.g. OPENAI_API_KEY — optional", text: Binding(
+                    get: { provider.apiKeyEnv ?? "" },
+                    set: { value in
+                        var p = provider
+                        p.apiKeyEnv = value.isEmpty ? nil : value
+                        ai.upsert(p)
+                    }))
+                    .textFieldStyle(.roundedBorder)
+            }
+            if provider.needsKey {
+                HStack(spacing: 8) {
+                    fieldLabel("Key")
+                    SecureField(ai.hasKey(provider) ? "•••••• (set)" : "paste API key",
+                                text: $keyDraft)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Save") {
+                        ai.setKey(keyDraft, for: provider)
+                        keyDraft = ""
+                    }
+                    .disabled(keyDraft.isEmpty)
+                }
+            }
+        }
+    }
+
+    private func fieldLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(width: 62, alignment: .leading)
     }
 
     private func commitRename() {
-        let name = nameDraft.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty, name != provider.name,
-              !ai.providers.contains(where: { $0.name == name }) else { return }
-        var copy = provider
-        copy.name = name
-        ai.remove(provider)
-        ai.upsert(copy)
-        nameDraft = ""
+        let name = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name != provider.name else { return }
+        // Put the old name back if the new one was empty or already taken,
+        // rather than leaving a field showing a name that wasn't saved.
+        if !ai.rename(provider, to: name) { nameDraft = provider.name }
+    }
+}
+
+/// Model chooser with a search field.
+///
+/// OpenRouter lists several hundred models; a plain Picker made that a single
+/// scrolling column with no way to jump to the one you wanted.
+private struct ModelPickerButton: View {
+    @ObservedObject var catalog: ModelCatalog
+    let selection: String
+    let onSelect: (String) -> Void
+
+    @State private var showing = false
+    @State private var query = ""
+
+    private var matches: [String] {
+        var ids = catalog.ids
+        if !ids.contains(selection) { ids.insert(selection, at: 0) }
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return ids }
+        // Match on the whole id so "anthropic" and "sonnet" both work.
+        return ids.filter { $0.lowercased().contains(q) }
+    }
+
+    var body: some View {
+        Button {
+            showing = true
+        } label: {
+            HStack(spacing: 5) {
+                Text(selection).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .font(.system(size: 11))
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .frame(width: 320, alignment: .leading)
+            .overlay(RoundedRectangle(cornerRadius: 5)
+                .stroke(.secondary.opacity(0.35), lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showing, arrowEdge: .bottom) {
+            VStack(spacing: 0) {
+                TextField("Search \(catalog.ids.count) models…", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .padding(8)
+                Divider()
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if matches.isEmpty {
+                            Text("No model matches “\(query)”")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .padding(10)
+                        }
+                        ForEach(matches, id: \.self) { id in
+                            Button {
+                                onSelect(id)
+                                showing = false
+                                query = ""
+                            } label: {
+                                HStack {
+                                    Text(id).font(.system(size: 11)).lineLimit(1)
+                                    Spacer(minLength: 0)
+                                    if id == selection {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 9, weight: .bold))
+                                    }
+                                }
+                                .padding(.horizontal, 10).padding(.vertical, 4)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(height: 240)
+            }
+            .frame(width: 380)
+        }
     }
 }
 
