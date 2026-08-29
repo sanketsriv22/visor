@@ -27,8 +27,8 @@ done
 
 [ -d "$APP" ] || { echo "error: $APP not found — run scripts/make-app.sh first" >&2; exit 1; }
 
-IDENTITY="${VISOR_SIGN_IDENTITY:-$(security find-identity -v -p codesigning \
-  | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)"/\1/')}"
+IDENTITY="${VISOR_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
+  | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)"/\1/' || true)}"
 [ -n "$IDENTITY" ] || { echo "error: no Developer ID Application identity in the keychain" >&2; exit 1; }
 echo "signing as: $IDENTITY"
 

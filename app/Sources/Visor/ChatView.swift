@@ -1160,6 +1160,10 @@ struct ListeningPill: View {
                 bottomTrailingRadius: 10,
                 topTrailingRadius: 0)
                 .fill(Color.black)
+                // Reach back under the notch strip so the black is continuous
+                // even though the strip is a few points wider than the
+                // hardware. Black over black — invisible, and no seam.
+                .padding(.leading, -NotchController.listeningPillOverlap)
 
             content
         }

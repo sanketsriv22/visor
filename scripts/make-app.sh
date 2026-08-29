@@ -142,8 +142,10 @@ fi
 # app to macOS every time it's rebuilt — which is what makes Accessibility and
 # Keychain grants evaporate between builds. CI has no certificate, so it falls
 # back to ad-hoc and scripts/sign-and-notarize.sh signs properly afterwards.
+# `|| true` matters: with set -e and pipefail, grep finding nothing on a
+# machine with no certificate (i.e. CI) fails the whole script.
 SIGN_ID="${VISOR_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
-  | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)"/\1/')}"
+  | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)"/\1/' || true)}"
 if [ -n "$SIGN_ID" ] && [ -f "$REPO/app/Visor.entitlements" ]; then
     echo "signing with: $SIGN_ID"
     "$REPO/scripts/sign-and-notarize.sh" --skip-notarize

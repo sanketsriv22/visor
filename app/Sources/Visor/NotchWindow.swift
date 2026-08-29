@@ -116,6 +116,17 @@ final class NotchController {
     /// the level meter and a little breathing room, narrow enough that it
     /// still reads as the notch rather than a panel.
     static let listeningPillWidth: CGFloat = 66
+    /// How far the extension reaches back under the notch strip.
+    ///
+    /// `auxiliaryTopLeftArea` / `auxiliaryTopRightArea` are the *usable*
+    /// menu-bar regions, and macOS insets them a few points from the physical
+    /// notch so menu items don't touch it. The rect derived from them is
+    /// therefore slightly wider than the hardware, which left the extension
+    /// starting a few points clear of where the black actually ends — a thin
+    /// gap that no amount of corner-rounding could close. Overlapping backwards
+    /// is black drawn over black, so it's invisible and can't leave a seam
+    /// regardless of how much padding a given machine uses.
+    static let listeningPillOverlap: CGFloat = 12
 
     static func cardSize(for mode: VisorMode) -> CGSize {
         switch mode {
@@ -251,14 +262,22 @@ final class NotchController {
                 // Grow before showing, shrink after hiding — same reason as the
                 // HUD: the window must never be smaller than what's animating
                 // inside it.
-                if listening { self.ui.listening = true; self.applyFrame(expanded: self.ui.expanded) }
+                // Only the collapsed window changes size for the pill. While
+                // the card is open it already covers this area and the pill
+                // isn't drawn, so reframing did nothing except force a redraw
+                // of the whole panel — which flashed the top of the card and
+                // showed the desktop through it for a frame.
+                if listening {
+                    self.ui.listening = true
+                    if !self.ui.expanded { self.applyFrame(expanded: false) }
+                }
                 withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) {
                     self.ui.listening = listening
                 }
                 if !listening {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.36) { [weak self] in
-                        guard let self, !self.ui.listening else { return }
-                        self.applyFrame(expanded: self.ui.expanded)
+                        guard let self, !self.ui.listening, !self.ui.expanded else { return }
+                        self.applyFrame(expanded: false)
                     }
                 }
             }
