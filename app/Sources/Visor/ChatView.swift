@@ -262,6 +262,8 @@ struct ChatCard: View {
             // make about the message you're writing.
             HStack(spacing: 6) {
                 InlineModelPicker(chat: chat)
+                EffortPicker(chat: chat)
+                FastToggle(chat: chat)
 
                 if chat.isStreaming {
                     DotMatrixIndicator(size: 11)
@@ -1015,6 +1017,8 @@ private struct HUDComposer: View {
 
             HStack(spacing: 8) {
                 InlineModelPicker(chat: chat)
+                EffortPicker(chat: chat)
+                FastToggle(chat: chat)
                 if chat.isStreaming {
                     DotMatrixIndicator(size: 11)
                     Text("working").font(.system(size: 9)).foregroundStyle(.white.opacity(0.4))
@@ -1234,5 +1238,73 @@ enum ModelSearch {
 
     private static func normalise(_ text: String) -> String {
         text.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+}
+
+
+/// How hard the model should think, per message.
+///
+/// Sent as OpenRouter's `reasoning.effort`. Models that don't reason ignore
+/// it, so there's no need to hide the control per model — and hiding it would
+/// mean maintaining a list of which models reason, which goes stale.
+struct EffortPicker: View {
+    @ObservedObject var chat: ChatController
+
+    var body: some View {
+        Menu {
+            ForEach(ChatController.effortLevels, id: \.self) { level in
+                Button {
+                    chat.useEffort(level)
+                } label: {
+                    Text(label(for: level))
+                    if level == chat.effort { Text("✓") }
+                }
+            }
+        } label: {
+            Text(label(for: chat.effort))
+                .font(.system(size: 9))
+                .foregroundStyle(.white.opacity(chat.effort == nil ? 0.35 : 0.6))
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Capsule().fill(.white.opacity(chat.effort == nil ? 0.05 : 0.1)))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(chat.agent == nil)
+        .help("Reasoning effort — ignored by models that don't reason")
+    }
+
+    private func label(for level: String?) -> String {
+        switch level {
+        case "low":    return "low"
+        case "medium": return "med"
+        case "high":   return "high"
+        default:       return "auto"
+        }
+    }
+}
+
+/// Route to the fastest provider rather than the cheapest.
+///
+/// OpenRouter serves most models from several providers and optimises for
+/// price by default. This asks for throughput instead — it costs more per
+/// token, which is worth it for short interactive turns and not for long ones.
+struct FastToggle: View {
+    @ObservedObject var chat: ChatController
+
+    var body: some View {
+        Button(action: chat.toggleFast) {
+            Image(systemName: "bolt.fill")
+                .font(.system(size: 8))
+                .foregroundStyle(chat.isFast ? Color.orange : Color.white.opacity(0.3))
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(Capsule().fill(.white.opacity(chat.isFast ? 0.12 : 0.05)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(chat.agent == nil)
+        .help(chat.isFast
+              ? "Fast: routing to the quickest provider (costs more per token)"
+              : "Standard routing — cheapest provider for this model")
     }
 }

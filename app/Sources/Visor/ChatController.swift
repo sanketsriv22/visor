@@ -98,6 +98,26 @@ final class ChatController: ObservableObject {
         return id.contains("/") ? String(id.split(separator: "/").last!) : id
     }
 
+    /// Effort levels offered in the composer. Nil is "whatever the provider
+    /// does by default", which is the right choice for models that don't
+    /// reason at all.
+    static let effortLevels: [String?] = [nil, "low", "medium", "high"]
+
+    var effort: String? { agent?.effort }
+    var isFast: Bool { agent?.fastMode ?? false }
+
+    func useEffort(_ level: String?) {
+        guard var agent else { return }
+        agent.effort = level
+        ai.upsert(agent)
+    }
+
+    func toggleFast() {
+        guard var agent else { return }
+        agent.fastMode = !(agent.fastMode ?? false)
+        ai.upsert(agent)
+    }
+
     /// Point this agent (and this chat) at a different model.
     func useModel(_ id: String) {
         conversation.model = id
@@ -205,12 +225,15 @@ final class ChatController: ObservableObject {
         // Drop the empty assistant turn we just appended; the model gets the
         // history up to and including the question.
         let history = Array(conversation.messages.dropLast().suffix(Self.recentWindow))
+        let effort = agent.effort
+        let fast = agent.fastMode ?? false
 
         streamTask = Task { [weak self] in
             guard let self else { return }
             do {
                 for try await chunk in self.client.stream(
-                    messages: history, model: model, system: system) {
+                    messages: history, model: model, system: system,
+                    effort: effort, fast: fast) {
                     self.appendToReply(chunk)
                 }
                 self.finish()

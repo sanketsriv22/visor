@@ -110,7 +110,8 @@ final class OpenRouterClient {
     }
 
     private func body(messages: [ChatMessage], model: String, system: String?,
-                      temperature: Double?, stream: Bool) -> [String: Any] {
+                      temperature: Double?, stream: Bool,
+                      effort: String? = nil, fast: Bool = false) -> [String: Any] {
         var wire: [[String: String]] = []
         if let system, !system.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             wire.append(["role": "system", "content": system])
@@ -119,6 +120,13 @@ final class OpenRouterClient {
 
         var body: [String: Any] = ["model": model, "messages": wire, "stream": stream]
         if let temperature { body["temperature"] = temperature }
+        // Reasoning effort is ignored by models that don't reason, so it's
+        // safe to send whenever the user has picked one.
+        if let effort { body["reasoning"] = ["effort": effort] }
+        // OpenRouter serves most models from several providers at different
+        // speeds and prices; by default it optimises for price. This asks for
+        // the fastest one instead.
+        if fast { body["provider"] = ["sort": "throughput"] }
         return body
     }
 
@@ -128,14 +136,16 @@ final class OpenRouterClient {
     /// feel like a native surface instead of a form submission — the first
     /// token lands in a few hundred milliseconds.
     func stream(messages: [ChatMessage], model: String, system: String? = nil,
-                temperature: Double? = nil) -> AsyncThrowingStream<String, Error> {
+                temperature: Double? = nil, effort: String? = nil,
+                fast: Bool = false) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     var req = try request(path: "/chat/completions")
                     req.httpBody = try JSONSerialization.data(
                         withJSONObject: body(messages: messages, model: model, system: system,
-                                             temperature: temperature, stream: true))
+                                             temperature: temperature, stream: true,
+                                             effort: effort, fast: fast))
 
                     let (bytes, response) = try await session.bytes(for: req)
                     if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {

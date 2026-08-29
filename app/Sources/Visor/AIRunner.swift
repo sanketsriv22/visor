@@ -22,6 +22,12 @@ struct AIProvider: Codable, Identifiable, Equatable {
     var model: String?
     /// Optional persona prepended to every conversation with this agent.
     var systemPrompt: String?
+    /// How hard the model should think, for models that support it:
+    /// "low" / "medium" / "high". Nil leaves it to the provider's default.
+    var effort: String?
+    /// Route to the fastest provider serving this model rather than the
+    /// cheapest. Costs more per token; worth it for short interactive turns.
+    var fastMode: Bool?
     var id: String { name }
 
     var isDevinCloud: Bool { kind == .devinCloud }
