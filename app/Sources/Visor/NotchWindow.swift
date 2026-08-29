@@ -579,8 +579,16 @@ final class NotchController {
         if expanded && mode.isFullScreen {
             // The whole screen, so the HUD's own animation has room to run
             // inside a window that isn't moving.
+            //
+            // display: false matters. Growing with display: true forces an
+            // immediate synchronous redraw, which paints the *old* card — still
+            // the chat card at this instant, since the mode changes on the next
+            // line — once into a full-screen window before the transition
+            // starts. That single frame is the flash. Letting the next normal
+            // draw cycle handle it means the first thing painted at the new
+            // size is already the HUD.
             ui.notchSize = notch.size
-            panel.setFrame(screen.frame, display: true)
+            panel.setFrame(screen.frame, display: false)
             return
         }
         if expanded {
