@@ -41,18 +41,43 @@ sign() {
   codesign --force --timestamp --options runtime --sign "$IDENTITY" "$@"
 }
 
-# Deepest paths first, so children are always signed before their parents.
-find "$APP/Contents/Frameworks" \
-  \( -name "*.xpc" -o -name "*.app" -o -name "*.dylib" -o -name "*.framework" \) \
-  -maxdepth 4 2>/dev/null | awk '{ print length"\t"$0 }' | sort -rn | cut -f2- | while read -r item; do
-    echo "  signing $(basename "$item")"
-    sign "$item" 2>/dev/null || sign "$item"
-done
+# Explicit order, not a heuristic. Sorting paths by length happened to sign
+# Sparkle.framework before Autoupdate — which lives inside it — and signing a
+# child after its container invalidates the container's seal ("nested code is
+# modified or invalid"). Sparkle's layout is known, so state it.
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+if [ -d "$SPARKLE" ]; then
+  CURRENT="$SPARKLE/Versions/Current"
+  for xpc in "$CURRENT/XPCServices/"*.xpc; do
+    [ -e "$xpc" ] || continue
+    echo "  signing $(basename "$xpc")"
+    sign "$xpc"
+  done
+  if [ -e "$CURRENT/Autoupdate" ]; then
+    echo "  signing Autoupdate"
+    sign "$CURRENT/Autoupdate"
+  fi
+  if [ -d "$CURRENT/Updater.app" ]; then
+    echo "  signing Updater.app"
+    sign "$CURRENT/Updater.app"
+  fi
+  # The framework last, so it seals contents that are already final.
+  echo "  signing Sparkle.framework"
+  sign "$SPARKLE"
+fi
 
-# Sparkle's helper binaries aren't bundles, so the find above misses them.
-for helper in "$APP/Contents/Frameworks/Sparkle.framework/Versions/Current/Autoupdate" \
-              "$APP/Contents/Frameworks/Sparkle.framework/Versions/Current/Updater.app"; do
-  [ -e "$helper" ] && { echo "  signing $(basename "$helper")"; sign "$helper"; }
+# Anything else that ships alongside it.
+for item in "$APP/Contents/Frameworks/"*; do
+  [ -e "$item" ] || continue
+  case "$item" in
+    "$SPARKLE") continue ;;
+  esac
+  case "$item" in
+    *.framework|*.dylib|*.app)
+      echo "  signing $(basename "$item")"
+      sign "$item"
+      ;;
+  esac
 done
 
 echo "  signing Visor.app"
