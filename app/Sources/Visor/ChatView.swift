@@ -541,6 +541,12 @@ struct ComposerField: NSViewRepresentable {
         view.textColor = NSColor.white.withAlphaComponent(0.92)
         view.insertionPointColor = NSColor.white.withAlphaComponent(0.8)
         view.textContainerInset = NSSize(width: 0, height: 1)
+        // NSTextContainer pads each line fragment by 5pt on the leading edge by
+        // default, so the caret and the first character sat 5pt right of the
+        // SwiftUI placeholder drawn behind them — putting the blinking caret
+        // through the middle of the placeholder's first letter. Zero it so the
+        // text view's origin and the placeholder's agree.
+        view.textContainer?.lineFragmentPadding = 0
         view.isRichText = false
         view.isAutomaticQuoteSubstitutionEnabled = false
         view.isAutomaticDashSubstitutionEnabled = false
