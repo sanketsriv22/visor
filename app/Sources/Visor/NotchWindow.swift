@@ -643,11 +643,14 @@ final class NotchController {
         }
         hudPanel?.setFrame(screen.frame, display: false)
         hudPanel?.makeKeyAndOrderFront(nil)
-        // Hide the card's window, don't tear it down. Its content stays laid
-        // out at chat size, so coming back is ordering a finished card front
-        // rather than rebuilding one — but leaving it *visible* meant the notch
-        // card sat behind the HUD, which is two Visors on screen at once.
-        panel.orderOut(nil)
+        // The card's window goes *after* the card has retracted into the notch,
+        // not at the same moment. Ordering it out immediately cut the animation
+        // off at frame one, which is why the switch felt abrupt however the
+        // HUD side was tuned.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) { [weak self] in
+            guard let self, self.ui.mode.isFullScreen else { return }
+            self.panel.orderOut(nil)
+        }
     }
 
     /// Hide it once the collapse has finished, so it isn't cut off mid-flight.
@@ -656,7 +659,9 @@ final class NotchController {
         // The card comes back first and takes key, so the composer is typeable
         // the moment the HUD starts shrinking rather than after it's gone.
         panel.makeKeyAndOrderFront(nil)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+        // Long enough for the rails to leave and the centre to shrink back
+        // into the notch.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.62) { [weak self] in
             guard let self, !self.ui.mode.isFullScreen else { return }
             self.hudPanel?.orderOut(nil)
         }

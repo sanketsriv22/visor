@@ -32,8 +32,15 @@ struct StickyRootView: View {
                                   suppressed: ui.mode != .notes)
                     .zIndex(1)
 
-                morphingCard
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                // Hidden while the HUD is up, and it *retracts* to get there —
+                // scaling into the notch it came from rather than the window
+                // being ordered away underneath it, which is what made the
+                // switch feel like a cut rather than a movement.
+                if !ui.mode.isFullScreen {
+                    morphingCard
+                        .transition(.scale(scale: 0.02, anchor: .top)
+                            .combined(with: .opacity))
+                }
             } else {
                 // Collapsed. The strip sits over the physical notch; the
                 // listening pill extends to its right, so the notch appears to
@@ -1318,14 +1325,14 @@ struct HUDRootView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            if ui.mode.isFullScreen {
-                // The transitions live on HUDView's own layers, so the glass
-                // can fade while the content scales.
-                HUDView(chat: chat, store: store,
-                        notchWidth: ui.notchSize.width,
-                        topInset: ui.notchSize.height,
-                        onExit: onExit)
-            }
+            // Always mounted, visibility driven by the mode — a view removed
+            // from the hierarchy can't animate its own exit, which is why
+            // leaving the HUD used to be instant.
+            HUDView(chat: chat, store: store,
+                    notchWidth: ui.notchSize.width,
+                    topInset: ui.notchSize.height,
+                    onExit: onExit,
+                    visible: ui.mode.isFullScreen)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(\.colorScheme, .dark)
