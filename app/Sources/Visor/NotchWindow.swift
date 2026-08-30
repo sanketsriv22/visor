@@ -560,10 +560,19 @@ final class NotchController {
         }
         hudPanel?.setFrame(screen.frame, display: false)
         hudPanel?.makeKeyAndOrderFront(nil)
+        // Hide the card's window, don't tear it down. Its content stays laid
+        // out at chat size, so coming back is ordering a finished card front
+        // rather than rebuilding one — but leaving it *visible* meant the notch
+        // card sat behind the HUD, which is two Visors on screen at once.
+        panel.orderOut(nil)
     }
 
     /// Hide it once the collapse has finished, so it isn't cut off mid-flight.
     private func hideHUD() {
+        guard ui.expanded else { return }
+        // The card comes back first and takes key, so the composer is typeable
+        // the moment the HUD starts shrinking rather than after it's gone.
+        panel.makeKeyAndOrderFront(nil)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self, !self.ui.mode.isFullScreen else { return }
             self.hudPanel?.orderOut(nil)
@@ -641,6 +650,12 @@ final class NotchController {
             return
         }
         if ui.expanded {
+            // Whatever the reason for collapsing, the HUD can't outlive it.
+            if ui.mode.isFullScreen {
+                ui.mode = .chat
+                UserDefaults.standard.set(VisorMode.chat.rawValue, forKey: modeKey)
+            }
+            hudPanel?.orderOut(nil)
             store.prepareToHide()  // prune blank rows + save (discards the note if now empty)
             // Suppress the notch hover popup until the collapse + window resize
             // settle, so it doesn't reflow right-to-left under a resting cursor.
