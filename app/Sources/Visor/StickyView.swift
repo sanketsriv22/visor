@@ -32,7 +32,13 @@ struct StickyRootView: View {
                         ListeningPill(voice: chat.voice, height: ui.trueNotch.height)
                             .offset(x: (ui.trueNotch.width + NotchController.listeningPillWidth) / 2
                                        - NotchController.listeningPillOverlap / 2)
-                            .transition(.move(edge: .leading).combined(with: .opacity))
+                            // Scale from its own leading edge, not .move.
+                            // `.move(edge: .leading)` slides in from the edge of
+                            // the *container*, which here spans the whole
+                            // window — so the pill flew in from the far left of
+                            // the screen. That was the white flash on the left.
+                            .transition(.scale(scale: 0.01, anchor: .leading)
+                                .combined(with: .opacity))
                     }
                 }
                 // Scoped here so showing the pill animates the pill, and
