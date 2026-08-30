@@ -23,28 +23,14 @@ struct StickyRootView: View {
                 // between them, so switching modes is a pure SwiftUI
                 // animation: the card grows sideways instead of the window
                 // snapping to a new size under it.
-                ZStack(alignment: .top) {
-                    if ui.listening && !ui.mode.isFullScreen {
-                        // Beside the notch, above the card. The expanded panel
-                        // is already wider than the notch plus the extension,
-                        // so this needs no resize — it sits in space the window
-                        // already occupies.
-                        ListeningPill(voice: chat.voice, height: ui.trueNotch.height)
-                            .offset(x: (ui.trueNotch.width + NotchController.listeningPillWidth) / 2
-                                       - NotchController.listeningPillOverlap / 2)
-                            // Scale from its own leading edge, not .move.
-                            // `.move(edge: .leading)` slides in from the edge of
-                            // the *container*, which here spans the whole
-                            // window — so the pill flew in from the far left of
-                            // the screen. That was the white flash on the left.
-                            .transition(.scale(scale: 0.01, anchor: .leading)
-                                .combined(with: .opacity))
-                    }
-                }
-                // Scoped here so showing the pill animates the pill, and
-                // nothing else in the card redraws with it.
-                .animation(.spring(response: 0.34, dampingFraction: 0.86), value: ui.listening)
-                .zIndex(1)
+                // Unconditional: it decides for itself whether to draw, so
+                // starting dictation never invalidates this body and the card
+                // beneath it is never rebuilt.
+                ListeningPillHost(voice: chat.voice,
+                                  notch: ui.trueNotch,
+                                  suppressed: ui.mode.isFullScreen)
+                    .zIndex(1)
+
                 if ui.mode.isFullScreen {
                     HUDView(chat: chat, store: store, namespace: morph,
                             notchWidth: ui.notchSize.width,

@@ -681,32 +681,27 @@ final class NotchController {
 
         let frame: NSRect
         ui.trueNotch = notch.size
-        if expanded && mode.isFullScreen {
-            // The whole screen, so the HUD's own animation has room to run
-            // inside a window that isn't moving.
-            //
-            // display: false matters. Growing with display: true forces an
-            // immediate synchronous redraw, which paints the *old* card — still
-            // the chat card at this instant, since the mode changes on the next
-            // line — once into a full-screen window before the transition
-            // starts. That single frame is the flash. Letting the next normal
-            // draw cycle handle it means the first thing painted at the new
-            // size is already the HUD.
-            ui.notchSize = notch.size
-            panel.setFrame(screen.frame, display: false)
-            return
-        }
         if expanded {
+            // Screen-sized for every open state, not just the HUD.
+            //
+            // Every flash chased in this file came from the window changing
+            // size or origin while SwiftUI still held content laid out for the
+            // old one. No ordering of those two events avoids it: the window
+            // moves in AppKit, the content reflows in SwiftUI, and they run on
+            // different clocks. Resizing first painted the old card at the new
+            // size; swapping first painted new content at the old origin,
+            // which is why the HUD appeared top-left; blanking between them
+            // replaced both with the card vanishing.
+            //
+            // Sizing once, when the notch opens, removes the class of bug
+            // rather than another instance of it — notes, chat and the HUD then
+            // animate inside a window that never moves.
+            //
+            // Safe because transparent SwiftUI content doesn't hit-test, so
+            // everything outside the card passes clicks through, and the panel
+            // still shrinks to the notch strip on collapse.
             ui.notchSize = notch.size
-            let cardW = max(Self.maxCardSize.width, notch.width)
-            let width = cardW + Self.shadowPadX * 2
-            let height = notch.height + Self.maxCardSize.height + Self.shadowPadBottom
-            frame = NSRect(
-                x: notch.midX - width / 2,
-                y: screen.frame.maxY - height,
-                width: width,
-                height: height
-            )
+            frame = screen.frame
         } else {
             let hit = collapsedHitRect(on: screen)
             ui.notchSize = hit.size

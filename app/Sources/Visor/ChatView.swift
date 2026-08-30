@@ -1630,3 +1630,39 @@ struct ToolApprovalRow: View {
             .joined(separator: "\n")
     }
 }
+
+/// Hosts the listening extension without involving the card.
+///
+/// Always present in the view tree, drawing nothing when idle. That's the
+/// point: the previous version was a conditional in StickyRootView, so
+/// starting dictation changed state the *root* observed, which re-evaluated
+/// the whole body and rebuilt the card underneath — the entire interface
+/// blinking to reveal a 66pt extension beside the notch.
+///
+/// Observing the recorder here instead keeps every redraw inside this view.
+struct ListeningPillHost: View {
+    @ObservedObject var voice: VoiceInput
+    var notch: CGSize
+    /// Suppressed in the HUD, which has its own indicators and no notch strip.
+    var suppressed: Bool
+
+    private var showing: Bool { voice.state.isBusy && !suppressed }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            if showing {
+                ListeningPill(voice: voice, height: notch.height)
+                    .offset(x: (notch.width + NotchController.listeningPillWidth) / 2
+                               - NotchController.listeningPillOverlap / 2)
+                    // Scales from its own leading edge rather than moving from
+                    // the container's: the container spans the window, so
+                    // `.move(edge: .leading)` flew it in from the far left of
+                    // the screen.
+                    .transition(.scale(scale: 0.01, anchor: .leading)
+                        .combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: showing)
+        .allowsHitTesting(false)
+    }
+}
