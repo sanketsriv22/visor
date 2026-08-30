@@ -76,23 +76,9 @@ final class ChatController: ObservableObject {
         voice.currentConversation = { [weak self] in self?.conversation.id }
         voice.polish = { [weak self] raw in
             guard let self else { return raw }
-            let instruction = """
-            Rewrite this dictated text as the person meant to write it. Fix \
-            punctuation, capitalisation, obvious mishearings and stray filler \
-            words ("um", "uh", "you know"). Change nothing else — do not \
-            summarise, rephrase, answer, or add anything. Return only the \
-            corrected text.
-            """
-            let messages = [ChatMessage(role: .user, content: instruction + "\n\n---\n\n" + raw)]
-            guard let cleaned = try? await self.client.complete(
-                messages: messages, model: VoiceInput.cleanupModel, temperature: 0)
-            else { return raw }   // a failed tidy-up must never lose the words
-            let result = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-            // A model that "helpfully" answers instead of correcting would
-            // produce something much longer; keep the original in that case.
-            guard !result.isEmpty, result.count < raw.count * 3 else { return raw }
-            return result
+            return await Self.tidy(raw, client: self.client)
         }
+
         voice.onTranscript = { [weak self] text in
             guard let self else { return }
             // Only fill the composer when it's actually on screen. Dictating
@@ -109,6 +95,64 @@ final class ChatController: ObservableObject {
 
     /// Start or stop dictating into the composer.
     func toggleDictation() { voice.toggle() }
+
+    /// Clean up a raw transcript: punctuation, casing, obvious mishearings.
+    ///
+    /// Three things make this cheap and quick rather than just correct.
+    ///
+    /// The instruction is a *system* prompt and only the transcript is the user
+    /// message, so the expensive half of the request is byte-identical every
+    /// time and can be served from the provider's prompt cache. Routing asks
+    /// for throughput rather than the lowest price, because this sits between
+    /// you speaking and the words appearing — a cheaper provider that takes
+    /// two seconds is the wrong trade here even though it's the right one for
+    /// a long generation. And max_tokens is capped relative to the input,
+    /// since a correct rewrite is never much longer than what went in.
+    ///
+    /// Anything that goes wrong returns the original. A tidy-up that loses
+    /// words is far worse than one that doesn't happen.
+    private static func tidy(_ raw: String, client: OpenRouterClient) async -> String {
+        // Nothing to correct in "yes" or "stop" — and the round trip would be
+        // longer than the utterance.
+        guard raw.count >= 12 else { return raw }
+
+        let system = """
+            Rewrite dictated speech as the speaker meant to write it. Fix \
+            punctuation, capitalisation, obvious mishearings, and filler words. \
+            Change nothing else: do not summarise, rephrase, answer, translate, \
+            or add. Reply with the corrected text only.
+            """
+
+        let result: String? = await withTaskGroup(of: String?.self) { group in
+            group.addTask {
+                try? await client.complete(
+                    messages: [ChatMessage(role: .user, content: raw)],
+                    model: VoiceInput.cleanupModel,
+                    system: system,
+                    temperature: 0,
+                    fast: true,
+                    maxTokens: max(64, raw.count / 2))
+            }
+            // Past this the pause is worse than the typos it would fix.
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 6_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        guard var cleaned = result?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !cleaned.isEmpty else { return raw }
+        // Models sometimes wrap the answer in quotes it was never given.
+        if cleaned.count > 1, cleaned.hasPrefix("\""), cleaned.hasSuffix("\"") {
+            cleaned = String(cleaned.dropFirst().dropLast())
+        }
+        // A rewrite this much longer than the input isn't a rewrite.
+        guard cleaned.count < max(40, raw.count * 2) else { return raw }
+        return cleaned
+    }
 
     // MARK: - Agents
 

@@ -132,15 +132,13 @@ final class NotchController {
         switch mode {
         case .notes: return CGSize(width: cardWidth, height: cardHeight)
         case .chat:  return CGSize(width: chatCardWidth, height: chatCardHeight)
-        case .hud:   return .zero   // sized to the screen; see hudSize(on:)
+        // The HUD is a separate window; the card underneath keeps its chat
+        // size so returning from the HUD lands on a card that's already there,
+        // rather than one animating up from nothing.
+        case .hud:   return CGSize(width: chatCardWidth, height: chatCardHeight)
         }
     }
 
-    /// HUD fills the screen minus a margin, so it reads as an overlay rather
-    /// than a takeover and the desktop stays visible at the edges.
-    static func hudSize(on screen: NSScreen) -> CGSize {
-        CGSize(width: screen.frame.width - 120, height: screen.frame.height - 90)
-    }
     /// The cursor is invisible inside the notch, so people naturally click
     /// slightly below it. Extend the collapsed hit area this far beneath.
     private static let underhang: CGFloat = 8

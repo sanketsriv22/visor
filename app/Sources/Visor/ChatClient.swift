@@ -272,11 +272,16 @@ final class OpenRouterClient {
     /// Non-streaming completion, for short internal calls (titling a chat,
     /// summarising for memory) where partial output is useless.
     func complete(messages: [ChatMessage], model: String, system: String? = nil,
-                  temperature: Double? = nil) async throws -> String {
+                  temperature: Double? = nil, fast: Bool = false,
+                  maxTokens: Int? = nil) async throws -> String {
         var req = try request(path: "/chat/completions")
-        req.httpBody = try JSONSerialization.data(
-            withJSONObject: body(messages: messages, model: model, system: system,
-                                 temperature: temperature, stream: false))
+        var payload = body(messages: messages, model: model, system: system,
+                           temperature: temperature, stream: false, fast: fast)
+        // A ceiling on a rewrite task is a safety net, not a tuning knob: it
+        // caps the damage when a model decides to answer the text instead of
+        // correcting it.
+        if let maxTokens { payload["max_tokens"] = maxTokens }
+        req.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
         let (data, response) = try await session.data(for: req)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {

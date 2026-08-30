@@ -8,9 +8,6 @@ struct StickyRootView: View {
     @ObservedObject var chat: ChatController
     var onToggle: () -> Void
     var onMode: (VisorMode) -> Void
-    /// Shared namespace so the composer and transcript interpolate their frames
-    /// between the notch card and the HUD, instead of cross-fading.
-    @Namespace private var morph
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -97,7 +94,7 @@ struct StickyRootView: View {
                 case .chat, .hud:
                     ChatCard(chat: chat, ai: ai, topInset: ui.notchSize.height,
                              notchWidth: ui.notchSize.width,
-                             mode: ui.mode, namespace: morph, onMode: onMode,
+                             mode: ui.mode, onMode: onMode,
                              onHUD: { onMode(.hud) }, onClose: onToggle)
                 }
             }
@@ -1313,12 +1310,11 @@ struct HUDRootView: View {
     @ObservedObject var ui: UIState
     var onExit: () -> Void
 
-    @Namespace private var hud
 
     var body: some View {
         ZStack(alignment: .top) {
             if ui.mode.isFullScreen {
-                HUDView(chat: chat, store: store, namespace: hud,
+                HUDView(chat: chat, store: store,
                         notchWidth: ui.notchSize.width,
                         topInset: ui.notchSize.height,
                         onExit: onExit)

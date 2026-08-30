@@ -13,7 +13,6 @@ struct ChatCard: View {
     /// does — same geometry both sides means nothing shifts on a mode swap.
     var notchWidth: CGFloat
     var mode: VisorMode
-    var namespace: Namespace.ID
     var onMode: (VisorMode) -> Void
     var onHUD: () -> Void
     var onClose: () -> Void
@@ -30,9 +29,7 @@ struct ChatCard: View {
                 history
             } else {
                 transcript
-                    .matchedGeometryEffect(id: "transcript", in: namespace)
                 composer
-                    .matchedGeometryEffect(id: "composer", in: namespace)
             }
         }
         // Chrome and size belong to StickyRootView, so the card morphs between
@@ -810,10 +807,15 @@ struct InlineModelPicker: View {
 
 /// Full-screen HUD: the same conversation at another scale.
 ///
-/// Deliberately built from the *same* pieces as the chat card rather than as a
-/// separate screen — the transcript and composer carry matched-geometry ids, so
-/// SwiftUI interpolates their frames and they physically travel into this
-/// layout instead of cross-fading into a different one.
+/// Built from the same pieces as the chat card, so the two stay in step as
+/// either changes.
+///
+/// They no longer share matched-geometry ids. That worked while both faces
+/// lived in one window; the HUD now has its own — which is what stopped the
+/// menu bar flashing — and SwiftUI cannot interpolate geometry across two
+/// windows. The transition is the HUD scaling out of the notch instead. The
+/// ids were left in place for a while afterwards doing nothing, with comments
+/// claiming a behaviour that no longer existed.
 ///
 /// Everything emanates from the notch. Rails arrive at the screen edges, but
 /// they start from behind the notch to get there: two motion origins would
@@ -822,7 +824,6 @@ struct InlineModelPicker: View {
 struct HUDView: View {
     @ObservedObject var chat: ChatController
     @ObservedObject var store: NotesStore
-    var namespace: Namespace.ID
     var notchWidth: CGFloat
     var topInset: CGFloat
     var onExit: () -> Void
@@ -938,10 +939,8 @@ struct HUDView: View {
             }
 
             HUDTranscript(chat: chat)
-                .matchedGeometryEffect(id: "transcript", in: namespace)
 
             HUDComposer(chat: chat)
-                .matchedGeometryEffect(id: "composer", in: namespace)
         }
         .frame(maxWidth: .infinity)
     }
