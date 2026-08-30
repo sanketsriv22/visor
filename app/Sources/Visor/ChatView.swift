@@ -318,6 +318,10 @@ struct ChatCard: View {
                 .disabled(!chat.isStreaming && !canSend)
                 .keyboardShortcut(chat.isStreaming ? "." : .return, modifiers: [.command])
             }
+            // Fixed, because a hosted agent shows three controls here and a CLI
+            // agent shows one label — without this the whole composer changed
+            // height as you switched between them.
+            .frame(height: 20)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)

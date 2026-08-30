@@ -119,6 +119,7 @@ private struct AgentsPane: View {
     @State private var keyDraft = ""
     @State private var voiceDraft = ""
     @State private var cleanupOn = VoiceInput.cleanupEnabled
+    @State private var insertOn = TextInsertion.insertIntoFocusedApp
     @State private var cleanupModel = VoiceInput.cleanupModel
     @State private var newAgentName = ""
 
@@ -250,6 +251,16 @@ private struct AgentsPane: View {
 
             Text("⌃⌥⌘V dictates into the composer using OpenAI's transcription API. This is a separate key because OpenRouter doesn't carry audio — leave it blank and dictation stays off.")
                 .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle(isOn: Binding(
+                get: { TextInsertion.insertIntoFocusedApp },
+                set: { TextInsertion.insertIntoFocusedApp = $0; insertOn = $0 })) {
+                    Text("Type dictation into the app you're using").font(.caption)
+                }
+                .toggleStyle(.switch)
+            Text("When the composer isn't focused, the transcript is pasted into whatever app is in front instead of piling up in Visor. Needs Accessibility — without it the text is put on the clipboard for you to paste. Your previous clipboard contents are restored afterwards.")
+                .font(.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 8) {
@@ -572,6 +583,7 @@ private struct ModelPickerButton: View {
 
 private struct WorkspacePane: View {
     @ObservedObject var ai: AIRunner
+    @ObservedObject private var shortcuts = ShortcutRegistry.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -616,8 +628,34 @@ private struct WorkspacePane: View {
 
             Divider()
 
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Shortcuts").font(.headline)
+                // Shown with their real state: a combination another app
+                // already owns fails to bind, and without this there's no way
+                // to tell that from a shortcut that's bound but misbehaving.
+                ForEach(ShortcutRegistry.shared.entries) { entry in
+                    HStack(spacing: 8) {
+                        Text(entry.label)
+                            .font(.system(size: 11, design: .monospaced))
+                            .frame(width: 60, alignment: .leading)
+                        Text(entry.purpose)
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                        if entry.bound {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.caption2).foregroundStyle(.green)
+                        } else {
+                            Label("taken by another app", systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption2).foregroundStyle(.orange)
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
             VStack(alignment: .leading, spacing: 4) {
-                Text("Shortcut").font(.headline)
+                Text("Notes").font(.headline)
                 HStack(spacing: 6) {
                     Text("⌃⌥⌘K").font(.system(size: 12, design: .monospaced))
                         .padding(.horizontal, 6).padding(.vertical, 2)

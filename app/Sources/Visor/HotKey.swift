@@ -109,3 +109,28 @@ enum Shortcut {
         UInt32(kVK_ANSI_4), UInt32(kVK_ANSI_5),
     ]
 }
+
+/// What Visor asked for, and what it actually got.
+///
+/// RegisterEventHotKey returns nil when another app already owns a
+/// combination, and a shortcut that silently does nothing is impossible to
+/// tell from one that's bound but broken. Settings shows this list so the
+/// answer is visible rather than guessed at.
+@MainActor
+final class ShortcutRegistry: ObservableObject {
+    static let shared = ShortcutRegistry()
+
+    struct Entry: Identifiable {
+        let id = UUID()
+        let label: String
+        let purpose: String
+        let bound: Bool
+    }
+
+    @Published private(set) var entries: [Entry] = []
+
+    func record(_ label: String, purpose: String, bound: Bool) {
+        entries.removeAll { $0.label == label }
+        entries.append(Entry(label: label, purpose: purpose, bound: bound))
+    }
+}

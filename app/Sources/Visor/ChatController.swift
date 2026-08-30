@@ -95,15 +95,22 @@ final class ChatController: ObservableObject {
 
         voice.onTranscript = { [weak self] text in
             guard let self else { return }
-            // Only fill the composer when it's actually on screen. Dictating
-            // with the notch shut is a note to self, not a message being
-            // written — piling those into a draft you can't see means finding
-            // ten unrelated utterances stacked up next time you open chat.
-            // Either way it's already in the voice log.
-            guard self.isComposerVisible?() ?? false else { return }
-            self.draft = self.draft.isEmpty
-                ? text
-                : self.draft.trimmingCharacters(in: .whitespaces) + " " + text
+            // Where the words go depends on where you were looking.
+            //
+            // The composer only wins when it's on screen *and* focused. A
+            // global shortcut fires from anywhere, so most of the time you're
+            // mid-sentence in another app — and putting the transcript in
+            // Visor's composer then means going to find it and moving it by
+            // hand, which is most of the point gone.
+            if self.isComposerVisible?() ?? false {
+                self.draft = self.draft.isEmpty
+                    ? text
+                    : self.draft.trimmingCharacters(in: .whitespaces) + " " + text
+                return
+            }
+            // Otherwise into whatever app is in front. It's in the voice log
+            // either way, so nothing is lost if this can't reach it.
+            _ = TextInsertion.insert(text)
         }
     }
 

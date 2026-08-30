@@ -195,9 +195,13 @@ final class NotchController {
         registerNoteTools()
         registerShellTool()
 
-        chat.isComposerVisible = { [weak ui] in
-            guard let ui else { return false }
-            return ui.expanded && ui.mode != .notes
+        chat.isComposerVisible = { [weak self] in
+            guard let self else { return false }
+            // Focused, not merely open. A visible composer you aren't typing
+            // in is not where dictation belongs — you're working somewhere
+            // else, and that's where the words should land.
+            return self.ui.expanded && self.ui.mode != .notes
+                && (self.panel.isKeyWindow || self.hudPanel?.isKeyWindow == true)
         }
 
         if let saved = UserDefaults.standard.string(forKey: modeKey),
@@ -695,11 +699,16 @@ final class NotchController {
         setMode(ui.mode == .notes ? .chat : .notes)
     }
 
-    /// Select the nth agent and show the chat face — the notch's whole point
-    /// is not having to go looking for a window first.
+    /// Select the nth agent, without moving you somewhere you didn't ask to go.
+    ///
+    /// It used to force the chat face, which threw you out of the HUD — where
+    /// the agent list is right there and switching is the obvious thing to do.
+    /// The face only changes when there isn't one showing an agent already.
     func selectAgent(_ index: Int) {
-        setMode(.chat)
-        showNote()
+        if !ui.expanded || ui.mode == .notes {
+            setMode(.chat)
+            showNote()
+        }
         chat.useAgent(at: index)
     }
 
