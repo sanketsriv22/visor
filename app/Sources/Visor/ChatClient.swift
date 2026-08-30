@@ -79,6 +79,13 @@ struct ORModel: Codable, Identifiable, Hashable {
     var name: String?
     var context_length: Int?
     var pricing: Pricing?
+    /// What this model accepts — "reasoning", "tools", "temperature", and so
+    /// on. OpenRouter publishes this per model, which is how the composer can
+    /// hide controls a model can't use instead of showing dead ones.
+    var supported_parameters: [String]?
+
+    var supportsReasoning: Bool { supported_parameters?.contains("reasoning") ?? false }
+    var supportsTools: Bool { supported_parameters?.contains("tools") ?? false }
 
     /// What to show in a picker.
     var label: String { name ?? id }

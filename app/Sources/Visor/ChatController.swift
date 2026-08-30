@@ -22,6 +22,9 @@ final class ChatController: ObservableObject {
     /// Live model list, so the notch's picker offers everything the key can
     /// reach rather than a hard-coded handful.
     let catalog = ModelCatalog()
+    /// Facts extracted from conversations, for recall by traversal rather than
+    /// by similarity.
+    let graph = KnowledgeGraph()
     /// Dictation. Transcripts land in the draft rather than sending straight
     /// off, so a misheard word is editable before it costs a request.
     let voice = VoiceInput()
@@ -116,6 +119,9 @@ final class ChatController: ObservableObject {
     var effort: String? { agent?.effort }
     var isFast: Bool { agent?.fastMode ?? false }
 
+    /// Whether the running model takes a reasoning setting at all.
+    var supportsEffort: Bool { catalog.supportsReasoning(conversation.model) }
+
     func useEffort(_ level: String?) {
         guard var agent else { return }
         agent.effort = level
@@ -173,6 +179,7 @@ final class ChatController: ObservableObject {
     func delete(_ id: UUID) {
         store.delete(id)
         memory.forget(conversation: id)   // "delete this chat" should actually forget it
+        graph.forget(conversation: id)
         if conversation.id == id { newChat() }
     }
 
@@ -230,8 +237,10 @@ final class ChatController: ObservableObject {
 
         // Recall runs against the question before the reply exists, and skips
         // this conversation — its recent turns are already going verbatim.
-        let system = Self.system(for: agent, recalled: memory.context(
-            for: text, excluding: conversation.id))
+        let system = Self.system(
+            for: agent,
+            recalled: memory.context(for: text, excluding: conversation.id),
+            known: graph.context(for: text))
         // Drop the empty assistant turn we just appended; the model gets the
         // history up to and including the question.
         let history = Array(conversation.messages.dropLast().suffix(Self.recentWindow))
@@ -336,6 +345,15 @@ final class ChatController: ObservableObject {
               !reply.content.isEmpty else { return }
         store.save(conversation)
         memory.index(reply, in: conversation)
+
+        // After the reply lands, never during it: extraction is a second
+        // request and must not delay what the user is reading.
+        let exchange = Array(conversation.messages.suffix(4))
+        let id = conversation.id
+        let client = self.client
+        Task { [weak self] in
+            await self?.graph.learn(from: exchange, conversation: id, client: client)
+        }
     }
 
     private func fail(_ error: Error) {
@@ -359,12 +377,16 @@ final class ChatController: ObservableObject {
 
     // MARK: - Prompt assembly
 
-    private static func system(for agent: AIProvider, recalled: String?) -> String? {
+    private static func system(for agent: AIProvider, recalled: String?,
+                               known: String?) -> String? {
         var parts: [String] = []
         if let persona = agent.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
            !persona.isEmpty {
             parts.append(persona)
         }
+        // Facts first: they're compact and specific, where recalled excerpts
+        // are long and only maybe relevant.
+        if let known { parts.append(known) }
         if let recalled { parts.append(recalled) }
         return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
     }

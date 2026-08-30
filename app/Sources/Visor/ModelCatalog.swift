@@ -50,4 +50,19 @@ final class ModelCatalog: ObservableObject {
     func label(for id: String) -> String {
         models.first { $0.id == id }?.label ?? id
     }
+
+    /// Whether a model takes a reasoning-effort setting.
+    ///
+    /// Unknown models return true: the list may not have loaded yet, and
+    /// hiding a control that does work is worse than showing one that's
+    /// harmlessly ignored.
+    func supportsReasoning(_ id: String) -> Bool {
+        guard let model = models.first(where: { $0.id == id }) else { return true }
+        return model.supportsReasoning
+    }
+
+    func supportsTools(_ id: String) -> Bool {
+        guard let model = models.first(where: { $0.id == id }) else { return true }
+        return model.supportsTools
+    }
 }

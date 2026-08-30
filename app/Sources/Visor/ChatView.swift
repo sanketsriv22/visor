@@ -668,20 +668,17 @@ struct InlineModelPicker: View {
 
     var body: some View {
         Button { showing = true } label: {
-            HStack(spacing: 3) {
+            HStack(spacing: 4) {
                 Text(chat.shortModelName)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 6, weight: .bold))
+                    .opacity(0.6)
             }
-            .font(.system(size: 9))
-            .foregroundStyle(.white.opacity(0.45))
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Capsule().fill(.white.opacity(0.06)))
-            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .composerPill(active: true, enabled: chat.agent != nil)
         .disabled(chat.agent == nil)
         .help("Model for this message")
         .popover(isPresented: $showing, arrowEdge: .top) {
@@ -1274,26 +1271,27 @@ struct EffortPicker: View {
     /// which looked broken. Cycling is one click and reads at a glance, which
     /// is what a control this size needs.
     var body: some View {
-        Button {
-            let levels = ChatController.effortLevels
-            let current = levels.firstIndex(of: chat.effort) ?? 0
-            chat.useEffort(levels[(current + 1) % levels.count])
-        } label: {
-            HStack(spacing: 3) {
-                Image(systemName: "gauge.medium")
-                    .font(.system(size: 7, weight: .semibold))
-                Text(label(for: chat.effort))
+        // Hidden entirely for models that don't reason. OpenRouter publishes
+        // `supported_parameters` per model, so this is read from the catalogue
+        // rather than guessed — a dead control is worse than no control.
+        if chat.supportsEffort {
+            Button {
+                let levels = ChatController.effortLevels
+                let current = levels.firstIndex(of: chat.effort) ?? 0
+                chat.useEffort(levels[(current + 1) % levels.count])
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "gauge.medium")
+                        .font(.system(size: 8, weight: .semibold))
+                    Text(label(for: chat.effort))
+                }
             }
-            .font(.system(size: 9))
-            .foregroundStyle(.white.opacity(chat.effort == nil ? 0.35 : 0.65))
-            .padding(.horizontal, 6).padding(.vertical, 3)
-            .background(Capsule().fill(.white.opacity(chat.effort == nil ? 0.05 : 0.12)))
-            .contentShape(Capsule())
+            .buttonStyle(.plain)
+            .composerPill(active: chat.effort != nil, enabled: chat.agent != nil)
+            .fixedSize()
+            .disabled(chat.agent == nil)
+            .help("Thinking: \(label(for: chat.effort)). Click to cycle.")
         }
-        .buttonStyle(.plain)
-        .fixedSize()
-        .disabled(chat.agent == nil)
-        .help("Reasoning effort: \(label(for: chat.effort)) — click to cycle. Models that don't reason ignore it.")
     }
 
     private func label(for level: String?) -> String {
@@ -1316,18 +1314,23 @@ struct FastToggle: View {
 
     var body: some View {
         Button(action: chat.toggleFast) {
-            Image(systemName: "bolt.fill")
-                .font(.system(size: 8))
-                .foregroundStyle(chat.isFast ? Color.orange : Color.white.opacity(0.3))
-                .padding(.horizontal, 6).padding(.vertical, 3)
-                .background(Capsule().fill(.white.opacity(chat.isFast ? 0.12 : 0.05)))
-                .contentShape(Capsule())
+            HStack(spacing: 4) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(chat.isFast ? Color.orange : Color.white.opacity(0.5))
+                // Labelled, not a bare icon. A lightning bolt on its own does
+                // not say "route to the fastest provider rather than the
+                // cheapest one" to anybody.
+                Text(chat.isFast ? "Fast" : "Standard")
+            }
         }
         .buttonStyle(.plain)
+        .composerPill(active: chat.isFast, enabled: chat.agent != nil)
+        .fixedSize()
         .disabled(chat.agent == nil)
         .help(chat.isFast
-              ? "Fast: routing to the quickest provider (costs more per token)"
-              : "Standard routing — cheapest provider for this model")
+              ? "Routing to the quickest provider serving this model. Costs more per token."
+              : "Routing to the cheapest provider serving this model.")
     }
 }
 
@@ -1364,5 +1367,37 @@ extension InlineModelPicker {
 
     func shortName(of id: String) -> String {
         id.contains("/") ? String(id.split(separator: "/").dropFirst().joined(separator: "/")) : id
+    }
+}
+
+
+/// The composer's controls all wear this: same height, same corner, same
+/// hover. Three controls that each invented their own padding is most of what
+/// made the row look assembled rather than designed.
+struct ComposerPill: ViewModifier {
+    var active: Bool = false
+    var enabled: Bool = true
+
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(.white.opacity(enabled ? (active ? 0.9 : 0.5) : 0.22))
+            .padding(.horizontal, 7)
+            .frame(height: 18)
+            .background(
+                Capsule().fill(.white.opacity(
+                    !enabled ? 0.03 : active ? 0.14 : (hovering ? 0.10 : 0.055))))
+            .contentShape(Capsule())
+            .onHover { hovering = $0 && enabled }
+            .animation(.easeOut(duration: 0.12), value: hovering)
+            .animation(.easeOut(duration: 0.15), value: active)
+    }
+}
+
+extension View {
+    func composerPill(active: Bool = false, enabled: Bool = true) -> some View {
+        modifier(ComposerPill(active: active, enabled: enabled))
     }
 }
