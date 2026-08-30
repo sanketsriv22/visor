@@ -226,6 +226,13 @@ struct ChatCard: View {
                                    isStreaming: chat.isStreaming && message.id == chat.conversation.messages.last?.id)
                             .id(message.id)
                     }
+                    if let pending = chat.pendingApproval {
+                        ToolApprovalRow(pending: pending,
+                                        allow: { chat.approvePending(always: false) },
+                                        allowAlways: { chat.approvePending(always: true) },
+                                        deny: chat.denyPending)
+                            .id("approval")
+                    }
                     if let error = chat.error {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
                             .font(.system(size: 10))
@@ -1155,6 +1162,12 @@ private struct HUDTranscript: View {
                                    isStreaming: chat.isStreaming
                                        && message.id == chat.conversation.messages.last?.id)
                     }
+                    if let pending = chat.pendingApproval {
+                        ToolApprovalRow(pending: pending,
+                                        allow: { chat.approvePending(always: false) },
+                                        allowAlways: { chat.approvePending(always: true) },
+                                        deny: chat.denyPending)
+                    }
                     if let error = chat.error {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
                             .font(.system(size: 11))
@@ -1577,5 +1590,71 @@ struct ComposerPill: ViewModifier {
 extension View {
     func composerPill(active: Bool = false, enabled: Bool = true) -> some View {
         modifier(ComposerPill(active: active, enabled: enabled))
+    }
+}
+
+/// Asks before a tool does something that can't be taken back.
+///
+/// Shows the exact arguments, not just the tool's name: "run_shell" tells you
+/// nothing, and approving a command you can't see is not consent. "Always"
+/// is per-agent and per-tool, so trusting one agent with the shell doesn't
+/// trust every agent with it.
+struct ToolApprovalRow: View {
+    let pending: ChatController.PendingApproval
+    let allow: () -> Void
+    let allowAlways: () -> Void
+    let deny: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 5) {
+                Image(systemName: "hand.raised.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.orange)
+                Text(pending.needing.count == 1
+                     ? "Let \(pending.needing[0].name) run?"
+                     : "Let \(pending.needing.count) tools run?")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+
+            ForEach(pending.needing) { call in
+                Text(summary(of: call))
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.65))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 7).padding(.vertical, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(.black.opacity(0.35)))
+            }
+
+            HStack(spacing: 6) {
+                Button("Allow", action: allow)
+                    .buttonStyle(.plain)
+                    .composerPill(active: true)
+                Button("Always", action: allowAlways)
+                    .buttonStyle(.plain)
+                    .composerPill()
+                Button("Deny", action: deny)
+                    .buttonStyle(.plain)
+                    .composerPill()
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(9)
+        .background(RoundedRectangle(cornerRadius: 9).fill(.orange.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(.orange.opacity(0.28), lineWidth: 1))
+    }
+
+    /// The arguments as written, so what's being approved is visible.
+    private func summary(of call: ToolCall) -> String {
+        let arguments = call.decodedArguments
+        if let command = arguments["command"] as? String { return command }
+        guard !arguments.isEmpty else { return call.name }
+        return arguments
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key): \($0.value)" }
+            .joined(separator: "\n")
     }
 }

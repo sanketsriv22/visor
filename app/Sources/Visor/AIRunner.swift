@@ -143,6 +143,9 @@ final class AIRunner: ObservableObject {
         return homeDir
     }
 
+    /// The folder tools and CLI agents operate in.
+    var workDirURL: URL { workDir }
+
     /// The working directory shown to the user, with home abbreviated to ~.
     var workDirDisplay: String {
         let p = workDir.path, h = homeDir.path

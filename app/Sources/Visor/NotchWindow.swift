@@ -188,6 +188,7 @@ final class NotchController {
         panel.becomesKeyOnlyIfNeeded = true
 
         registerNoteTools()
+        registerShellTool()
 
         chat.isComposerVisible = { [weak ui] in
             guard let ui else { return false }
@@ -373,6 +374,89 @@ final class NotchController {
             store.saveNow()
             return "Completed: \(match.text)"
         })
+    }
+
+    /// Shell access for agents, gated on the user approving each run.
+    ///
+    /// Registered here because the working directory belongs to AIRunner. This
+    /// is the first tool that can do something irreversible, which is why the
+    /// approval gate had to exist before it did — `needsApproval` is what makes
+    /// ChatController pause the turn and ask.
+    private func registerShellTool() {
+        let ai = self.ai
+        ToolRegistry.shared.register(ClosureTool(
+            name: "run_shell",
+            toolDescription: """
+                Run a shell command in the user's project folder and return its \
+                output. Use it to read files, search, or run builds and tests. \
+                The user is asked before anything runs.
+                """,
+            parameters: [
+                "type": "object",
+                "properties": [
+                    "command": ["type": "string", "description": "The command to run"],
+                ],
+                "required": ["command"],
+                "additionalProperties": false,
+            ],
+            needsApproval: true
+        ) { arguments in
+            guard let command = (arguments["command"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty else {
+                return "No command given."
+            }
+            return await Self.runCommand(command, in: ai.workDirURL)
+        })
+    }
+
+    /// Execute one command, capped in both time and output.
+    ///
+    /// Both caps matter. A command that never returns would hang the turn
+    /// indefinitely, and one that prints a gigabyte would exhaust the context
+    /// window and the user's credit with it.
+    private static func runCommand(_ command: String, in directory: URL) async -> String {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let task = Process()
+                task.executableURL = URL(fileURLWithPath: "/bin/zsh")
+                task.arguments = ["-lc", command]
+                task.currentDirectoryURL = directory
+
+                // A GUI app inherits a bare PATH; give it the usual locations.
+                var env = ProcessInfo.processInfo.environment
+                let home = FileManager.default.homeDirectoryForCurrentUser.path
+                env["PATH"] = "\(home)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:"
+                    + (env["PATH"] ?? "")
+                task.environment = env
+
+                let pipe = Pipe()
+                task.standardOutput = pipe
+                task.standardError = pipe
+
+                do {
+                    try task.run()
+                } catch {
+                    continuation.resume(returning: "Couldn't run it: \(error.localizedDescription)")
+                    return
+                }
+
+                let deadline = DispatchWorkItem { if task.isRunning { task.terminate() } }
+                DispatchQueue.global().asyncAfter(deadline: .now() + 60, execute: deadline)
+
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                task.waitUntilExit()
+                deadline.cancel()
+
+                let output = String(data: data, encoding: .utf8) ?? ""
+                let limit = 20_000
+                let body = output.count > limit
+                    ? String(output.prefix(limit)) + "\n[output truncated]"
+                    : output
+                continuation.resume(returning: body.isEmpty
+                    ? "Exited \(task.terminationStatus) with no output."
+                    : "Exited \(task.terminationStatus).\n\n\(body)")
+            }
+        }
     }
 
     func saveNow() { store.saveNow() }
