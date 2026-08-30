@@ -16,6 +16,13 @@ struct Conversation: Codable, Identifiable, Equatable {
     var messages: [ChatMessage] = []
     var createdAt: Date = Date()
     var updatedAt: Date = Date()
+    /// For CLI agents: the session this conversation owns on the other side.
+    ///
+    /// Claude Code and friends keep their own history, so continuity means
+    /// pointing each Visor conversation at one session and resuming it — not
+    /// replaying our transcript at them. Stored here so it survives quitting,
+    /// and per conversation so two chats don't end up sharing one session.
+    var cliSessionID: String?
 
     /// One line for the conversation list.
     var preview: String {

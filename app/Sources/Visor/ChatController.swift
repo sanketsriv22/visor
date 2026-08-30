@@ -381,12 +381,17 @@ final class ChatController: ObservableObject {
         }
     }
 
-    /// Stream a local CLI agent's output into the transcript.
+    /// Stream a local CLI agent's output into the transcript, in a conversation
+    /// that actually continues.
     ///
-    /// No tool loop and no history: these agents keep their own context and
-    /// take a single instruction, so replaying the conversation at them would
-    /// be both wrong and expensive. What Visor adds is the surface — the same
-    /// composer, transcript and history as any other agent.
+    /// These agents keep their own history, so continuity is a matter of
+    /// pointing each Visor chat at one session on their side and resuming it —
+    /// not replaying our transcript at them, which would be both wrong and
+    /// expensive. The first message claims a session id; every message after
+    /// resumes it.
+    ///
+    /// Per conversation, so two Visor chats with the same agent don't end up
+    /// talking into one session. Starting a new chat gets a new session.
     private func runCLITurn(agent: AIProvider, prompt: String) async {
         let runner = CLIAgentRunner()
         cliRunner = runner
@@ -394,8 +399,18 @@ final class ChatController: ObservableObject {
             Keychain.get(agent.keyAccount).map { (name: name, value: $0) }
         }
 
+        var arguments = agent.args
+        if let session = conversation.cliSessionID {
+            arguments += ["--resume", session]
+        } else {
+            let session = UUID().uuidString.lowercased()
+            conversation.cliSessionID = session
+            arguments += ["--session-id", session]
+            store.save(conversation)
+        }
+
         for await event in runner.run(command: agent.command,
-                                      arguments: agent.args,
+                                      arguments: arguments,
                                       prompt: prompt,
                                       directory: ai.workDirURL,
                                       environmentKey: key) {
