@@ -1,7 +1,7 @@
 # Visor
 
 A native AI tool that lives inside your MacBook's camera notch — invisible
-until you click it (or press ⌘⇧K), at which point it slides down beneath the
+until you click it (or press ⌃⌥⌘K), at which point it slides down beneath the
 notch. It has three faces:
 
 - **Notes** — a sticky note of plain-markdown tasks, on disk, readable and
@@ -12,7 +12,7 @@ notch. It has three faces:
 - **HUD** — the same conversation at full-screen scale, with rails for your
   agents, your open tasks, what Visor has learned, and what you've dictated.
 
-⌘⇧I swaps notes and chat; ⌘⇧M expands into the HUD; ⌘⇧V dictates; ⌘⇧1–5 jump
+⌃⌥⌘I swaps notes and chat; ⌃⌥⌘M expands into the HUD; ⌃⌥⌘V dictates; ⌘⌥1–5 jump
 straight to an agent. The card grows sideways when you move to chat and out of
 the notch entirely for the HUD — everything emanates from the notch, because
 two motion origins fight each other.
@@ -87,7 +87,7 @@ at the exact same moment.
 
 ## Chat
 
-Press ⌘⇧K, hit ⌘2, and type. Replies stream into the notch.
+Press ⌃⌥⌘K, hit ⌘2, and type. Replies stream into the notch.
 
 **Agents.** Name as many as you like in Settings → Agents. Each one picks its
 own model from whatever your OpenRouter key can reach (the list is fetched
@@ -114,7 +114,7 @@ shell commands in your project folder. Anything irreversible asks first, and
 the prompt shows the actual command — approving `run_shell` you can't see
 isn't consent. "Always" is per agent *and* per tool.
 
-**Dictation.** ⌘⇧V, or hold a modifier you choose (Settings → Agents). The
+**Dictation.** ⌃⌥⌘V, or hold a modifier you choose (Settings → Agents). The
 notch grows sideways into a level meter while you talk, transcribes through
 OpenAI's API, and closes. Everything dictated is appended to
 `voice-log.jsonl`, whether or not it reached a chat. A cheap model can tidy

@@ -119,10 +119,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Global shortcuts. RegisterEventHotKey fails when another app already
         // owns a combination, and that used to be swallowed silently — leaving
         // a shortcut that simply does nothing with no way to find out why.
-        register("⌘⇧K", Shortcut.kKey) { [weak self] in self?.controller?.toggle() }
-        register("⌘⇧M", Shortcut.mKey) { [weak self] in self?.controller?.toggleHUD() }
-        register("⌘⇧I", Shortcut.iKey) { [weak self] in self?.controller?.swapMode() }
-        register("⌘⇧V", Shortcut.vKey) { [weak self] in self?.controller?.toggleDictation() }
+        register("⌃⌥⌘K", Shortcut.kKey, modifiers: Shortcut.hyper) { [weak self] in
+            self?.controller?.toggle()
+        }
+        register("⌃⌥⌘M", Shortcut.mKey, modifiers: Shortcut.hyper) { [weak self] in
+            self?.controller?.toggleHUD()
+        }
+        register("⌃⌥⌘I", Shortcut.iKey, modifiers: Shortcut.hyper) { [weak self] in
+            self?.controller?.swapMode()
+        }
+        register("⌃⌥⌘V", Shortcut.vKey, modifiers: Shortcut.hyper) { [weak self] in
+            self?.controller?.toggleDictation()
+        }
 
         pushToTalk.onHoldStart = { [weak self] in self?.controller?.beginDictation() }
         pushToTalk.onHoldEnd = { [weak self] in self?.controller?.endDictation() }

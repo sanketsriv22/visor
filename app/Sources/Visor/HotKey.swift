@@ -82,6 +82,21 @@ enum Shortcut {
     static let iKey = UInt32(kVK_ANSI_I)
     static let vKey = UInt32(kVK_ANSI_V)
     static let commandShift = UInt32(cmdKey | shiftKey)
+
+    /// Control-Option-Command: what Visor's letter shortcuts use.
+    ///
+    /// Command-Shift collides constantly — macOS owns 3, 4 and 5 there for
+    /// screenshots, and Command-Shift-V is Paste and Match Style in
+    /// essentially every text app. ⌘⌥ is no better for
+    /// a developer: ⌘⌥I is Web Inspector, ⌘⌥D toggles the Dock, ⌘⌥Esc is Force
+    /// Quit. Three modifiers is more fingers, but almost nothing claims it, and
+    /// a global hotkey *wins* over the app underneath — so a collision here
+    /// doesn't inconvenience Visor, it breaks the app you're actually using.
+    ///
+    /// Left-Option specifically isn't available: RegisterEventHotKey's masks
+    /// have no side, and distinguishing them would mean an NSEvent monitor and
+    /// the Accessibility prompt that comes with it.
+    static let hyper = UInt32(cmdKey | optionKey | controlKey)
     /// Agent shortcuts use this instead of ⌘⇧, which macOS owns for
     /// screenshots on 3, 4 and 5. RegisterEventHotKey happily takes them and
     /// shadows the system, so Visor was quietly breaking screenshots.

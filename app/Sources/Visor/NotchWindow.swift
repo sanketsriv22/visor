@@ -686,7 +686,7 @@ final class NotchController {
 
     /// Flip to the other face, only when the notch is already open.
     ///
-    /// Deliberately a no-op when closed: ⌘⇧K is the key that opens the notch,
+    /// Deliberately a no-op when closed: ⌃⌥⌘K is the key that opens the notch,
     /// and having a second one that also opens it makes the two shortcuts feel
     /// like the same key. Swapping a surface nobody is looking at isn't a swap.
     func swapMode() {
@@ -740,7 +740,7 @@ final class NotchController {
         // underneath it.
         //
         // Collapsing instead left the two out of step: the HUD's window stayed
-        // up while ui.expanded went false, which silently disabled ⌘⇧M, ⌘⇧I and
+        // up while ui.expanded went false, which silently disabled ⌃⌥⌘M, ⌃⌥⌘I and
         // the mode switcher — all of which guard on the notch being open — and
         // made the card panel take key focus back off the HUD.
         if ui.mode.isFullScreen {
