@@ -256,9 +256,8 @@ struct ChatCard: View {
                         .allowsHitTesting(false)
                 }
                 ComposerField(text: $chat.draft, onSubmit: chat.send) { height in
-                    // Clamp here rather than in the field: the field just
-                    // measures, the composer decides how much room it's
-                    // willing to give.
+                    // Clamped here rather than in the field: the field
+                    // measures, the composer decides how much room to give.
                     let clamped = min(max(height, 16), Self.composerMaxHeight)
                     if abs(clamped - draftHeight) > 0.5 { draftHeight = clamped }
                 }
@@ -515,8 +514,7 @@ struct ComposerField: NSViewRepresentable {
     ///
     /// Counting newlines was wrong: a long line that *wraps* adds no newline,
     /// so the field stayed one line tall and everything past the first line
-    /// was invisible. Only the layout manager knows how tall the text
-    /// actually is.
+    /// was invisible. Only the layout manager knows how tall the text is.
     var onHeightChange: ((CGFloat) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -587,8 +585,7 @@ struct ComposerField: NSViewRepresentable {
         func reportHeight(of view: NSTextView) {
             guard let layout = view.layoutManager, let container = view.textContainer else { return }
             layout.ensureLayout(for: container)
-            let height = layout.usedRect(for: container).height
-            parent.onHeightChange?(height)
+            parent.onHeightChange?(layout.usedRect(for: container).height)
         }
 
         /// Return sends; Shift-Return inserts a newline. Both arrive as
@@ -687,16 +684,16 @@ struct InlineModelPicker: View {
     @State private var query = ""
 
     /// With no query, the agent's pinned models. With one, the whole
-    /// catalogue — several hundred entries is a list you search, not one you
-    /// scroll.
-    private var showingFavourites: Bool {
+    /// catalogue. Several hundred entries is a list you search, not one you
+    /// scroll — opening straight into it made choosing a model into hunting
+    /// for one.
+    private var showingPinned: Bool {
         query.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private var matches: [String] {
-        showingFavourites
-            ? chat.favouriteModels
-            : ModelSearch.filter(chat.modelOptions, query: query)
+        showingPinned ? chat.favouriteModels
+                      : ModelSearch.filter(chat.modelOptions, query: query)
     }
 
     var body: some View {
@@ -720,38 +717,35 @@ struct InlineModelPicker: View {
                     .textFieldStyle(.roundedBorder)
                     .padding(7)
                 Divider()
-
-                if showingFavourites {
+                if showingPinned {
                     HStack {
                         Text("PINNED")
                             .font(.system(size: 8, weight: .semibold))
                             .tracking(0.6)
-                            .foregroundStyle(.secondary)
                         Spacer()
                         Text("type to search all")
                             .font(.system(size: 9))
-                            .foregroundStyle(.tertiary)
                     }
+                    .foregroundStyle(.secondary)
                     .padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 2)
                 }
-
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if matches.isEmpty {
-                            Text(showingFavourites
-                                 ? "No pinned models yet. Search, then tap the star to pin one."
+                            Text(showingPinned
+                                 ? "Nothing pinned yet. Search, then tap a star to pin it here."
                                  : "Nothing matches “\(query)”")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
-                                .padding(10)
+                                .padding(9)
                         }
                         ForEach(matches, id: \.self) { id in
                             row(id)
                         }
                     }
                 }
-                .frame(height: showingFavourites ? 150 : 220)
+                .frame(height: showingPinned ? 150 : 220)
             }
             .frame(width: 340)
         }
@@ -759,7 +753,7 @@ struct InlineModelPicker: View {
 
     private func row(_ id: String) -> some View {
         let selected = id == chat.conversation.model
-        return HStack(spacing: 6) {
+        return HStack(spacing: 4) {
             Button {
                 chat.useModel(id)
                 showing = false
@@ -786,18 +780,727 @@ struct InlineModelPicker: View {
             } label: {
                 Image(systemName: chat.isFavourite(id) ? "star.fill" : "star")
                     .font(.system(size: 9))
-                    .foregroundStyle(chat.isFavourite(id) ? Color.orange : Color.secondary.opacity(0.5))
+                    .foregroundStyle(chat.isFavourite(id) ? Color.orange : Color.secondary.opacity(0.45))
                     .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(chat.isFavourite(id) ? "Unpin" : "Pin to this agent")
+            .help(chat.isFavourite(id) ? "Unpin from this agent" : "Pin to this agent")
         }
         .padding(.horizontal, 9).padding(.vertical, 4)
         .background(RoundedRectangle(cornerRadius: 5)
             .fill(selected ? Color.accentColor.opacity(0.16) : .clear))
     }
 }
+
+/// Full-screen HUD: the same conversation at another scale.
+///
+/// Deliberately built from the *same* pieces as the chat card rather than as a
+/// separate screen — the transcript and composer carry matched-geometry ids, so
+/// SwiftUI interpolates their frames and they physically travel into this
+/// layout instead of cross-fading into a different one.
+///
+/// Everything emanates from the notch. Rails arrive at the screen edges, but
+/// they start from behind the notch to get there: two motion origins would
+/// fight, and one origin is what keeps this feeling like the notch opening up
+/// rather than an unrelated window appearing.
+struct HUDView: View {
+    @ObservedObject var chat: ChatController
+    @ObservedObject var store: NotesStore
+    var namespace: Namespace.ID
+    var notchWidth: CGFloat
+    var topInset: CGFloat
+    var onExit: () -> Void
+
+    @State private var railsIn = false
+    /// Persisted so the HUD reopens at the density you left it.
+    @AppStorage("visor.hudOpacity") private var glass: Double = 0.8
+    /// Everything in the HUD scales from this, so it can be read from across
+    /// the room or packed in tight.
+    @AppStorage("visor.hudScale") private var scale: Double = 1.0
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            // The glass. Dark enough to read against, sheer enough that the
+            // desktop underneath still reads as "overlay", not "app".
+            // The slider fades the *material* as well as the tint. Previously
+            // only the black overlay moved, so the blur stayed at full strength
+            // and the HUD could never be more than translucent no matter how
+            // far the slider went.
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .fill(Color.black.opacity(0.55)))
+                .opacity(glass)
+                .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .stroke(.white.opacity(0.06 + 0.1 * glass), lineWidth: 1))
+
+            HStack(alignment: .top, spacing: 18) {
+                // Two panels a side rather than one: the HUD is screen-sized
+                // and a single rail per edge left most of it empty.
+                VStack(spacing: 14) {
+                    rail(title: "Agents") { agentsRail }
+                    rail(title: "What I know") { memoryRail }
+                }
+                .frame(width: 220 * scale)
+                .offset(x: railsIn ? 0 : -140)
+                .opacity(railsIn ? 1 : 0)
+
+                centre
+
+                VStack(spacing: 14) {
+                    rail(title: "Open tasks") { tasksRail }
+                    rail(title: "Recently said") { voiceRail }
+                }
+                .frame(width: 240 * scale)
+                .offset(x: railsIn ? 0 : 140)
+                .opacity(railsIn ? 1 : 0)
+            }
+            .padding(.horizontal, 22)
+            .padding(.top, topInset + 16)
+            .padding(.bottom, 20)
+            .environment(\.hudScale, scale)
+        }
+        .onAppear {
+            // Rails follow the card rather than racing it, so the eye reads one
+            // motion opening into three.
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.85).delay(0.12)) {
+                railsIn = true
+            }
+        }
+        .onExitCommand(perform: onExit)
+    }
+
+    // MARK: Centre column
+
+    private var centre: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Text(chat.conversation.title.isEmpty ? "New conversation" : chat.conversation.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                if chat.isStreaming { DotMatrixIndicator(size: 11) }
+                Spacer(minLength: 0)
+
+                // Transparency belongs in the HUD, not buried in Settings —
+                // the right value depends on what's behind it right now.
+                HStack(spacing: 5) {
+                    Image(systemName: "circle.lefthalf.filled")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.35))
+                    // Down to zero: fully clear is a legitimate setting for an
+                    // overlay you want to see through completely.
+                    Slider(value: $glass, in: 0...1)
+                        .controlSize(.mini)
+                        .frame(width: 80)
+                }
+                .help("How opaque the HUD is — all the way down is fully clear")
+
+                HStack(spacing: 5) {
+                    Image(systemName: "textformat.size")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.35))
+                    Slider(value: $scale, in: 0.85...1.8)
+                        .controlSize(.mini)
+                        .frame(width: 80)
+                }
+                .help("How big everything in the HUD is")
+
+                Button(action: onExit) {
+                    Image(systemName: "arrow.down.right.and.arrow.up.left")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Back to the notch — Esc, or ⌘⇧M")
+            }
+
+            HUDTranscript(chat: chat)
+                .matchedGeometryEffect(id: "transcript", in: namespace)
+
+            HUDComposer(chat: chat)
+                .matchedGeometryEffect(id: "composer", in: namespace)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: Rails
+
+    private func rail<Content: View>(title: String,
+                                     @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased())
+                .font(.system(size: 9 * scale, weight: .semibold))
+                .tracking(0.8)
+                .foregroundStyle(.white.opacity(0.35))
+            content()
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(.white.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(.white.opacity(0.07), lineWidth: 1))
+    }
+
+    private var agentsRail: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if chat.chatAgents.isEmpty {
+                Text("No agents yet")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.35))
+            }
+            ForEach(Array(chat.chatAgents.enumerated()), id: \.element.id) { index, agent in
+                Button { chat.use(agent) } label: {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(agent.name == chat.agent?.name
+                                  ? Color.orange : Color.white.opacity(0.25))
+                            .frame(width: 5, height: 5)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(agent.name)
+                                .font(.system(size: 12 * scale))
+                                .foregroundStyle(.white.opacity(0.85))
+                                .lineLimit(1)
+                            Text(agent.model ?? ChatController.defaultModel)
+                                .font(.system(size: 9 * scale))
+                                .foregroundStyle(.white.opacity(0.3))
+                                .lineLimit(1).truncationMode(.middle)
+                        }
+                        Spacer(minLength: 0)
+                        if index < 5 {
+                            Text("⌘⇧\(index + 1)")
+                                .font(.system(size: 8, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.22))
+                        }
+                    }
+                    .padding(.horizontal, 6).padding(.vertical, 5)
+                    .background(RoundedRectangle(cornerRadius: 6)
+                        .fill(agent.name == chat.agent?.name
+                              ? Color.white.opacity(0.07) : .clear))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func symbol(for status: TaskStatus) -> String {
+        switch status {
+        case .open:    return "circle"
+        case .doing:   return "circle.lefthalf.filled"
+        case .blocked: return "exclamationmark.circle"
+        case .done:    return "checkmark.circle.fill"
+        }
+    }
+
+    private func tint(for status: TaskStatus) -> Color {
+        switch status {
+        case .open:    return .white.opacity(0.35)
+        case .doing:   return .orange
+        case .blocked: return .red.opacity(0.8)
+        case .done:    return .green.opacity(0.8)
+        }
+    }
+
+    /// What the graph has learned, densest first.
+    ///
+    /// Entities with their claim counts rather than a node-and-edge drawing:
+    /// a force-directed graph at this size is a hairball, and the useful
+    /// question is "what does it know about" not "how is it shaped".
+    @ViewBuilder
+    private var memoryRail: some View {
+        if !chat.graph.isEnabled {
+            Text("Off. Turn it on in Settings → Memory and Visor starts learning from your conversations.")
+                .font(.system(size: 10 * scale))
+                .foregroundStyle(.white.opacity(0.35))
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            let top = chat.graph.prominent(limit: 7)
+            if top.isEmpty {
+                Text("Nothing learned yet — it fills in as you talk.")
+                    .font(.system(size: 10 * scale))
+                    .foregroundStyle(.white.opacity(0.35))
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(top, id: \.node.id) { entry in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(entry.node.name)
+                                .font(.system(size: 12 * scale))
+                                .foregroundStyle(.white.opacity(0.8))
+                                .lineLimit(1)
+                            Text(entry.node.kind)
+                                .font(.system(size: 8 * scale))
+                                .foregroundStyle(.white.opacity(0.3))
+                            Spacer(minLength: 0)
+                            Text("\(entry.degree)")
+                                .font(.system(size: 9 * scale, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.3))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The last few things dictated, whether or not they reached a chat.
+    @ViewBuilder
+    private var voiceRail: some View {
+        let recent = VoiceLog.recent(limit: 5)
+        if recent.isEmpty {
+            Text("Nothing dictated yet.")
+                .font(.system(size: 10 * scale))
+                .foregroundStyle(.white.opacity(0.35))
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(recent) { entry in
+                    Text(entry.text)
+                        .font(.system(size: 11 * scale))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(2)
+                }
+            }
+        }
+    }
+
+    private var tasksRail: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            let open = store.items.filter { $0.isTask && !$0.done }
+            if open.isEmpty {
+                Text("Nothing open")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.35))
+            }
+            ForEach(open.prefix(12)) { item in
+                // Same gestures as the note itself: tap cycles
+                // open -> doing -> blocked, long-press completes. Anything
+                // else would make this a read-only copy of the tasks rather
+                // than the tasks.
+                HStack(alignment: .top, spacing: 8) {
+                    Button { store.cycle(item.id) } label: {
+                        Image(systemName: symbol(for: item.status))
+                            .font(.system(size: 13 * scale))
+                            .foregroundStyle(tint(for: item.status))
+                            // The glyph is 13pt; the hit area is 24. A target
+                            // the size of its icon is a target you miss.
+                            .frame(width: 24 * scale, height: 24 * scale)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Text(item.text)
+                        .font(.system(size: 13 * scale))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .lineLimit(3)
+                        .padding(.top, 4 * scale)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+                .onLongPressGesture(minimumDuration: 0.35) { store.toggleDone(item.id) }
+            }
+        }
+    }
+}
+
+/// The transcript, sized for the HUD.
+private struct HUDTranscript: View {
+    @ObservedObject var chat: ChatController
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    ForEach(chat.conversation.messages) { message in
+                        MessageRow(message: message,
+                                   isStreaming: chat.isStreaming
+                                       && message.id == chat.conversation.messages.last?.id)
+                    }
+                    if let error = chat.error {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.orange)
+                    }
+                    Color.clear.frame(height: 1).id("bottom")
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .onChange(of: chat.conversation.messages.last?.content) { _ in
+                proxy.scrollTo("bottom", anchor: .bottom)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(.white.opacity(0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(.white.opacity(0.07), lineWidth: 1))
+    }
+}
+
+/// The composer, wider and taller than in the notch but the same control.
+private struct HUDComposer: View {
+    @ObservedObject var chat: ChatController
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack(alignment: .topLeading) {
+                if chat.draft.isEmpty {
+                    Text("Message \(chat.agent?.name ?? "your agent")…")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.3))
+                        .allowsHitTesting(false)
+                }
+                ComposerField(text: $chat.draft, onSubmit: chat.send)
+            }
+            .frame(height: 62)
+
+            HStack(spacing: 8) {
+                InlineModelPicker(chat: chat)
+                EffortPicker(chat: chat)
+                FastToggle(chat: chat)
+                if chat.isStreaming {
+                    DotMatrixIndicator(size: 11)
+                    Text("working").font(.system(size: 9)).foregroundStyle(.white.opacity(0.4))
+                }
+                Spacer(minLength: 0)
+                Button(action: chat.isStreaming ? chat.stop : chat.send) {
+                    Image(systemName: chat.isStreaming
+                          ? "stop.circle.fill" : "arrow.up.circle.fill")
+                        .font(.system(size: 19))
+                        .foregroundStyle(chat.isStreaming ? Color.orange : Color.white.opacity(0.9))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(.white.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(.white.opacity(0.09), lineWidth: 1))
+    }
+}
+
+/// Pixelated input-level meter, shown while dictating.
+///
+/// Deliberately blocky rather than a smooth waveform: at this size a
+/// continuous curve is a wobbling line you can't read, where lit and unlit
+/// cells are legible at a glance and match the dot-matrix indicator's
+/// language.
+struct AudioLevelMeter: View {
+    var level: Float          // 0…1
+    var columns = 5
+    var rows = 4
+    var cell: CGFloat = 2.5
+
+    var body: some View {
+        HStack(spacing: cell / 2) {
+            ForEach(0..<columns, id: \.self) { column in
+                VStack(spacing: cell / 2) {
+                    ForEach(0..<rows, id: \.self) { row in
+                        // Rows fill from the bottom up.
+                        let threshold = Float(rows - row) / Float(rows)
+                        RoundedRectangle(cornerRadius: cell / 4)
+                            .fill(Color.white.opacity(lit(column: column, threshold: threshold)))
+                            .frame(width: cell, height: cell)
+                    }
+                }
+            }
+        }
+        .animation(.easeOut(duration: 0.08), value: level)
+        .accessibilityLabel("Microphone level")
+    }
+
+    /// Outer columns respond a little less than the centre, which reads as a
+    /// meter rather than five identical bars moving in lockstep.
+    private func lit(column: Int, threshold: Float) -> Double {
+        let centre = Float(columns - 1) / 2
+        let falloff = 1 - abs(Float(column) - centre) / (centre + 1) * 0.45
+        return level * falloff >= threshold ? 0.85 : 0.12
+    }
+}
+
+
+/// Microphone toggle plus the live level, on the trailing edge of the chat
+/// header.
+///
+/// The meter only appears while recording — a permanently visible meter reading
+/// zero is noise, and its arrival is the clearest signal that the mic is
+/// actually open.
+struct DictationControl: View {
+    @ObservedObject var voice: VoiceInput
+    var onToggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if voice.state == .recording {
+                AudioLevelMeter(level: voice.level)
+            } else if voice.state == .transcribing {
+                DotMatrixIndicator(size: 10)
+            }
+
+            Button(action: onToggle) {
+                Image(systemName: symbol)
+                    .font(.system(size: 10))
+                    .foregroundStyle(tint)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(helpText)
+        }
+    }
+
+    private var symbol: String {
+        switch voice.state {
+        case .recording:    return "mic.fill"
+        case .transcribing: return "waveform"
+        case .denied:       return "mic.slash"
+        default:            return "mic"
+        }
+    }
+
+    private var tint: Color {
+        switch voice.state {
+        case .recording:         return .orange
+        case .denied:            return .red.opacity(0.7)
+        case .failed:            return .orange.opacity(0.8)
+        default:                 return .white.opacity(0.45)
+        }
+    }
+
+    private var helpText: String {
+        switch voice.state {
+        case .recording:    return "Stop and transcribe — ⌘⇧V"
+        case .transcribing: return "Transcribing…"
+        case .denied:       return "Microphone access denied — enable it in System Settings > Privacy"
+        case .failed(let why): return why
+        case .idle:         return "Dictate — ⌘⇧V"
+        }
+    }
+}
+
+/// The notch growing sideways while you dictate.
+///
+/// Painted the same black as the notch and squared off on its leading edge, so
+/// it reads as the camera housing widening rather than a panel appearing next
+/// to it. It shows only the level while recording and only the dot matrix while
+/// transcribing — there's nothing else worth saying in 86 points, and anything
+/// more would make it a UI rather than an indicator.
+struct ListeningPill: View {
+    @ObservedObject var voice: VoiceInput
+    var height: CGFloat
+
+    var body: some View {
+        ZStack {
+            // Square on the leading edge so it butts flush against the notch,
+            // rounded only on the trailing bottom corner to echo the notch's
+            // own. A rounded leading corner drew a visible seam and made this
+            // read as a second notch sitting beside the first, rather than the
+            // one notch getting wider.
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 10,
+                topTrailingRadius: 0)
+                .fill(Color.black)
+                // Reach back under the notch strip so the black is continuous
+                // even though the strip is a few points wider than the
+                // hardware. Black over black — invisible, and no seam.
+                .padding(.leading, -NotchController.listeningPillOverlap)
+
+            content
+        }
+        .frame(width: NotchController.listeningPillWidth, height: height)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch voice.state {
+        case .transcribing:
+            DotMatrixIndicator(size: 13)
+        case .recording:
+            AudioLevelMeter(level: voice.level, columns: 9, rows: 4, cell: 2.5)
+        case .denied:
+            Image(systemName: "mic.slash")
+                .font(.system(size: 10))
+                .foregroundStyle(.red.opacity(0.8))
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(.orange)
+        case .idle:
+            EmptyView()
+        }
+    }
+}
+
+
+/// How large everything in the HUD is drawn. 1.0 in the notch card; the HUD
+/// sets it from its own slider so the transcript scales with the rails.
+private struct HUDScaleKey: EnvironmentKey {
+    static let defaultValue: Double = 1.0
+}
+
+extension EnvironmentValues {
+    var hudScale: Double {
+        get { self[HUDScaleKey.self] }
+        set { self[HUDScaleKey.self] = newValue }
+    }
+}
+
+
+/// Matching for the model pickers.
+///
+/// Plain substring matching failed the obvious case: typing "glm 5.3" found
+/// nothing because the id is "glm-5.3-flash" — the separators differ and the
+/// name has a suffix. Both the query and the id are stripped to letters and
+/// digits before comparing, and a multi-word query matches when every word
+/// appears somewhere, so "flash glm" works too.
+enum ModelSearch {
+    static func filter(_ ids: [String], query: String) -> [String] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return ids }
+
+        let squashed = normalise(trimmed)
+        let words = trimmed
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map { normalise(String($0)) }
+            .filter { !$0.isEmpty }
+
+        return ids.filter { id in
+            let target = normalise(id)
+            // "glm53" against "glm53flash", or every word present in any order.
+            if !squashed.isEmpty && target.contains(squashed) { return true }
+            return !words.isEmpty && words.allSatisfy { target.contains($0) }
+        }
+    }
+
+    private static func normalise(_ text: String) -> String {
+        text.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+}
+
+
+/// How hard the model should think, per message.
+///
+/// Sent as OpenRouter's `reasoning.effort`. Models that don't reason ignore
+/// it, so there's no need to hide the control per model — and hiding it would
+/// mean maintaining a list of which models reason, which goes stale.
+struct EffortPicker: View {
+    @ObservedObject var chat: ChatController
+
+    /// A segmented control, not a cycling button.
+    ///
+    /// Cycling hides the options and makes you click three times to go
+    /// backwards. Four segments fit comfortably at this size and show the
+    /// whole range at once, which is the point of having the control.
+    ///
+    /// Hidden entirely for models that don't reason — OpenRouter publishes
+    /// `supported_parameters` per model, so that's read rather than guessed.
+    var body: some View {
+        if chat.supportsEffort {
+            HStack(spacing: 1) {
+                ForEach(ChatController.effortLevels, id: \.self) { level in
+                    segment(level)
+                }
+            }
+            .padding(2)
+            .background(Capsule().fill(.white.opacity(0.05)))
+            .fixedSize()
+            .disabled(chat.agent == nil)
+            .help("How hard this model thinks before answering")
+        }
+    }
+
+    private func segment(_ level: String?) -> some View {
+        let selected = level == chat.effort
+        return Button {
+            chat.useEffort(level)
+        } label: {
+            Text(label(for: level))
+                .font(.system(size: 9, weight: selected ? .semibold : .regular))
+                .foregroundStyle(.white.opacity(selected ? 0.9 : 0.38))
+                .padding(.horizontal, 7)
+                .frame(height: 16)
+                .background(Capsule().fill(.white.opacity(selected ? 0.16 : 0)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .animation(.easeOut(duration: 0.14), value: selected)
+    }
+
+    private func label(for level: String?) -> String {
+        switch level {
+        case "low":    return "low"
+        case "medium": return "med"
+        case "high":   return "high"
+        default:       return "auto"
+        }
+    }
+}
+
+/// Route to the fastest provider rather than the cheapest.
+///
+/// OpenRouter serves most models from several providers and optimises for
+/// price by default. This asks for throughput instead — it costs more per
+/// token, which is worth it for short interactive turns and not for long ones.
+struct FastToggle: View {
+    @ObservedObject var chat: ChatController
+
+    var body: some View {
+        Button(action: chat.toggleFast) {
+            HStack(spacing: 4) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(chat.isFast ? Color.orange : Color.white.opacity(0.5))
+                // Labelled, not a bare icon. A lightning bolt on its own does
+                // not say "route to the fastest provider rather than the
+                // cheapest one" to anybody.
+                Text(chat.isFast ? "Fast" : "Standard")
+            }
+            // Inside the label. Applied to the Button instead, the background
+            // it draws was never part of the button's hit area — which is why
+            // only the text responded and the chevron did nothing.
+            .composerPill(active: chat.isFast, enabled: chat.agent != nil)
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .disabled(chat.agent == nil)
+        .help(chat.isFast
+              ? "Routing to the quickest provider serving this model. Costs more per token."
+              : "Routing to the cheapest provider serving this model.")
+    }
+}
+
+
+/// What the agent did, rather than the raw tool exchange.
+///
+/// The call and its result are both in the transcript because the model needs
+/// them next turn, but neither is something a person wants to read — so the
+/// turn that asked for tools renders as a line naming them.
+struct ToolActivityRow: View {
+    let calls: [ToolCall]
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "wrench.and.screwdriver")
+                .font(.system(size: 9))
+                .foregroundStyle(.white.opacity(0.35))
+            Text(calls.map(\.name).joined(separator: ", "))
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.45))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 7).fill(.white.opacity(0.04)))
+    }
+}
+
 
 extension InlineModelPicker {
     func vendor(of id: String) -> String {
