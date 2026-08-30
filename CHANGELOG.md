@@ -14,6 +14,12 @@ the menu-bar dropdown, and published as the release notes for each version.
 - **Settings is a real window now**, with panes for Agents, Workspace, MCP and Memory. The menu-bar dropdown couldn't hold a form.
 - **MCP, both ways.** Ready-to-paste setup for Claude Code, Codex, Cursor and Devin, plus new chat tools — agents can list, read and search your conversations, and `post_to_chat` writes back so their answer lands where you'll see it.
 - **No more red warning under your tasks.** A missing API key isn't a failed run: it opens Settings on that agent instead. And no run outcome is permanent any more — the footer clears itself.
+- **A third face: the HUD.** ⌘⇧M expands chat to full screen, with rails for your agents, open tasks, what Visor has learned and what you've dictated. Transparency and size are sliders in the HUD itself, because you can only judge either while looking at it. It grows out of the notch and collapses back into it.
+- **Agents can do things, not just answer.** They read your note, add and complete tasks, load web pages, and run shell commands in your project folder. Anything irreversible asks first and shows the actual command; "Always" is remembered per agent and per tool.
+- **Dictation.** ⌘⇧V or hold a modifier of your choosing. The notch widens into a live level meter while you speak, then transcribes and closes. Everything dictated is logged, and a cheap model can tidy punctuation and mishearings first.
+- **Optional knowledge graph.** A cheap model extracts durable facts from your conversations and stores them as connected claims, so recall walks relationships instead of matching wording.
+- **Per-message model, thinking effort and routing** in the composer, with models pinned per agent — the full OpenRouter catalogue stays behind a search.
+- **Signed and notarized.** Visor ships with a Developer ID signature and a stapled ticket, and there's a DMG. This also stops macOS re-asking for Keychain and Accessibility permission on every update.
 - **New app icon.**
 
 ## 1.0-beta.35 — 2026-07-15

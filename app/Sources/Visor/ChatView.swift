@@ -18,7 +18,6 @@ struct ChatCard: View {
     var onHUD: () -> Void
     var onClose: () -> Void
 
-    @FocusState private var composerFocused: Bool
     @State private var copied = false
     @State private var draftHeight: CGFloat = 16
 
@@ -180,36 +179,6 @@ struct ChatCard: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .help("Past chats, export, settings")
-    }
-
-    private var exportMenu: some View {
-        Menu {
-            Button("Copy as Markdown") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(chat.markdown, forType: .string)
-                copied = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
-            }
-            Divider()
-            ForEach(ChatStore.ExportFormat.allCases, id: \.self) { format in
-                Button("Export as \(format.menuTitle)…") {
-                    // Reveal it: an exported file the user can't find hasn't
-                    // really been exported.
-                    if let url = chat.export(format) {
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    }
-                }
-            }
-        } label: {
-            Image(systemName: copied ? "checkmark" : "square.and.arrow.up")
-                .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(copied ? 0.9 : 0.6))
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .disabled(chat.conversation.messages.isEmpty)
-        .help("Copy or export this chat")
     }
 
     // MARK: - Transcript

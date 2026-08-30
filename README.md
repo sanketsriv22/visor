@@ -2,15 +2,20 @@
 
 A native AI tool that lives inside your MacBook's camera notch — invisible
 until you click it (or press ⌘⇧K), at which point it slides down beneath the
-notch. It has two faces:
+notch. It has three faces:
 
 - **Notes** — a sticky note of plain-markdown tasks, on disk, readable and
   writable by agents.
 - **Chat** — a composer wired to any model OpenRouter offers, with agents you
-  name yourself, on-device memory of past conversations, and export.
+  name yourself, tools they can actually run, and memory of what you've
+  discussed.
+- **HUD** — the same conversation at full-screen scale, with rails for your
+  agents, your open tasks, what Visor has learned, and what you've dictated.
 
-Switch between them with the control in the notch's left shoulder, or ⌘1 / ⌘2.
-The card grows sideways when you move to chat; the notch stays the notch.
+⌘⇧I swaps notes and chat; ⌘⇧M expands into the HUD; ⌘⇧V dictates; ⌘⇧1–5 jump
+straight to an agent. The card grows sideways when you move to chat and out of
+the notch entirely for the HUD — everything emanates from the notch, because
+two motion origins fight each other.
 
 Everything is local files. Agents reach both faces through Visor's MCP server —
 they can survey what you haven't done, read what you've been thinking about,
@@ -103,8 +108,26 @@ long history from growing the cost of every message. Deleting a chat forgets
 it. If macOS has no embedding model for your locale, chats still work — just
 without recall.
 
-**Export.** Copy any chat as markdown, or export it to `~/StickyNotes/exports/`
-as markdown or JSON.
+**Tools.** Agents don't only answer. They can read your note, add and complete
+tasks, load a web page (rendered, so JavaScript-built pages work), and run
+shell commands in your project folder. Anything irreversible asks first, and
+the prompt shows the actual command — approving `run_shell` you can't see
+isn't consent. "Always" is per agent *and* per tool.
+
+**Dictation.** ⌘⇧V, or hold a modifier you choose (Settings → Agents). The
+notch grows sideways into a level meter while you talk, transcribes through
+OpenAI's API, and closes. Everything dictated is appended to
+`voice-log.jsonl`, whether or not it reached a chat. A cheap model can tidy
+punctuation and mishearings before the text lands.
+
+**Knowledge graph.** Optional. After each exchange a cheap model extracts
+durable facts — who people are, what projects exist, what you prefer — as
+connected claims. Recall then walks those connections instead of matching
+wording, so asking about someone surfaces what's true of them rather than
+sentences that merely sound similar.
+
+**Export.** Copy any chat as markdown, or export it to `exports/` as markdown
+or JSON.
 
 ## Settings
 
@@ -134,6 +157,12 @@ Chat tools: `list_chats`, `read_chat`, `search_chats`, and `post_to_chat` —
 which writes a message into a conversation so it shows up in the notch. That's
 the "communicate with it" half: an agent can finish a job and tell you so
 where you'll actually see it.
+
+Memory tools: `list_dictation` (what you've said out loud, often things
+written down nowhere else) and `what_visor_knows` (the knowledge graph, either
+in full or about one subject). Read-only — these are Visor's own conclusions,
+and an agent editing them would be rewriting your memory rather than adding to
+it.
 
 Reads go to the chat files themselves rather than the index cache, so an agent
 never sees a stale listing.
@@ -199,9 +228,29 @@ launchctl load ~/Library/LaunchAgents/com.user.devin-check.plist   # weekdays 9:
   model, so this buys a lot for one auth flow — but there's no direct
   Anthropic/OpenAI path.
 
-## Building
+## Building and releasing
 
-`swift build` needs a full Xcode (16 or newer — Firebase requires a Swift 6
-compiler). Command Line Tools alone can't build this package: SwiftPM asks for
-a platform path only Xcode provides. CI on `macos-15` builds every push, so a
-machine without Xcode can still verify a change.
+`swift build` needs Swift 6 or newer. Recent Command Line Tools are enough for
+a single-architecture build; a **universal** build additionally needs Xcode,
+because it shells out to `xcbuild`. `make-app.sh` falls back to a native build
+and says so. CI on `macos-15` produces the universal binary every push.
+
+Releases are signed with a Developer ID and notarized:
+
+```sh
+./scripts/sign-and-notarize.sh --dmg   # sign, notarize, staple, build a DMG
+./scripts/release.sh                   # the above, plus GitHub release + appcast
+```
+
+This matters beyond Gatekeeper. macOS binds Keychain ACLs **and** every TCC
+permission (Accessibility, microphone) to the app's code signature, so an
+ad-hoc signed build is a different app on every rebuild — and re-asks for
+everything, forever. CI signs each build with the same identity, which is what
+makes those grants stick.
+
+Notarization needs credentials once:
+
+```sh
+xcrun notarytool store-credentials visor-notary \
+  --apple-id <you@example.com> --team-id <TEAMID>
+```
