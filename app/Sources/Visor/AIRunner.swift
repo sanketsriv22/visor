@@ -28,6 +28,12 @@ struct AIProvider: Codable, Identifiable, Equatable {
     /// Route to the fastest provider serving this model rather than the
     /// cheapest. Costs more per token; worth it for short interactive turns.
     var fastMode: Bool?
+    /// Models this agent switches between often.
+    ///
+    /// OpenRouter lists several hundred; nobody picks from that in a notch.
+    /// The picker shows these first and keeps the full catalogue behind a
+    /// search, which is the difference between choosing and hunting.
+    var favouriteModels: [String]?
     var id: String { name }
 
     var isDevinCloud: Bool { kind == .devinCloud }

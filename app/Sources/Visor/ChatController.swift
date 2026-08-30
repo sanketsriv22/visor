@@ -135,6 +135,30 @@ final class ChatController: ObservableObject {
     }
 
     /// Point this agent (and this chat) at a different model.
+    /// Models pinned on this agent, current one always included.
+    var favouriteModels: [String] {
+        var ids = agent?.favouriteModels ?? []
+        let current = conversation.model
+        if !current.isEmpty, !ids.contains(current) { ids.insert(current, at: 0) }
+        return ids
+    }
+
+    func isFavourite(_ id: String) -> Bool {
+        agent?.favouriteModels?.contains(id) ?? false
+    }
+
+    func toggleFavourite(_ id: String) {
+        guard var agent else { return }
+        var favourites = agent.favouriteModels ?? []
+        if let index = favourites.firstIndex(of: id) {
+            favourites.remove(at: index)
+        } else {
+            favourites.append(id)
+        }
+        agent.favouriteModels = favourites
+        ai.upsert(agent)
+    }
+
     func useModel(_ id: String) {
         conversation.model = id
         if var agent {
