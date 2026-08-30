@@ -181,17 +181,22 @@ final class KnowledgeGraph: ObservableObject {
             // Rewritten whole rather than appended: the graph is small (it's
             // claims, not transcript) and dedup means entries change in place,
             // which an append-only file can't express without compaction.
-            if let data = try? n.map({ try encoder.encode($0) })
-                .map({ String(data: $0, encoding: .utf8) ?? "" })
-                .joined(separator: "\n").data(using: .utf8) {
-                try? data.write(to: nodesTarget, options: .atomic)
-            }
-            if let data = try? e.map({ try encoder.encode($0) })
-                .map({ String(data: $0, encoding: .utf8) ?? "" })
-                .joined(separator: "\n").data(using: .utf8) {
-                try? data.write(to: edgesTarget, options: .atomic)
-            }
+            try? Self.jsonl(n, encoder: encoder).write(to: nodesTarget, options: .atomic)
+            try? Self.jsonl(e, encoder: encoder).write(to: edgesTarget, options: .atomic)
         }
+    }
+
+    /// One JSON object per line. Written as an explicit loop: the equivalent
+    /// map/join chain was too much for the type-checker to infer in reasonable
+    /// time, and this is clearer anyway.
+    private static func jsonl<T: Encodable>(_ items: [T], encoder: JSONEncoder) -> Data {
+        var out = Data()
+        for item in items {
+            guard let line = try? encoder.encode(item) else { continue }
+            out.append(line)
+            out.append(0x0A)
+        }
+        return out
     }
 
     private func load() {
