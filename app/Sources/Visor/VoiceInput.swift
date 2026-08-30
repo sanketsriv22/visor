@@ -79,18 +79,31 @@ final class VoiceInput: NSObject, ObservableObject {
             state = .failed("Add an OpenAI key in Settings to dictate")
             return
         }
-        // Asking every time is cheap and handles the user revoking access.
-        // Step the notch down first: it draws above the menu bar, which means
-        // it draws above this dialog too.
-        NotificationCenter.default.post(name: .visorSystemPrompt, object: nil,
-                                        userInfo: ["showing": true])
-        AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
-            Task { @MainActor in
-                NotificationCenter.default.post(name: .visorSystemPrompt, object: nil,
-                                                userInfo: ["showing": false])
-                guard let self else { return }
-                guard granted else { self.state = .denied; return }
-                self.beginRecording()
+        // Already granted: start immediately.
+        //
+        // Going through requestAccess unconditionally meant posting
+        // .visorSystemPrompt every time, which drops the panel below the menu
+        // bar so a permission dialog can appear above it. With permission
+        // already given the callback returns within milliseconds — so the
+        // panel dipped and recovered too fast to see as movement, and showed
+        // as the menu bar behind it flashing through. Only step aside when a
+        // dialog is actually going to appear.
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            beginRecording()
+        case .denied, .restricted:
+            state = .denied
+        default:
+            NotificationCenter.default.post(name: .visorSystemPrompt, object: nil,
+                                            userInfo: ["showing": true])
+            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
+                Task { @MainActor in
+                    NotificationCenter.default.post(name: .visorSystemPrompt, object: nil,
+                                                    userInfo: ["showing": false])
+                    guard let self else { return }
+                    guard granted else { self.state = .denied; return }
+                    self.beginRecording()
+                }
             }
         }
     }

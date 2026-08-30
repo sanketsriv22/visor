@@ -45,7 +45,7 @@ struct StickyRootView: View {
                 // the strip below it is 8pt taller than the hardware because of
                 // the click underhang.
                 HStack(alignment: .top, spacing: 0) {
-                    NotchStrip(size: ui.notchSize, expanded: false, suppressHover: ui.settling)
+                    NotchStrip(size: ui.notchSize)
                     if ui.listening {
                         ListeningPill(voice: chat.voice, height: ui.trueNotch.height)
                             // Symmetric: it retracts back under the notch the
@@ -119,43 +119,17 @@ struct StickyRootView: View {
 /// the physical notch, since pixels inside the notch rect don't exist.
 private struct NotchStrip: View {
     let size: CGSize
-    let expanded: Bool
-    /// True briefly after the card collapses, while the window is still resizing
-    /// — suppresses the hover popup so it doesn't reflow mid-resize.
-    var suppressHover: Bool
 
-    @State private var hovering = false
-
+    /// Nothing but a hit target now.
+    ///
+    /// The hover pull-tab that used to appear beneath the notch is gone: it
+    /// existed to teach that the notch is clickable, and once you know that
+    /// it's just something flickering under the cursor every time you reach
+    /// for the menu bar.
     var body: some View {
-        ZStack(alignment: .bottom) {
-            // Always-present invisible hit target so the notch stays clickable.
-            Color.black.opacity(0.011)
-
-            if hovering && !expanded && !suppressHover {
-                ZStack(alignment: .bottom) {
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 0,
-                        bottomLeadingRadius: 8,
-                        bottomTrailingRadius: 8,
-                        topTrailingRadius: 0
-                    )
-                    .fill(Color.black)
-                    Capsule()
-                        .fill(.white.opacity(0.5))
-                        .frame(width: size.width * 0.4, height: 2.5)
-                        .padding(.bottom, 3)
-                }
-                // Pure fade in/out — never a positional/sliding animation.
-                .transition(.opacity)
-            }
-        }
-        .frame(width: size.width, height: size.height)
-        // Never animate the strip's layout when the window resizes on collapse —
-        // that's what caused the popup to slide in from the right.
-        .animation(nil, value: size)
-        .contentShape(Rectangle())
-        // Gentle fade so the pull-tab eases in rather than snapping.
-        .onHover { h in withAnimation(.easeInOut(duration: 0.2)) { hovering = h } }
+        Color.black.opacity(0.011)
+            .frame(width: size.width, height: size.height)
+            .contentShape(Rectangle())
     }
 }
 
@@ -565,18 +539,18 @@ private struct StickyCard: View {
             .frame(width: NotchController.shoulderWidth, alignment: .trailing)
             Spacer(minLength: 0)
                 .frame(width: notchWidth + NotchController.notchClearance)
-            // Hugs the notch normally, but steps aside while the dictation
-            // extension is out — that grows into exactly this space, and was
-            // landing on top of the beam button.
+            // Parked at the shoulder's outer edge permanently. It used to hug
+            // the notch and slide aside when dictation started, which kept it
+            // clear of the extension but made a control jump for a reason
+            // unrelated to it — a moving target is worse than a static one
+            // slightly further out.
             HStack(spacing: 8) {
-                if listening { Spacer(minLength: 0) }
+                Spacer(minLength: 0)
                 if store.isActiveNoteShared { sharedBeacon }
                 beamButton
-                if !listening { Spacer(minLength: 0) }
             }
-            .frame(width: NotchController.shoulderWidth,
-                   alignment: listening ? .trailing : .leading)
-            .animation(.spring(response: 0.34, dampingFraction: 0.86), value: listening)
+            .frame(width: NotchController.shoulderWidth, alignment: .trailing)
+            .padding(.trailing, 10)
             Spacer(minLength: 0)
         }
         .frame(height: topInset)
