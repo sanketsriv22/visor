@@ -165,6 +165,10 @@ final class NotchController {
     /// off the menu bar, and the HUD's is created at full size and never
     /// resized.
     private var hudPanel: NotchPanel?
+    /// Pending show/hide of the two windows. Cancelled on every mode change:
+    /// switching quickly used to leave a stale timer from the previous switch
+    /// still due, which then ordered a window away mid-animation.
+    private var panelWork: DispatchWorkItem?
     private var screenObserver: Any?
     private var voiceObserver: AnyCancellable?
     private var localClickMonitor: Any?
@@ -647,10 +651,13 @@ final class NotchController {
         // not at the same moment. Ordering it out immediately cut the animation
         // off at frame one, which is why the switch felt abrupt however the
         // HUD side was tuned.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) { [weak self] in
+        panelWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
             guard let self, self.ui.mode.isFullScreen else { return }
             self.panel.orderOut(nil)
         }
+        panelWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.42, execute: work)
     }
 
     /// Hide it once the collapse has finished, so it isn't cut off mid-flight.
@@ -661,10 +668,13 @@ final class NotchController {
         panel.makeKeyAndOrderFront(nil)
         // Long enough for the rails to leave and the centre to shrink back
         // into the notch.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.62) { [weak self] in
+        panelWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
             guard let self, !self.ui.mode.isFullScreen else { return }
             self.hudPanel?.orderOut(nil)
         }
+        panelWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.62, execute: work)
     }
 
     /// Toggle the full-screen HUD. Entering from notes goes through chat,

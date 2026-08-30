@@ -114,6 +114,18 @@ struct StickyRootView: View {
         .clipShape(cardShape)
         .overlay(CardEdgeBorder(radius: 18).stroke(.white.opacity(0.14), lineWidth: 1))
         .shadow(color: .black.opacity(0.35), radius: 5, y: 2)
+        // One switcher, owned by the root rather than by each face.
+        //
+        // Each card used to carry its own, so swapping modes destroyed one
+        // instance and built another — SwiftUI cross-faded the two, which is
+        // why the icons looked replaced rather than switching in place. A
+        // single persistent view can't do that, and it can't drift either.
+        .overlay(alignment: .top) {
+            ModeSwitcher(mode: ui.mode, onSelect: onMode)
+                .frame(height: ui.notchSize.height)
+                .offset(x: -((ui.notchSize.width + NotchController.notchClearance) / 2
+                             + ModeSwitcher.width / 2))
+        }
     }
 }
 
@@ -534,9 +546,8 @@ private struct StickyCard: View {
                     .foregroundStyle(store.openTaskCount > 0 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                     .lineLimit(1)
                 Spacer(minLength: 4)
-                ModeSwitcher(mode: mode, onSelect: onMode)
-                    .fixedSize()
-                    .layoutPriority(1)
+                // Reserved for the switcher the root draws.
+                Color.clear.frame(width: ModeSwitcher.width, height: 1)
             }
             // Swapping the band left the count flush against the card's edge.
             .padding(.leading, 12)

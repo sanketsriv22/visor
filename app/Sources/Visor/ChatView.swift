@@ -60,8 +60,8 @@ struct ChatCard: View {
             // floats free of the card edge once the card is wider.
             HStack(spacing: 4) {
                 Spacer(minLength: 0)
-                ModeSwitcher(mode: mode, onSelect: onMode)
-                    .fixedSize()
+                // Reserved for the switcher the root draws.
+                Color.clear.frame(width: ModeSwitcher.width, height: 1)
             }
             .frame(width: NotchController.shoulderWidth, alignment: .trailing)
             Spacer(minLength: 0)
@@ -584,6 +584,11 @@ private struct HistoryRow: View {
 struct ModeSwitcher: View {
     let mode: VisorMode
     let onSelect: (VisorMode) -> Void
+
+    /// Two 24pt pills with 2pt between them. Fixed, because the note and chat
+    /// cards each reserve exactly this much space for the switcher that the
+    /// root draws over them.
+    static let width: CGFloat = 50
 
     var body: some View {
         HStack(spacing: 2) {

@@ -400,18 +400,23 @@ final class ChatController: ObservableObject {
         }
 
         var arguments = agent.args
-        // Chosen model, if the user set one. Without this the picker changed a
-        // stored value and nothing else — you'd select one model and be
-        // answered by another.
-        if let model = agent.model, !model.isEmpty {
-            arguments += ["--model", model]
-        }
+
         if let session = conversation.cliSessionID {
             arguments += ["--resume", session]
+            // Deliberately no --model here. Passing it on every turn overrode
+            // whatever /model set inside the session, so changing model in the
+            // conversation appeared to work and was undone by the next message.
+            // The session owns its model once it exists.
         } else {
             let session = UUID().uuidString.lowercased()
             conversation.cliSessionID = session
             arguments += ["--session-id", session]
+            // Only on the first turn, and only if it's a name this CLI could
+            // understand. A slash means an OpenRouter id — which a CLI agent
+            // has never heard of, and which it rejects on every single turn.
+            if let model = agent.model, !model.isEmpty, !model.contains("/") {
+                arguments += ["--model", model]
+            }
             store.save(conversation)
         }
 

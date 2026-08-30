@@ -651,6 +651,15 @@ final class AIRunner: ObservableObject {
             providers.append(AIProvider(name: "Devin (Cloud)", command: "", args: [], kind: .devinCloud))
             migrated = true
         }
+        // The composer used to offer OpenRouter's catalogue for every agent,
+        // so CLI agents ended up storing ids like "anthropic/claude-fable-5" —
+        // which they reject on every turn. A slash is the tell.
+        for i in providers.indices
+        where providers[i].isNotchCLI && (providers[i].model?.contains("/") ?? false) {
+            providers[i].model = nil
+            migrated = true
+        }
+
         if migrated { saveConfig(ProvidersConfig(default: defaultProviderName, providers: providers)) }
         // The user's saved choice (from settings) wins over the file default.
         if let saved = UserDefaults.standard.string(forKey: defaultKey),
