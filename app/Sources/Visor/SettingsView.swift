@@ -421,6 +421,16 @@ private struct AgentRow: View {
                     }))
                     .textFieldStyle(.roundedBorder)
             }
+            Toggle(isOn: Binding(
+                get: { provider.runsInNotch ?? false },
+                set: { value in var p = provider; p.runsInNotch = value; ai.upsert(p) })) {
+                    Text("Answer in the notch").font(.caption)
+                }
+                .toggleStyle(.switch)
+            Text("Makes this a first-class agent in the composer — pick it like any other, and its output streams into the chat instead of opening a Terminal.")
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             HStack(spacing: 8) {
                 fieldLabel("Key env")
                 TextField("e.g. OPENAI_API_KEY — optional", text: Binding(

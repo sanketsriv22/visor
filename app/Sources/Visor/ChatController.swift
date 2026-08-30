@@ -46,6 +46,7 @@ final class ChatController: ObservableObject {
     private unowned let ai: AIRunner
     private var streamTask: Task<Void, Never>?
     private var agentObserver: AnyCancellable?
+    private var cliRunner: CLIAgentRunner?
     /// Set by the notch controller: is the composer on screen right now?
     var isComposerVisible: (() -> Bool)?
 
@@ -156,8 +157,9 @@ final class ChatController: ObservableObject {
 
     // MARK: - Agents
 
-    /// Agents that answer in the notch, in config order.
-    var chatAgents: [AIProvider] { ai.providers.filter(\.isChat) }
+    /// Agents that answer in the notch, in config order — models reached
+    /// through OpenRouter and local CLI agents alike.
+    var chatAgents: [AIProvider] { ai.providers.filter(\.isNotchAgent) }
 
     /// The agent this conversation belongs to, falling back to the first
     /// configured one if it was renamed or deleted mid-chat.
@@ -197,7 +199,12 @@ final class ChatController: ObservableObject {
     var isFast: Bool { agent?.fastMode ?? false }
 
     /// Whether the running model takes a reasoning setting at all.
-    var supportsEffort: Bool { catalog.supportsReasoning(conversation.model) }
+    var supportsEffort: Bool {
+        // A local CLI agent has its own settings; Visor shouldn't imply it can
+        // dial them from here.
+        guard agent?.isChat ?? false else { return false }
+        return catalog.supportsReasoning(conversation.model)
+    }
 
     func useEffort(_ level: String?) {
         guard var agent else { return }
@@ -312,7 +319,9 @@ final class ChatController: ObservableObject {
             error = "Add an agent in Settings first"
             return
         }
-        guard OpenRouterClient.hasKey else {
+        // Only the hosted agents need a key; a local CLI agent brings its own
+        // auth, or none.
+        if agent.isChat, !OpenRouterClient.hasKey {
             error = ChatError.noKey.localizedDescription
             NotificationCenter.default.post(
                 name: .visorProviderNeedsKey, object: nil,
@@ -350,9 +359,44 @@ final class ChatController: ObservableObject {
 
         streamTask = Task { [weak self] in
             guard let self else { return }
-            await self.runTurn(model: model, system: system, effort: effort,
-                               fast: fast, round: 0)
+            if agent.isNotchCLI {
+                await self.runCLITurn(agent: agent, prompt: text)
+            } else {
+                await self.runTurn(model: model, system: system, effort: effort,
+                                   fast: fast, round: 0)
+            }
         }
+    }
+
+    /// Stream a local CLI agent's output into the transcript.
+    ///
+    /// No tool loop and no history: these agents keep their own context and
+    /// take a single instruction, so replaying the conversation at them would
+    /// be both wrong and expensive. What Visor adds is the surface — the same
+    /// composer, transcript and history as any other agent.
+    private func runCLITurn(agent: AIProvider, prompt: String) async {
+        let runner = CLIAgentRunner()
+        cliRunner = runner
+        let key = agent.apiKeyEnv.flatMap { name in
+            Keychain.get(agent.keyAccount).map { (name: name, value: $0) }
+        }
+
+        for await event in runner.run(command: agent.command,
+                                      arguments: agent.args,
+                                      prompt: prompt,
+                                      directory: ai.workDirURL,
+                                      environmentKey: key) {
+            switch event {
+            case .text(let chunk):
+                appendToReply(chunk)
+            case .finished(let status):
+                if status != 0, conversation.messages.last?.content.isEmpty ?? true {
+                    appendToReply("_\(agent.name) exited with status \(status)._")
+                }
+            }
+        }
+        cliRunner = nil
+        finish()
     }
 
     /// How many times a single send may hand control back to the model after
@@ -493,6 +537,8 @@ final class ChatController: ObservableObject {
     func stop() {
         streamTask?.cancel()
         streamTask = nil
+        cliRunner?.stop()
+        cliRunner = nil
         guard isStreaming else { return }
         isStreaming = false
         trimEmptyReply()

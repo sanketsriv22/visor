@@ -455,7 +455,6 @@ private struct HistoryRow: View {
     let delete: () -> Void
 
     @State private var hovering = false
-    @State private var confirming = false
 
     /// Two buttons side by side, not a tap gesture with a button inside it.
     ///
@@ -489,19 +488,16 @@ private struct HistoryRow: View {
 
             // Two-step, because deleting a chat also erases what the knowledge
             // base learned from it — and a single mis-click shouldn't do that.
-            if hovering || confirming {
-                Button {
-                    if confirming { delete() } else { confirming = true }
-                } label: {
-                    Image(systemName: confirming ? "trash.fill" : "trash")
+            if hovering {
+                Button(action: delete) {
+                    Image(systemName: "trash")
                         .font(.system(size: 10))
-                        .foregroundStyle(confirming ? Color.red.opacity(0.9)
-                                                    : Color.white.opacity(0.45))
+                        .foregroundStyle(.white.opacity(0.45))
                         .frame(width: 22, height: 22)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(confirming ? "Click again to delete" : "Delete this chat")
+                .help("Delete this chat and forget what it taught Visor")
                 .transition(.opacity)
             }
         }
@@ -510,13 +506,7 @@ private struct HistoryRow: View {
         .background(RoundedRectangle(cornerRadius: 7)
             .fill(hovering ? Color.white.opacity(0.07) : .clear))
         .animation(.easeOut(duration: 0.12), value: hovering)
-        .animation(.easeOut(duration: 0.12), value: confirming)
-        .onHover { over in
-            hovering = over
-            // Leaving the row cancels a pending confirmation, so it can't sit
-            // armed and catch you later.
-            if !over { confirming = false }
-        }
+        .onHover { hovering = $0 }
     }
 }
 

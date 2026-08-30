@@ -34,6 +34,9 @@ struct AIProvider: Codable, Identifiable, Equatable {
     /// agent with shell access are not the same trust decision.
     var autoApprovedTools: [String]?
 
+    /// Answer in the notch rather than a Terminal window. CLI agents only.
+    var runsInNotch: Bool?
+
     /// Models this agent switches between often.
     ///
     /// OpenRouter lists several hundred; nobody picks from that in a notch.
@@ -46,6 +49,13 @@ struct AIProvider: Codable, Identifiable, Equatable {
     /// Runs a conversation in the notch rather than handing off to a CLI or
     /// the Devin API.
     var isChat: Bool { kind == .openRouter }
+
+    /// A local CLI agent that answers in the notch instead of opening a
+    /// Terminal — Claude Code and friends as first-class agents in the app.
+    var isNotchCLI: Bool { (kind == nil || kind == .cli) && (runsInNotch ?? false) }
+
+    /// Anything the composer can talk to.
+    var isNotchAgent: Bool { isChat || isNotchCLI }
     /// Whether this provider authenticates with a stored key (env var or Bearer token).
     var needsKey: Bool { apiKeyEnv != nil || isDevinCloud || isChat }
 

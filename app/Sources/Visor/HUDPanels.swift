@@ -284,7 +284,6 @@ private struct HUDChatRow: View {
     let delete: () -> Void
 
     @State private var hovering = false
-    @State private var confirming = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -310,25 +309,19 @@ private struct HUDChatRow: View {
             }
             .buttonStyle(.plain)
 
-            if hovering || confirming {
-                Button {
-                    if confirming { delete() } else { confirming = true }
-                } label: {
-                    Image(systemName: confirming ? "trash.fill" : "trash")
+            if hovering {
+                Button(action: delete) {
+                    Image(systemName: "trash")
                         .font(.system(size: 10 * scale))
-                        .foregroundStyle(confirming ? Color.red.opacity(0.9)
-                                                    : Color.white.opacity(0.4))
+                        .foregroundStyle(.white.opacity(0.4))
                         .frame(width: 20 * scale, height: 20 * scale)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(confirming ? "Click again to delete" : "Delete this chat")
+                .help("Delete this chat and forget what it taught Visor")
             }
         }
         .padding(.vertical, 2)
-        .onHover { over in
-            hovering = over
-            if !over { confirming = false }
-        }
+        .onHover { hovering = $0 }
     }
 }
