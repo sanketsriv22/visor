@@ -72,13 +72,6 @@ final class UIState: ObservableObject {
     /// True while dictation is recording or transcribing. Drives the listening
     /// pill beside the notch, independently of whether the card is open.
     @Published var listening = false
-    /// True for the single tick while the window changes size for the HUD.
-    ///
-    /// The root draws nothing during it. Resizing the panel and swapping the
-    /// content are two separate events, and any frame presented between them
-    /// shows the old card laid out in the new window — which is the flash.
-    /// There is no ordering of the two that avoids it; not drawing does.
-    @Published var resizing = false
 }
 
 /// Main-actor isolated: it owns the panel and drives the chat controller, both
@@ -491,19 +484,19 @@ final class NotchController {
         } else {
             curve = .spring(response: 0.42, dampingFraction: 0.82)
         }
-        if mode.isFullScreen {
-            // Blank the root, resize, and only then swap the content in — so
-            // the old card is never painted at the new size.
-            ui.resizing = true
-            applyFrame(expanded: true, mode: mode)
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.ui.resizing = false
-                withAnimation(curve) { self.ui.mode = mode }
-            }
-        } else {
-            withAnimation(curve) { ui.mode = mode }
-        }
+        // Content first, then the window — both in this same runloop turn, so
+        // SwiftUI performs one layout pass with the new mode *and* the new
+        // size. There is no intermediate state to paint.
+        //
+        // This ordering works because the HUD's insertion starts at 4% scale,
+        // which is small enough to fit inside the card-sized window it begins
+        // in; by the time it has grown, the panel is already full-screen.
+        //
+        // Resizing first painted the outgoing card into a window it was never
+        // laid out for, and blanking the root instead just replaced one
+        // artifact with another — the card vanishing instead of transitioning.
+        withAnimation(curve) { ui.mode = mode }
+        if mode.isFullScreen { applyFrame(expanded: true, mode: mode) }
 
         // Coming back down, the window can only shrink once the card has
         // finished travelling — otherwise it's cut off on the way.

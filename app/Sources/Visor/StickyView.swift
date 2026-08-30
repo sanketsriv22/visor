@@ -14,11 +14,7 @@ struct StickyRootView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            if ui.resizing {
-                // Mid-resize: draw nothing at all rather than the previous
-                // face at a size it was never laid out for.
-                Color.clear
-            } else if ui.expanded {
+            if ui.expanded {
                 // The card extends up behind the notch (topInset) so the notch
                 // overlaps its top edge — the note looks like it slides out
                 // from *behind* the notch, not off its bottom lip.
