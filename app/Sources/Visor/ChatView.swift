@@ -898,6 +898,10 @@ struct HUDView: View {
                 if chat.isStreaming { DotMatrixIndicator(size: 11) }
                 Spacer(minLength: 0)
 
+                // The notch extension is suppressed at this scale, so without
+                // this the HUD gave no sign the microphone was open at all.
+                DictationControl(voice: chat.voice, onToggle: chat.toggleDictation)
+
                 // Transparency belongs in the HUD, not buried in Settings —
                 // the right value depends on what's behind it right now.
                 HStack(spacing: 5) {
