@@ -173,8 +173,11 @@ struct ChatCard: View {
             }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.6))
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.55))
+                .frame(width: 20, height: 20)
+                .background(Circle().fill(.white.opacity(0.06)))
+                .contentShape(Circle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -406,7 +409,15 @@ struct MessageRow: View {
                     UnevenRoundedRectangle(
                         topLeadingRadius: 11, bottomLeadingRadius: 3,
                         bottomTrailingRadius: 11, topTrailingRadius: 11)
-                        .fill(.white.opacity(0.045)))
+                        // 0.045 was all but invisible on black; this
+                        // reads as a surface without competing with the
+                        // user's own bubble.
+                        .fill(.white.opacity(0.085)))
+                .overlay(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 11, bottomLeadingRadius: 3,
+                        bottomTrailingRadius: 11, topTrailingRadius: 11)
+                        .stroke(.white.opacity(0.06), lineWidth: 1))
                 Spacer(minLength: 28)
             }
         }
@@ -444,45 +455,71 @@ private struct HistoryRow: View {
     let delete: () -> Void
 
     @State private var hovering = false
+    @State private var confirming = false
 
+    /// Two buttons side by side, not a tap gesture with a button inside it.
+    ///
+    /// The row used to carry `.onTapGesture`, which claims the click before a
+    /// nested Button ever sees it — so the trash icon looked interactive and
+    /// did nothing. Opening and deleting are separate hit regions now.
     var body: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(summary.title.isEmpty ? "Untitled" : summary.title)
-                    .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
-                    .foregroundStyle(.white.opacity(isCurrent ? 0.95 : 0.8))
-                    .lineLimit(1)
-                Text("\(summary.agentName) · \(summary.messageCount) messages")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.white.opacity(0.35))
-                    .lineLimit(1)
+        HStack(spacing: 6) {
+            Button(action: open) {
+                HStack(spacing: 8) {
+                    // A rail rather than a fill: it marks the current chat
+                    // without turning the row into a block of colour.
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(isCurrent ? Color.orange : .clear)
+                        .frame(width: 2, height: 22)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(summary.title.isEmpty ? "Untitled" : summary.title)
+                            .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
+                            .foregroundStyle(.white.opacity(isCurrent ? 0.95 : 0.82))
+                            .lineLimit(1)
+                        Text("\(summary.agentName) · \(summary.messageCount) messages")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.white.opacity(0.35))
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                }
+                .contentShape(Rectangle())
             }
-            Spacer(minLength: 6)
-            if hovering {
-                Button(action: delete) {
-                    Image(systemName: "trash")
+            .buttonStyle(.plain)
+
+            // Two-step, because deleting a chat also erases what the knowledge
+            // base learned from it — and a single mis-click shouldn't do that.
+            if hovering || confirming {
+                Button {
+                    if confirming { delete() } else { confirming = true }
+                } label: {
+                    Image(systemName: confirming ? "trash.fill" : "trash")
                         .font(.system(size: 10))
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(confirming ? Color.red.opacity(0.9)
+                                                    : Color.white.opacity(0.45))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Delete this chat, and forget it")
+                .help(confirming ? "Click again to delete" : "Delete this chat")
+                .transition(.opacity)
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 7)
+        .padding(.vertical, 6)
         .background(RoundedRectangle(cornerRadius: 7)
-            .fill(hovering ? Color.white.opacity(0.06) : .clear))
-        .contentShape(Rectangle())
-        .onTapGesture(perform: open)
-        .onHover { hovering = $0 }
+            .fill(hovering ? Color.white.opacity(0.07) : .clear))
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(.easeOut(duration: 0.12), value: confirming)
+        .onHover { over in
+            hovering = over
+            // Leaving the row cancels a pending confirmation, so it can't sit
+            // armed and catch you later.
+            if !over { confirming = false }
+        }
     }
 }
 
-/// Switches the notch between its two faces.
-///
-/// It sits where the VISOR wordmark used to, in the notch's left shoulder —
-/// the one spot that reads identically in both modes, so the control doesn't
-/// appear to jump when you use it. ⌘1 / ⌘2 do the same thing.
 struct ModeSwitcher: View {
     let mode: VisorMode
     let onSelect: (VisorMode) -> Void
@@ -829,6 +866,7 @@ struct HUDView: View {
     var onExit: () -> Void
 
     @State private var railsIn = false
+    @StateObject private var layout = HUDLayout()
     /// Persisted so the HUD reopens at the density you left it.
     @AppStorage("visor.hudOpacity") private var glass: Double = 0.8
     /// Everything in the HUD scales from this, so it can be read from across
@@ -852,23 +890,31 @@ struct HUDView: View {
                     .stroke(.white.opacity(0.06 + 0.1 * glass), lineWidth: 1))
 
             HStack(alignment: .top, spacing: 18) {
-                // Two panels a side rather than one: the HUD is screen-sized
-                // and a single rail per edge left most of it empty.
                 VStack(spacing: 14) {
-                    rail(title: "Agents") { agentsRail }
-                    rail(title: "What I know") { memoryRail }
+                    ForEach(Array(layout.left.enumerated()), id: \.offset) { index, panel in
+                        HUDPanelSlot(panel: panel, scale: scale) {
+                            layout.set($0, side: .left, index: index)
+                        } content: {
+                            panelContent(panel)
+                        }
+                    }
                 }
-                .frame(width: 220 * scale)
+                .frame(width: 230 * scale)
                 .offset(x: railsIn ? 0 : -140)
                 .opacity(railsIn ? 1 : 0)
 
                 centre
 
                 VStack(spacing: 14) {
-                    rail(title: "Open tasks") { tasksRail }
-                    rail(title: "Recently said") { voiceRail }
+                    ForEach(Array(layout.right.enumerated()), id: \.offset) { index, panel in
+                        HUDPanelSlot(panel: panel, scale: scale) {
+                            layout.set($0, side: .right, index: index)
+                        } content: {
+                            panelContent(panel)
+                        }
+                    }
                 }
-                .frame(width: 240 * scale)
+                .frame(width: 250 * scale)
                 .offset(x: railsIn ? 0 : 140)
                 .opacity(railsIn ? 1 : 0)
             }
@@ -945,38 +991,34 @@ struct HUDView: View {
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: Rails
+    // MARK: Panels
 
-    private func rail<Content: View>(title: String,
-                                     @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title.uppercased())
-                .font(.system(size: 9 * scale, weight: .semibold))
-                .tracking(0.8)
-                .foregroundStyle(.white.opacity(0.35))
-            content()
-            Spacer(minLength: 0)
+    /// Each panel is the real feature, not a view of it.
+    @ViewBuilder
+    private func panelContent(_ panel: HUDPanel) -> some View {
+        switch panel {
+        case .agents:    agentsPanel
+        case .tasks:     HUDTasksPanel(store: store, scale: scale)
+        case .chats:     HUDChatsPanel(chat: chat, scale: scale)
+        case .memory:    memoryPanel
+        case .dictation: dictationPanel
+        case .none:      EmptyView()
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .fill(.white.opacity(0.05)))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .stroke(.white.opacity(0.07), lineWidth: 1))
     }
 
-    private var agentsRail: some View {
+    private var agentsPanel: some View {
         VStack(alignment: .leading, spacing: 3) {
             if chat.chatAgents.isEmpty {
-                Text("No agents yet")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.35))
+                Text("No agents yet.")
+                    .font(.system(size: 11 * scale))
+                    .foregroundStyle(.white.opacity(0.3))
             }
             ForEach(Array(chat.chatAgents.enumerated()), id: \.element.id) { index, agent in
                 Button { chat.use(agent) } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 7) {
                         Circle()
                             .fill(agent.name == chat.agent?.name
-                                  ? Color.orange : Color.white.opacity(0.25))
+                                  ? Color.orange : Color.white.opacity(0.22))
                             .frame(width: 5, height: 5)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(agent.name)
@@ -991,7 +1033,7 @@ struct HUDView: View {
                         Spacer(minLength: 0)
                         if index < 5 {
                             Text("⌘⇧\(index + 1)")
-                                .font(.system(size: 8, design: .monospaced))
+                                .font(.system(size: 8 * scale, design: .monospaced))
                                 .foregroundStyle(.white.opacity(0.22))
                         }
                     }
@@ -1006,38 +1048,15 @@ struct HUDView: View {
         }
     }
 
-    private func symbol(for status: TaskStatus) -> String {
-        switch status {
-        case .open:    return "circle"
-        case .doing:   return "circle.lefthalf.filled"
-        case .blocked: return "exclamationmark.circle"
-        case .done:    return "checkmark.circle.fill"
-        }
-    }
-
-    private func tint(for status: TaskStatus) -> Color {
-        switch status {
-        case .open:    return .white.opacity(0.35)
-        case .doing:   return .orange
-        case .blocked: return .red.opacity(0.8)
-        case .done:    return .green.opacity(0.8)
-        }
-    }
-
-    /// What the graph has learned, densest first.
-    ///
-    /// Entities with their claim counts rather than a node-and-edge drawing:
-    /// a force-directed graph at this size is a hairball, and the useful
-    /// question is "what does it know about" not "how is it shaped".
     @ViewBuilder
-    private var memoryRail: some View {
+    private var memoryPanel: some View {
         if !chat.graph.isEnabled {
             Text("Off. Turn it on in Settings → Memory and Visor starts learning from your conversations.")
                 .font(.system(size: 10 * scale))
                 .foregroundStyle(.white.opacity(0.35))
                 .fixedSize(horizontal: false, vertical: true)
         } else {
-            let top = chat.graph.prominent(limit: 7)
+            let top = chat.graph.prominent(limit: 8)
             if top.isEmpty {
                 Text("Nothing learned yet — it fills in as you talk.")
                     .font(.system(size: 10 * scale))
@@ -1065,60 +1084,22 @@ struct HUDView: View {
         }
     }
 
-    /// The last few things dictated, whether or not they reached a chat.
     @ViewBuilder
-    private var voiceRail: some View {
-        let recent = VoiceLog.recent(limit: 5)
+    private var dictationPanel: some View {
+        let recent = VoiceLog.recent(limit: 6)
         if recent.isEmpty {
             Text("Nothing dictated yet.")
-                .font(.system(size: 10 * scale))
-                .foregroundStyle(.white.opacity(0.35))
+                .font(.system(size: 11 * scale))
+                .foregroundStyle(.white.opacity(0.3))
         } else {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 7) {
                 ForEach(recent) { entry in
                     Text(entry.text)
                         .font(.system(size: 11 * scale))
                         .foregroundStyle(.white.opacity(0.7))
-                        .lineLimit(2)
-                }
-            }
-        }
-    }
-
-    private var tasksRail: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            let open = store.items.filter { $0.isTask && !$0.done }
-            if open.isEmpty {
-                Text("Nothing open")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.35))
-            }
-            ForEach(open.prefix(12)) { item in
-                // Same gestures as the note itself: tap cycles
-                // open -> doing -> blocked, long-press completes. Anything
-                // else would make this a read-only copy of the tasks rather
-                // than the tasks.
-                HStack(alignment: .top, spacing: 8) {
-                    Button { store.cycle(item.id) } label: {
-                        Image(systemName: symbol(for: item.status))
-                            .font(.system(size: 13 * scale))
-                            .foregroundStyle(tint(for: item.status))
-                            // The glyph is 13pt; the hit area is 24. A target
-                            // the size of its icon is a target you miss.
-                            .frame(width: 24 * scale, height: 24 * scale)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-
-                    Text(item.text)
-                        .font(.system(size: 13 * scale))
-                        .foregroundStyle(.white.opacity(0.78))
                         .lineLimit(3)
-                        .padding(.top, 4 * scale)
-                    Spacer(minLength: 0)
+                        .textSelection(.enabled)
                 }
-                .contentShape(Rectangle())
-                .onLongPressGesture(minimumDuration: 0.35) { store.toggleDone(item.id) }
             }
         }
     }
