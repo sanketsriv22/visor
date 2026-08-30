@@ -64,29 +64,57 @@ final class CLIAgentRunner {
             if let environmentKey { env[environmentKey.name] = environmentKey.value }
             task.environment = env
 
-            let pipe = Pipe()
-            task.standardOutput = pipe
-            task.standardError = pipe
+            // Separate pipes, because these carry different things. Agents
+            // write their answer to stdout and their grumbling to stderr —
+            // config warnings, deprecation notices, progress chatter. Merged,
+            // all of that lands in the transcript as if the agent had said it.
+            //
+            // stderr is kept, not discarded: when a run fails it's usually the
+            // only thing that explains why.
+            let out = Pipe()
+            let err = Pipe()
+            task.standardOutput = out
+            task.standardError = err
             self.process = task
+
+            let stderrBuffer = StderrBuffer()
 
             // Read as it comes rather than waiting for exit — the whole point
             // is watching it work.
-            pipe.fileHandleForReading.readabilityHandler = { handle in
+            out.fileHandleForReading.readabilityHandler = { handle in
                 let chunk = handle.availableData
-                guard !chunk.isEmpty else { return }
-                if let text = String(data: chunk, encoding: .utf8) {
-                    continuation.yield(.text(text))
-                }
+                guard !chunk.isEmpty, let text = String(data: chunk, encoding: .utf8) else { return }
+                continuation.yield(.text(text))
+            }
+            err.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                guard !chunk.isEmpty, let text = String(data: chunk, encoding: .utf8) else { return }
+                stderrBuffer.append(text)
             }
 
             task.terminationHandler = { finished in
-                pipe.fileHandleForReading.readabilityHandler = nil
+                out.fileHandleForReading.readabilityHandler = nil
+                err.fileHandleForReading.readabilityHandler = nil
+
                 // Anything buffered between the last read and exit.
-                let rest = pipe.fileHandleForReading.availableData
+                let rest = out.fileHandleForReading.availableData
                 if !rest.isEmpty, let text = String(data: rest, encoding: .utf8) {
                     continuation.yield(.text(text))
                 }
-                continuation.yield(.finished(status: finished.terminationStatus))
+                let restErr = err.fileHandleForReading.availableData
+                if !restErr.isEmpty, let text = String(data: restErr, encoding: .utf8) {
+                    stderrBuffer.append(text)
+                }
+
+                // Only surface stderr when it's the only explanation going.
+                let status = finished.terminationStatus
+                if status != 0 {
+                    let complaint = stderrBuffer.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !complaint.isEmpty {
+                        continuation.yield(.text("\n\n_\(complaint)_"))
+                    }
+                }
+                continuation.yield(.finished(status: status))
                 continuation.finish()
             }
 
@@ -108,5 +136,27 @@ final class CLIAgentRunner {
     func stop() {
         if let process, process.isRunning { process.terminate() }
         process = nil
+    }
+}
+
+/// Collects stderr off the reader thread.
+///
+/// The readability handler runs on a background queue, so the buffer it
+/// appends to needs its own lock — a plain String would be a data race.
+private final class StderrBuffer: @unchecked Sendable {
+    private var storage = ""
+    private let lock = NSLock()
+
+    func append(_ text: String) {
+        lock.lock(); defer { lock.unlock() }
+        // Bounded: a chatty agent shouldn't be able to hold megabytes of
+        // warnings we only ever show a few lines of.
+        guard storage.count < 8_000 else { return }
+        storage += text
+    }
+
+    var text: String {
+        lock.lock(); defer { lock.unlock() }
+        return storage
     }
 }
