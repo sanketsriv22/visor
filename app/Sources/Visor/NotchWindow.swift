@@ -276,23 +276,26 @@ final class NotchController {
                 // isn't drawn, so reframing did nothing except force a redraw
                 // of the whole panel — which flashed the top of the card and
                 // showed the desktop through it for a frame.
-                // The pill is only drawn beside a collapsed notch. While the
-                // card is open, touching ui.listening re-renders the whole root
-                // — and animating it made the card visibly blink at the top.
-                // Nothing there needs to know.
-                guard !self.ui.expanded else {
-                    if self.ui.listening { self.ui.listening = false }
-                    return
-                }
-                if listening {
+                // The extension is the indicator in both states — with the
+                // card open there was previously no sign at all that the mic
+                // was live. Only the *collapsed* window has to grow for it;
+                // when the card is open the panel is already wide enough for
+                // the notch plus the extension, so nothing resizes and nothing
+                // can flash.
+                let needsResize = !self.ui.expanded
+                if listening && needsResize {
                     self.ui.listening = true
                     self.applyFrame(expanded: false)
                 }
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) {
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
                     self.ui.listening = listening
                 }
-                if !listening {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.36) { [weak self] in
+                if !listening && needsResize {
+                    // Long enough for the spring to settle. Shrinking the
+                    // window while the extension is still retracting clips it
+                    // mid-flight, which is what made closing feel abrupt where
+                    // opening didn't.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
                         guard let self, !self.ui.listening, !self.ui.expanded else { return }
                         self.applyFrame(expanded: false)
                     }

@@ -27,6 +27,17 @@ struct StickyRootView: View {
                 // between them, so switching modes is a pure SwiftUI
                 // animation: the card grows sideways instead of the window
                 // snapping to a new size under it.
+                if ui.listening && !ui.mode.isFullScreen {
+                    // Beside the notch, above the card. The expanded panel is
+                    // already wider than the notch plus the extension, so this
+                    // needs no resize — it just sits in space the window
+                    // already occupies.
+                    ListeningPill(voice: chat.voice, height: ui.trueNotch.height)
+                        .offset(x: (ui.trueNotch.width + NotchController.listeningPillWidth) / 2
+                                   - NotchController.listeningPillOverlap / 2)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                        .zIndex(1)
+                }
                 if ui.mode.isFullScreen {
                     HUDView(chat: chat, store: store, namespace: morph,
                             notchWidth: ui.notchSize.width,
@@ -60,9 +71,10 @@ struct StickyRootView: View {
                     NotchStrip(size: ui.notchSize, expanded: false, suppressHover: ui.settling)
                     if ui.listening {
                         ListeningPill(voice: chat.voice, height: ui.trueNotch.height)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .leading).combined(with: .opacity),
-                                removal: .opacity))
+                            // Symmetric: it retracts back under the notch the
+                            // way it came out. A plain fade on removal is what
+                            // made closing feel abrupt next to opening.
+                            .transition(.move(edge: .leading).combined(with: .opacity))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
