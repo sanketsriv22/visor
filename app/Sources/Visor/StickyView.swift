@@ -562,25 +562,34 @@ private struct StickyCard: View {
     private var notchBand: some View {
         HStack(spacing: 0) {
             Spacer(minLength: 0)
+            // Switcher against the notch, count pushed to the outer edge.
+            //
+            // The shoulder is a fixed width anchored to the notch, so whatever
+            // sits at its *outer* end is a fixed distance from the notch and a
+            // varying distance from the card edge — which left the switcher
+            // stranded in open space on the wider chat card. Hugging the notch
+            // puts it in the same place on both faces, whatever the card does.
             HStack(spacing: 4) {
-                ModeSwitcher(mode: mode, onSelect: onMode)
-                    .fixedSize()
-                    .layoutPriority(1)
-                Spacer(minLength: 4)
                 Text("\(store.openTaskCount) open")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(store.openTaskCount > 0 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                     .lineLimit(1)
-            }
-            .frame(width: NotchController.shoulderWidth, alignment: .leading)
-            Spacer(minLength: 0)
-                .frame(width: notchWidth + NotchController.notchClearance)
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                if store.isActiveNoteShared { sharedBeacon }
-                beamButton
+                Spacer(minLength: 4)
+                ModeSwitcher(mode: mode, onSelect: onMode)
+                    .fixedSize()
+                    .layoutPriority(1)
             }
             .frame(width: NotchController.shoulderWidth, alignment: .trailing)
+            Spacer(minLength: 0)
+                .frame(width: notchWidth + NotchController.notchClearance)
+            // Same reasoning on this side: hug the notch rather than the
+            // shoulder's outer edge.
+            HStack(spacing: 8) {
+                if store.isActiveNoteShared { sharedBeacon }
+                beamButton
+                Spacer(minLength: 0)
+            }
+            .frame(width: NotchController.shoulderWidth, alignment: .leading)
             Spacer(minLength: 0)
         }
         .frame(height: topInset)

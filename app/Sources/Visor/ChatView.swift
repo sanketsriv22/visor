@@ -50,18 +50,20 @@ struct ChatCard: View {
     private var notchBand: some View {
         HStack(spacing: 0) {
             Spacer(minLength: 0)
+            // Against the notch, matching the note card — the shoulder is a
+            // fixed width anchored to the notch, so anything at its outer end
+            // floats free of the card edge once the card is wider.
             HStack(spacing: 4) {
+                Spacer(minLength: 0)
                 ModeSwitcher(mode: mode, onSelect: onMode)
                     .fixedSize()
-                Spacer(minLength: 0)
             }
-            .frame(width: NotchController.shoulderWidth, alignment: .leading)
+            .frame(width: NotchController.shoulderWidth, alignment: .trailing)
             Spacer(minLength: 0)
                 .frame(width: notchWidth + NotchController.notchClearance)
             // 20pt slots with no spacing: five of these have to fit the same
             // 106pt shoulder the note card uses.
             HStack(spacing: 0) {
-                Spacer(minLength: 0)
                 if chat.isStreaming {
                     Button(action: chat.stop) {
                         Image(systemName: "stop.circle.fill")
@@ -80,8 +82,9 @@ struct ChatCard: View {
                 headerButton("arrow.up.left.and.arrow.down.right", "Expand to HUD — ⌘⇧M",
                              action: onHUD)
                 overflowMenu.frame(width: 20)
+                Spacer(minLength: 0)
             }
-            .frame(width: NotchController.shoulderWidth, alignment: .trailing)
+            .frame(width: NotchController.shoulderWidth, alignment: .leading)
             Spacer(minLength: 0)
         }
         .frame(height: topInset)
