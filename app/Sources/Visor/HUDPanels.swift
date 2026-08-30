@@ -175,6 +175,7 @@ private struct HUDTaskRow: View {
     @ObservedObject var store: NotesStore
 
     @State private var hovering = false
+    @State private var confirming = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -232,7 +233,11 @@ private struct HUDTaskRow: View {
             }
         }
         .padding(.vertical, 1)
-        .onHover { hovering = $0 }
+        .onHover { over in
+            hovering = over
+            // Leaving the row disarms it, so it can't sit primed and catch you.
+            if !over { confirming = false }
+        }
     }
 
     private var symbol: String {
@@ -309,16 +314,34 @@ private struct HUDChatRow: View {
             }
             .buttonStyle(.plain)
 
-            if hovering {
-                Button(action: delete) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 10 * scale))
-                        .foregroundStyle(.white.opacity(0.4))
-                        .frame(width: 20 * scale, height: 20 * scale)
-                        .contentShape(Rectangle())
+            if hovering || confirming {
+                // Two steps, because deleting a chat also erases what the
+                // knowledge base learned from it. The armed state says
+                // "Delete?" rather than only turning red — a colour change
+                // alone reads as a button that did nothing.
+                Button {
+                    if confirming { delete() } else { confirming = true }
+                } label: {
+                    Group {
+                        if confirming {
+                            Text("Delete?")
+                                .font(.system(size: 10 * scale, weight: .semibold))
+                                .foregroundStyle(.red.opacity(0.95))
+                        } else {
+                            Image(systemName: "trash")
+                                .font(.system(size: 10 * scale))
+                                .foregroundStyle(.white.opacity(0.45))
+                        }
+                    }
+                    .frame(height: 20 * scale)
+                    .padding(.horizontal, confirming ? 6 : 0)
+                    .frame(minWidth: 20 * scale)
+                    .background(RoundedRectangle(cornerRadius: 5)
+                        .fill(confirming ? Color.red.opacity(0.16) : .clear))
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Delete this chat and forget what it taught Visor")
+                .help(confirming ? "Click again to delete" : "Delete this chat")
             }
         }
         .padding(.vertical, 2)

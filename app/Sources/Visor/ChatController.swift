@@ -46,6 +46,8 @@ final class ChatController: ObservableObject {
     private unowned let ai: AIRunner
     private var streamTask: Task<Void, Never>?
     private var agentObserver: AnyCancellable?
+    private var storeObserver: AnyCancellable?
+    private var graphObserver: AnyCancellable?
     private var cliRunner: CLIAgentRunner?
     /// Set by the notch controller: is the composer on screen right now?
     var isComposerVisible: (() -> Bool)?
@@ -71,6 +73,17 @@ final class ChatController: ObservableObject {
         // which observes this object, never re-rendered. That's why the
         // controls looked dead.
         agentObserver = ai.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+
+        // Same reason, and the reason deleting a chat looked broken: the views
+        // observe this controller, not the store inside it. Removing a chat
+        // updated store.summaries and nothing told SwiftUI, so the row stayed
+        // on screen even though the file was already gone.
+        storeObserver = store.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        graphObserver = graph.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
 

@@ -455,6 +455,7 @@ private struct HistoryRow: View {
     let delete: () -> Void
 
     @State private var hovering = false
+    @State private var confirming = false
 
     /// Two buttons side by side, not a tap gesture with a button inside it.
     ///
@@ -488,16 +489,34 @@ private struct HistoryRow: View {
 
             // Two-step, because deleting a chat also erases what the knowledge
             // base learned from it — and a single mis-click shouldn't do that.
-            if hovering {
-                Button(action: delete) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.white.opacity(0.45))
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
+            if hovering || confirming {
+                // Two steps, because deleting a chat also erases what the
+                // knowledge base learned from it. The armed state says
+                // "Delete?" rather than only turning red — a colour change
+                // alone reads as a button that did nothing.
+                Button {
+                    if confirming { delete() } else { confirming = true }
+                } label: {
+                    Group {
+                        if confirming {
+                            Text("Delete?")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.red.opacity(0.95))
+                        } else {
+                            Image(systemName: "trash")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.white.opacity(0.45))
+                        }
+                    }
+                    .frame(height: 22)
+                    .padding(.horizontal, confirming ? 6 : 0)
+                    .frame(minWidth: 22)
+                    .background(RoundedRectangle(cornerRadius: 5)
+                        .fill(confirming ? Color.red.opacity(0.16) : .clear))
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Delete this chat and forget what it taught Visor")
+                .help(confirming ? "Click again to delete" : "Delete this chat")
                 .transition(.opacity)
             }
         }
@@ -506,7 +525,11 @@ private struct HistoryRow: View {
         .background(RoundedRectangle(cornerRadius: 7)
             .fill(hovering ? Color.white.opacity(0.07) : .clear))
         .animation(.easeOut(duration: 0.12), value: hovering)
-        .onHover { hovering = $0 }
+        .onHover { over in
+            hovering = over
+            // Leaving the row disarms it, so it can't sit primed and catch you.
+            if !over { confirming = false }
+        }
     }
 }
 
