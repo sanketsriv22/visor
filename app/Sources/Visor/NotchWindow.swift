@@ -229,7 +229,20 @@ final class NotchController {
         // exclusive per event (an event goes to our app or elsewhere, never
         // both), so there's no double-toggle.
         localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-            guard let self, event.window === self.panel else { return event }
+            guard let self else { return event }
+            // Clicks land on the HUD's window while it's up, so the card's
+            // panel never sees them. Catch the notch there too, or the notch
+            // simply stops working in the HUD.
+            if let hud = self.hudPanel, event.window === hud, self.ui.mode.isFullScreen {
+                let inTopBand = event.locationInWindow.y >= hud.frame.height - self.ui.trueNotch.height
+                let dxFromCentre = abs(event.locationInWindow.x - hud.frame.width / 2)
+                if inTopBand && dxFromCentre <= self.ui.trueNotch.width / 2 {
+                    self.setMode(.chat)
+                    return nil
+                }
+                return event
+            }
+            guard event.window === self.panel else { return event }
             if !self.ui.expanded {
                 self.toggle()
                 return nil
@@ -248,6 +261,9 @@ final class NotchController {
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
             guard let self, let screen = self.targetScreen else { return }
             let loc = NSEvent.mouseLocation
+            // In the HUD the click is our own window's, so the local monitor
+            // has it; acting here as well would toggle twice.
+            if self.ui.mode.isFullScreen { return }
             if self.ui.expanded {
                 // Close when the notch is clicked. The very top of the notch
                 // routes to the menu bar, so the local monitor never sees it —
@@ -615,6 +631,17 @@ final class NotchController {
     }
 
     func toggle() {
+        // From the HUD, the notch closes the HUD rather than the card
+        // underneath it.
+        //
+        // Collapsing instead left the two out of step: the HUD's window stayed
+        // up while ui.expanded went false, which silently disabled ⌘⇧M, ⌘⇧I and
+        // the mode switcher — all of which guard on the notch being open — and
+        // made the card panel take key focus back off the HUD.
+        if ui.mode.isFullScreen {
+            setMode(.chat)
+            return
+        }
         if ui.expanded {
             store.prepareToHide()  // prune blank rows + save (discards the note if now empty)
             // Suppress the notch hover popup until the collapse + window resize
