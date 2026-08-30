@@ -421,6 +421,21 @@ private struct AgentRow: View {
                     }))
                     .textFieldStyle(.roundedBorder)
             }
+            HStack(spacing: 8) {
+                fieldLabel("Model")
+                TextField("optional — passed as --model, e.g. fable-5", text: Binding(
+                    get: { provider.model ?? "" },
+                    set: { value in
+                        var p = provider
+                        p.model = value.isEmpty ? nil : value
+                        ai.upsert(p)
+                    }))
+                    .textFieldStyle(.roundedBorder)
+            }
+            Text("Free text, not OpenRouter's list — a CLI agent names its own models. Leave blank to use whatever it defaults to.")
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Toggle(isOn: Binding(
                 get: { provider.runsInNotch ?? false },
                 set: { value in var p = provider; p.runsInNotch = value; ai.upsert(p) })) {

@@ -287,22 +287,25 @@ struct ChatCard: View {
             // The model belongs here, not two rows up: it's a decision you
             // make about the message you're writing.
             HStack(spacing: 6) {
-                InlineModelPicker(chat: chat)
-                EffortPicker(chat: chat)
-                FastToggle(chat: chat)
-
-                if chat.isStreaming {
-                    DotMatrixIndicator(size: 11)
-                    Text("working")
+                // Only for hosted agents: a local CLI agent picks its model
+                // through its own arguments, so offering OpenRouter's
+                // catalogue here was a control that silently did nothing.
+                if chat.agent?.isChat ?? false {
+                    InlineModelPicker(chat: chat)
+                    EffortPicker(chat: chat)
+                    FastToggle(chat: chat)
+                } else if let model = chat.agent?.model, !model.isEmpty {
+                    Text(model)
                         .font(.system(size: 9))
-                        .foregroundStyle(.white.opacity(0.4))
+                        .foregroundStyle(.white.opacity(0.45))
+                        .lineLimit(1)
                 }
 
+                // No "working" here and no keyboard hint. The transcript
+                // already shows the agent thinking, where the reply will
+                // appear; saying it twice is noise, and the ↩ / ⌘. glyph read
+                // as a second button rather than a hint.
                 Spacer(minLength: 0)
-
-                Text(chat.isStreaming ? "⌘." : "↩")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.22))
 
                 Button(action: chat.isStreaming ? chat.stop : chat.send) {
                     Image(systemName: chat.isStreaming ? "stop.circle.fill" : "arrow.up.circle.fill")
@@ -439,7 +442,7 @@ struct MessageRow: View {
                         // message. No name, no empty bubble text — just the
                         // thing that says work is happening, at a size you can
                         // read without leaning in.
-                        DotMatrixIndicator(size: 30 * scale)
+                        DotMatrixIndicator(size: 22 * scale)
                             .padding(.vertical, 6)
                             .padding(.horizontal, 4)
                     } else {
@@ -724,12 +727,15 @@ struct DotMatrixIndicator: View {
     var beat: Double = 0.16
 
     private let columns = 3
+    /// Dot diameter as a fraction of the whole. Bigger dots at a small size
+    /// read as blobs rather than a matrix.
+    private let dotRatio: CGFloat = 7
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: beat)) { context in
             let step = Int(context.date.timeIntervalSinceReferenceDate / beat)
             let ranks = Self.ranking(for: step)
-            let dot = size / 5
+            let dot = size / dotRatio
 
             VStack(spacing: dot / 2) {
                 ForEach(0..<columns, id: \.self) { row in

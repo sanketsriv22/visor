@@ -400,6 +400,12 @@ final class ChatController: ObservableObject {
         }
 
         var arguments = agent.args
+        // Chosen model, if the user set one. Without this the picker changed a
+        // stored value and nothing else — you'd select one model and be
+        // answered by another.
+        if let model = agent.model, !model.isEmpty {
+            arguments += ["--model", model]
+        }
         if let session = conversation.cliSessionID {
             arguments += ["--resume", session]
         } else {
