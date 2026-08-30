@@ -103,7 +103,7 @@ struct SettingsView: View {
                                     pushToTalk: pushToTalk)
         case .workspace: WorkspacePane(ai: ai)
         case .mcp:       MCPPane()
-        case .memory:    MemoryPane(chat: chat)
+        case .memory:    MemoryPane(chat: chat, catalog: catalog)
         }
     }
 }
@@ -606,7 +606,12 @@ private struct WorkspacePane: View {
 
 private struct MemoryPane: View {
     @ObservedObject var chat: ChatController
+    @ObservedObject var catalog: ModelCatalog
     @State private var voiceEntries: [VoiceEntry] = []
+    // Mirrors of the graph's stored settings, purely so toggling one
+    // re-renders this pane — the graph isn't the observed object here.
+    @State private var graphOn = false
+    @State private var graphModel = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -632,6 +637,10 @@ private struct MemoryPane: View {
 
             Divider()
 
+            graphSection
+
+            Divider()
+
             voiceLogSection
 
             Divider()
@@ -652,6 +661,42 @@ private struct MemoryPane: View {
                 Text("One JSON file per chat, next to your notes — so a corrupt chat costs that chat, not the archive.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Facts extracted from conversations.
+    private var graphSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: Binding(
+                get: { chat.graph.isEnabled },
+                set: { chat.graph.isEnabled = $0; graphOn = $0 })) {
+                    Text("Build a knowledge graph").font(.headline)
+                }
+                .toggleStyle(.switch)
+
+            Text("After each exchange, a cheap model pulls out durable facts — who people are, what projects exist, what you prefer — and stores them as connected claims. Recall then walks those connections instead of matching wording, so asking about someone surfaces what's true of them rather than sentences that sound similar.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if chat.graph.isEnabled {
+                HStack(spacing: 8) {
+                    Text("Extract with").font(.caption).foregroundStyle(.secondary)
+                    ModelPickerButton(catalog: catalog,
+                                      selection: chat.graph.extractionModel) { id in
+                        chat.graph.extractionModel = id
+                        graphModel = id
+                    }
+                }
+                Text("Costs one extra request per exchange. Pick something cheap and fast — this wants to be quick, not clever.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 24) {
+                    stat("\(chat.graph.nodes.count)", "things")
+                    stat("\(chat.graph.edges.count)", "claims")
+                }
+                .padding(.top, 2)
             }
         }
     }
@@ -694,7 +739,11 @@ private struct MemoryPane: View {
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .onAppear { voiceEntries = VoiceLog.recent(limit: 30) }
+        .onAppear {
+            voiceEntries = VoiceLog.recent(limit: 30)
+            graphOn = chat.graph.isEnabled
+            graphModel = chat.graph.extractionModel
+        }
     }
 
     private static let stamp: DateFormatter = {

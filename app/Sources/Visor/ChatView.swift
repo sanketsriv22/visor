@@ -776,17 +776,25 @@ struct HUDView: View {
                     .stroke(.white.opacity(0.06 + 0.1 * glass), lineWidth: 1))
 
             HStack(alignment: .top, spacing: 18) {
-                rail(title: "Agents") { agentsRail }
-                    .frame(width: 210 * scale)
-                    .offset(x: railsIn ? 0 : -140)
-                    .opacity(railsIn ? 1 : 0)
+                // Two panels a side rather than one: the HUD is screen-sized
+                // and a single rail per edge left most of it empty.
+                VStack(spacing: 14) {
+                    rail(title: "Agents") { agentsRail }
+                    rail(title: "What I know") { memoryRail }
+                }
+                .frame(width: 220 * scale)
+                .offset(x: railsIn ? 0 : -140)
+                .opacity(railsIn ? 1 : 0)
 
                 centre
 
-                rail(title: "Open tasks") { tasksRail }
-                    .frame(width: 230 * scale)
-                    .offset(x: railsIn ? 0 : 140)
-                    .opacity(railsIn ? 1 : 0)
+                VStack(spacing: 14) {
+                    rail(title: "Open tasks") { tasksRail }
+                    rail(title: "Recently said") { voiceRail }
+                }
+                .frame(width: 240 * scale)
+                .offset(x: railsIn ? 0 : 140)
+                .opacity(railsIn ? 1 : 0)
             }
             .padding(.horizontal, 22)
             .padding(.top, topInset + 16)
@@ -935,6 +943,67 @@ struct HUDView: View {
         case .doing:   return .orange
         case .blocked: return .red.opacity(0.8)
         case .done:    return .green.opacity(0.8)
+        }
+    }
+
+    /// What the graph has learned, densest first.
+    ///
+    /// Entities with their claim counts rather than a node-and-edge drawing:
+    /// a force-directed graph at this size is a hairball, and the useful
+    /// question is "what does it know about" not "how is it shaped".
+    @ViewBuilder
+    private var memoryRail: some View {
+        if !chat.graph.isEnabled {
+            Text("Off. Turn it on in Settings → Memory and Visor starts learning from your conversations.")
+                .font(.system(size: 10 * scale))
+                .foregroundStyle(.white.opacity(0.35))
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            let top = chat.graph.prominent(limit: 7)
+            if top.isEmpty {
+                Text("Nothing learned yet — it fills in as you talk.")
+                    .font(.system(size: 10 * scale))
+                    .foregroundStyle(.white.opacity(0.35))
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(top, id: \.node.id) { entry in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(entry.node.name)
+                                .font(.system(size: 12 * scale))
+                                .foregroundStyle(.white.opacity(0.8))
+                                .lineLimit(1)
+                            Text(entry.node.kind)
+                                .font(.system(size: 8 * scale))
+                                .foregroundStyle(.white.opacity(0.3))
+                            Spacer(minLength: 0)
+                            Text("\(entry.degree)")
+                                .font(.system(size: 9 * scale, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.3))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The last few things dictated, whether or not they reached a chat.
+    @ViewBuilder
+    private var voiceRail: some View {
+        let recent = VoiceLog.recent(limit: 5)
+        if recent.isEmpty {
+            Text("Nothing dictated yet.")
+                .font(.system(size: 10 * scale))
+                .foregroundStyle(.white.opacity(0.35))
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(recent) { entry in
+                    Text(entry.text)
+                        .font(.system(size: 11 * scale))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(2)
+                }
+            }
         }
     }
 
