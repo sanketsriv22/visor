@@ -407,6 +407,7 @@ final class NotchController {
     /// ChatController pause the turn and ask.
     private func registerShellTool() {
         let ai = self.ai
+        registerDelegationTool()
         ToolRegistry.shared.register(ClosureTool(
             name: "run_shell",
             toolDescription: """
@@ -429,6 +430,88 @@ final class NotchController {
                 return "No command given."
             }
             return await Self.runCommand(command, in: ai.workDirURL)
+        })
+    }
+
+    /// Let one agent hand work to another.
+    ///
+    /// Deliberately general rather than a Claude-Code-shaped hole: it routes to
+    /// whatever the user has configured, by name, so a fast conversational
+    /// model can pass a repository task to a coding agent and keep talking —
+    /// and the same mechanism works for any pair.
+    ///
+    /// Visor adds no arguments of its own. A delegated agent runs exactly as
+    /// the user set it up, because widening another agent's permissions on
+    /// someone's behalf isn't Visor's decision. Every delegation goes through
+    /// the approval gate, showing which agent and what task.
+    private func registerDelegationTool() {
+        let ai = self.ai
+        let client = OpenRouterClient()
+        ToolRegistry.shared.register(ClosureTool(
+            name: "ask_agent",
+            toolDescription: """
+                Hand a task to one of the user's other agents and return what it \
+                says. Use it when another agent is better suited — a coding \
+                agent for anything needing the repository, for instance. Call \
+                list_agents first if you don't know what's available.
+                """,
+            parameters: [
+                "type": "object",
+                "properties": [
+                    "agent": ["type": "string", "description": "Name of the agent to ask"],
+                    "task": ["type": "string", "description": "What it should do, in one instruction"],
+                ],
+                "required": ["agent", "task"],
+                "additionalProperties": false,
+            ],
+            needsApproval: true
+        ) { arguments in
+            guard let name = arguments["agent"] as? String,
+                  let task = (arguments["task"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines), !task.isEmpty else {
+                return "Need both an agent name and a task."
+            }
+            guard let agent = ai.providers.first(where: {
+                $0.name.caseInsensitiveCompare(name) == .orderedSame
+            }) else {
+                let known = ai.providers.map(\.name).joined(separator: ", ")
+                return "No agent called \"\(name)\". Available: \(known)."
+            }
+
+            if agent.isChat {
+                guard let reply = try? await client.complete(
+                    messages: [ChatMessage(role: .user, content: task)],
+                    model: agent.model ?? ChatController.defaultModel,
+                    system: agent.systemPrompt)
+                else { return "\(agent.name) couldn't be reached." }
+                return reply
+            }
+
+            // A local CLI agent, run exactly as configured.
+            let key = agent.apiKeyEnv.flatMap { env in
+                Keychain.get(agent.keyAccount).map { (name: env, value: $0) }
+            }
+            var collected = ""
+            for await event in CLIAgentRunner().run(
+                command: agent.command, arguments: agent.args, prompt: task,
+                directory: ai.workDirURL, environmentKey: key) {
+                if case .text(let chunk) = event { collected += chunk }
+            }
+            let trimmed = collected.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? "\(agent.name) produced no output." : trimmed
+        })
+
+        ToolRegistry.shared.register(ClosureTool(
+            name: "list_agents",
+            toolDescription: "List the user's other agents, so you know who you can hand work to.",
+            parameters: ["type": "object", "properties": [:], "additionalProperties": false]
+        ) { _ in
+            let rows = ai.providers.map { agent -> String in
+                let what = agent.isChat ? (agent.model ?? "model")
+                                        : "local: \(agent.command)"
+                return "- \(agent.name) (\(what))"
+            }
+            return rows.isEmpty ? "No agents configured." : rows.joined(separator: "\n")
         })
     }
 

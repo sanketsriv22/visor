@@ -175,7 +175,6 @@ private struct HUDTaskRow: View {
     @ObservedObject var store: NotesStore
 
     @State private var hovering = false
-    @State private var confirming = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -233,11 +232,7 @@ private struct HUDTaskRow: View {
             }
         }
         .padding(.vertical, 1)
-        .onHover { over in
-            hovering = over
-            // Leaving the row disarms it, so it can't sit primed and catch you.
-            if !over { confirming = false }
-        }
+        .onHover { hovering = $0 }
     }
 
     private var symbol: String {
@@ -289,6 +284,7 @@ private struct HUDChatRow: View {
     let delete: () -> Void
 
     @State private var hovering = false
+    @State private var confirming = false
 
     var body: some View {
         HStack(spacing: 6) {
