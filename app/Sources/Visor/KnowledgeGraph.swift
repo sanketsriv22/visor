@@ -157,12 +157,20 @@ final class KnowledgeGraph: ObservableObject {
             degree[edge.from, default: 0] += 1
             degree[edge.to, default: 0] += 1
         }
-        return nodes.values
-            .map { ($0, degree[$0.id] ?? 0) }
-            .filter { $0.1 > 0 }
-            .sorted { $0.1 == $1.1 ? $0.0.lastSeen > $1.0.lastSeen : $0.1 > $1.1 }
-            .prefix(limit)
-            .map { (node: $0.0, degree: $0.1) }
+        // Written out rather than chained: map/filter/sorted/prefix over
+        // anonymous tuples is more than the type-checker will infer in
+        // reasonable time, and it fails the build rather than being slow.
+        var ranked: [(node: MemoryNode, degree: Int)] = []
+        for node in nodes.values {
+            let count = degree[node.id] ?? 0
+            if count > 0 { ranked.append((node: node, degree: count)) }
+        }
+        ranked.sort { first, second in
+            first.degree == second.degree
+                ? first.node.lastSeen > second.node.lastSeen
+                : first.degree > second.degree
+        }
+        return Array(ranked.prefix(limit))
     }
 
     func neighbours(of id: String) -> [MemoryEdge] {
