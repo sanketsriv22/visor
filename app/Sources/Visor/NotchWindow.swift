@@ -281,9 +281,13 @@ final class NotchController {
                     self.ui.listening = true
                     self.applyFrame(expanded: false)
                 }
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
-                    self.ui.listening = listening
-                }
+                // Set plainly, with no withAnimation. A global animation
+                // transaction animates *every* view that changes as a result,
+                // not just the one being shown — which is why starting
+                // dictation flashed the whole card in chat mode and flickered
+                // the task count in notes mode. The pill scopes its own
+                // animation to this value instead.
+                self.ui.listening = listening
                 if !listening && needsResize {
                     // Long enough for the spring to settle. Shrinking the
                     // window while the extension is still retracting clips it

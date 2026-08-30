@@ -23,17 +23,22 @@ struct StickyRootView: View {
                 // between them, so switching modes is a pure SwiftUI
                 // animation: the card grows sideways instead of the window
                 // snapping to a new size under it.
-                if ui.listening && !ui.mode.isFullScreen {
-                    // Beside the notch, above the card. The expanded panel is
-                    // already wider than the notch plus the extension, so this
-                    // needs no resize — it just sits in space the window
-                    // already occupies.
-                    ListeningPill(voice: chat.voice, height: ui.trueNotch.height)
-                        .offset(x: (ui.trueNotch.width + NotchController.listeningPillWidth) / 2
-                                   - NotchController.listeningPillOverlap / 2)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                        .zIndex(1)
+                ZStack(alignment: .top) {
+                    if ui.listening && !ui.mode.isFullScreen {
+                        // Beside the notch, above the card. The expanded panel
+                        // is already wider than the notch plus the extension,
+                        // so this needs no resize — it sits in space the window
+                        // already occupies.
+                        ListeningPill(voice: chat.voice, height: ui.trueNotch.height)
+                            .offset(x: (ui.trueNotch.width + NotchController.listeningPillWidth) / 2
+                                       - NotchController.listeningPillOverlap / 2)
+                            .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
                 }
+                // Scoped here so showing the pill animates the pill, and
+                // nothing else in the card redraws with it.
+                .animation(.spring(response: 0.34, dampingFraction: 0.86), value: ui.listening)
+                .zIndex(1)
                 if ui.mode.isFullScreen {
                     HUDView(chat: chat, store: store, namespace: morph,
                             notchWidth: ui.notchSize.width,
@@ -73,6 +78,7 @@ struct StickyRootView: View {
                             .transition(.move(edge: .leading).combined(with: .opacity))
                     }
                 }
+                .animation(.spring(response: 0.34, dampingFraction: 0.86), value: ui.listening)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -575,6 +581,8 @@ private struct StickyCard: View {
                     .fixedSize()
                     .layoutPriority(1)
             }
+            // Swapping the band left the count flush against the card's edge.
+            .padding(.leading, 12)
             .frame(width: NotchController.shoulderWidth, alignment: .trailing)
             Spacer(minLength: 0)
                 .frame(width: notchWidth + NotchController.notchClearance)
