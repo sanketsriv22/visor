@@ -26,6 +26,11 @@ jobs:
     # to. The package itself stays on Swift 5 language mode.
     runs-on: macos-15
     timeout-minutes: 40
+    env:
+      # The secrets context can't be used in a step's `if:`, so presence is
+      # resolved once here and the steps test this instead. Forks and anyone
+      # without the certificate still get a working ad-hoc build.
+      HAS_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -84,7 +89,7 @@ jobs:
       # every install. Notarization is only needed to *distribute*, and takes
       # minutes, so it's kept off the per-push path.
       - name: Import signing certificate
-        if: ${{ secrets.MACOS_CERT_P12 != '' }}
+        if: env.HAS_CERT == 'true'
         env:
           CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -109,7 +114,7 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN"
 
       - name: Sign
-        if: ${{ secrets.MACOS_CERT_P12 != '' }}
+        if: env.HAS_CERT == 'true'
         run: ./scripts/sign-and-notarize.sh --skip-notarize
 
       # ditto, not zip: an .app bundle contains symlinks (Sparkle.framework's
@@ -121,7 +126,7 @@ jobs:
       # Only on demand: notarization is a round trip to Apple measured in
       # minutes, and a signed build is already enough for testing.
       - name: Notarize and build DMG
-        if: ${{ github.event_name == 'workflow_dispatch' && secrets.MACOS_CERT_P12 != '' }}
+        if: github.event_name == 'workflow_dispatch' && env.HAS_CERT == 'true'
         env:
           NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
           NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
@@ -129,7 +134,7 @@ jobs:
         run: ./scripts/sign-and-notarize.sh --dmg
 
       - name: Upload DMG
-        if: ${{ github.event_name == 'workflow_dispatch' && secrets.MACOS_CERT_P12 != '' }}
+        if: github.event_name == 'workflow_dispatch' && env.HAS_CERT == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Visor-dmg
