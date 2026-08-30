@@ -546,8 +546,13 @@ private struct StickyCard: View {
                 if store.isActiveNoteShared { sharedBeacon }
                 beamButton
             }
-            .frame(width: NotchController.shoulderWidth, alignment: .trailing)
+            // Padding inside the fixed width, never outside it. Applied
+            // after .frame this made the shoulder 116pt against the chat
+            // card's 106 — and since the band is a centred assembly, ten extra
+            // points on the right shifted everything left, so the mode
+            // switcher moved when you swapped faces.
             .padding(.trailing, 10)
+            .frame(width: NotchController.shoulderWidth, alignment: .trailing)
             Spacer(minLength: 0)
         }
         .frame(height: topInset)
@@ -1314,14 +1319,12 @@ struct HUDRootView: View {
     var body: some View {
         ZStack(alignment: .top) {
             if ui.mode.isFullScreen {
+                // The transitions live on HUDView's own layers, so the glass
+                // can fade while the content scales.
                 HUDView(chat: chat, store: store,
                         notchWidth: ui.notchSize.width,
                         topInset: ui.notchSize.height,
                         onExit: onExit)
-                    // Out of the notch and back into it — the notch is the
-                    // screen's top centre, which is what .top anchors to.
-                    .transition(.scale(scale: 0.04, anchor: .top)
-                        .combined(with: .opacity))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
