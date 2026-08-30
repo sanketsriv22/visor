@@ -180,7 +180,7 @@ final class ChatController: ObservableObject {
         chatAgents.first { $0.name == conversation.agentName } ?? chatAgents.first
     }
 
-    /// Select the nth configured agent (⌘⇧1…5). Ignored when there aren't
+    /// Select the nth configured agent (⌘⌥1…5). Ignored when there aren't
     /// that many, so the shortcut is harmless rather than surprising.
     func useAgent(at index: Int) {
         guard chatAgents.indices.contains(index) else { return }

@@ -128,7 +128,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pushToTalk.onHoldEnd = { [weak self] in self?.controller?.endDictation() }
         pushToTalk.onToggle = { [weak self] in self?.controller?.toggleDictation() }
         for (i, key) in Shortcut.numberKeys.enumerated() {
-            register("⌘⇧\(i + 1)", key) { [weak self] in self?.controller?.selectAgent(i) }
+            register("⌘⌥\(i + 1)", key, modifiers: Shortcut.commandOption) { [weak self] in
+                self?.controller?.selectAgent(i)
+            }
         }
 
         // The notch asks for Settings (e.g. from "no agents yet").
@@ -412,8 +414,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// Bind one global shortcut, reporting the combinations we couldn't get.
-    private func register(_ label: String, _ keyCode: UInt32, _ action: @escaping () -> Void) {
-        if let hotKey = HotKey(keyCode: keyCode, modifiers: Shortcut.commandShift, action: action) {
+    private func register(_ label: String, _ keyCode: UInt32,
+                          modifiers: UInt32 = Shortcut.commandShift,
+                          _ action: @escaping () -> Void) {
+        if let hotKey = HotKey(keyCode: keyCode, modifiers: modifiers, action: action) {
             hotKeys.append(hotKey)
         } else {
             NSLog("[Visor] Couldn't register \(label) — another app already owns it.")

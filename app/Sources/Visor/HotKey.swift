@@ -82,6 +82,10 @@ enum Shortcut {
     static let iKey = UInt32(kVK_ANSI_I)
     static let vKey = UInt32(kVK_ANSI_V)
     static let commandShift = UInt32(cmdKey | shiftKey)
+    /// Agent shortcuts use this instead of ⌘⇧, which macOS owns for
+    /// screenshots on 3, 4 and 5. RegisterEventHotKey happily takes them and
+    /// shadows the system, so Visor was quietly breaking screenshots.
+    static let commandOption = UInt32(cmdKey | optionKey)
 
     /// Number-row 1…5, for picking an agent. Carbon key codes aren't
     /// contiguous across the number row, so they're listed rather than derived.

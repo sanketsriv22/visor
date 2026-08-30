@@ -628,7 +628,7 @@ private struct WorkspacePane: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("⌘⇧I swaps between notes and chat.")
                     Text("⌘⇧M expands chat into the full-screen HUD.")
-                    Text("⌘⇧1–5 jump straight to an agent.")
+                    Text("⌘⌥1–5 jump straight to an agent.")
                 }
                 .font(.caption).foregroundStyle(.secondary)
             }

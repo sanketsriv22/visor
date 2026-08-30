@@ -1115,7 +1115,7 @@ struct HUDView: View {
                         }
                         Spacer(minLength: 0)
                         if index < 5 {
-                            Text("⌘⇧\(index + 1)")
+                            Text("⌘⌥\(index + 1)")
                                 .font(.system(size: 8 * scale, design: .monospaced))
                                 .foregroundStyle(.white.opacity(0.22))
                         }
