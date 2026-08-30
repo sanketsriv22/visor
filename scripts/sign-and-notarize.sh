@@ -92,7 +92,14 @@ if [ "$NOTARIZE" = "1" ]; then
   # ditto, not zip: the bundle's symlinks have to survive the round trip.
   ditto -c -k --keepParent "$APP" "$ZIP"
   echo "=== submitting to Apple (this takes a few minutes) ==="
-  xcrun notarytool submit "$ZIP" --keychain-profile "$PROFILE" --wait
+  # A stored profile locally; explicit credentials in CI, where there's no
+  # keychain profile to look up.
+  if [ -n "${NOTARY_APPLE_ID:-}" ] && [ -n "${NOTARY_PASSWORD:-}" ] && [ -n "${MACOS_TEAM_ID:-}" ]; then
+    NOTARY_ARGS=(--apple-id "$NOTARY_APPLE_ID" --team-id "$MACOS_TEAM_ID" --password "$NOTARY_PASSWORD")
+  else
+    NOTARY_ARGS=(--keychain-profile "$PROFILE")
+  fi
+  xcrun notarytool submit "$ZIP" "${NOTARY_ARGS[@]}" --wait
   # Stapling attaches the ticket to the app so it validates offline.
   xcrun stapler staple "$APP"
   xcrun stapler validate "$APP"
@@ -118,7 +125,7 @@ if [ "$DMG" = "1" ]; then
   # with the container as well as what's inside it.
   codesign --force --timestamp --sign "$IDENTITY" "$DMG_PATH"
   if [ "$NOTARIZE" = "1" ]; then
-    xcrun notarytool submit "$DMG_PATH" --keychain-profile "$PROFILE" --wait
+    xcrun notarytool submit "$DMG_PATH" "${NOTARY_ARGS[@]}" --wait
     xcrun stapler staple "$DMG_PATH"
   fi
   echo "wrote $DMG_PATH"

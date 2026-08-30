@@ -78,11 +78,63 @@ jobs:
             *) echo "::error::bundle is not universal ($ARCHS)"; exit 1 ;;
           esac
 
+      # Signing every build is what stops macOS treating each one as a new
+      # app: Keychain ACLs and TCC grants (Accessibility, microphone) are bound
+      # to the code signature, so an ad-hoc build re-prompts for everything on
+      # every install. Notarization is only needed to *distribute*, and takes
+      # minutes, so it's kept off the per-push path.
+      - name: Import signing certificate
+        if: ${{ secrets.MACOS_CERT_P12 != '' }}
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/visor-signing.keychain-db"
+          KEYCHAIN_PW="$(openssl rand -base64 24)"
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          # Long enough for the build; the runner is destroyed either way.
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          # Without this, codesign hits "User interaction is not allowed" —
+          # the same wall a non-GUI session hits locally.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PW" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      - name: Sign
+        if: ${{ secrets.MACOS_CERT_P12 != '' }}
+        run: ./scripts/sign-and-notarize.sh --skip-notarize
+
       # ditto, not zip: an .app bundle contains symlinks (Sparkle.framework's
       # Versions/Current especially), and a naive zip flattens them into copies
       # that macOS then refuses to launch.
       - name: Archive app
         run: ditto -c -k --keepParent dist/Visor.app dist/Visor.zip
+
+      # Only on demand: notarization is a round trip to Apple measured in
+      # minutes, and a signed build is already enough for testing.
+      - name: Notarize and build DMG
+        if: ${{ github.event_name == 'workflow_dispatch' && secrets.MACOS_CERT_P12 != '' }}
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: ./scripts/sign-and-notarize.sh --dmg
+
+      - name: Upload DMG
+        if: ${{ github.event_name == 'workflow_dispatch' && secrets.MACOS_CERT_P12 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Visor-dmg
+          path: dist/*.dmg
+          retention-days: 14
 
       - name: Upload app
         uses: actions/upload-artifact@v4
