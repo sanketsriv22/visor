@@ -928,8 +928,11 @@ struct HUDView: View {
     var notchWidth: CGFloat
     var topInset: CGFloat
     var onExit: () -> Void
-
-    @State private var railsIn = false
+    /// Drives the whole entrance and exit. One value, one animation — the
+    /// previous version ran a `.transition` on the HUD *and* a separate delayed
+    /// offset on the rails, so two curves competed over the same frames, which
+    /// is what made it feel laggy and arrive in pieces.
+    var visible: Bool
     /// Bumped after a deletion so the dictation panel re-reads the log.
     @State private var voiceRefresh: Int = 0
     @StateObject private var layout = HUDLayout()
@@ -959,7 +962,7 @@ struct HUDView: View {
                 // passes through and re-rendered sharply once it settles, which
                 // reads as the panel shifting tone abruptly at the end. This
                 // way the blur is only ever drawn at its final size.
-                .transition(.opacity)
+                .opacity(visible ? 1 : 0)
 
             HStack(alignment: .top, spacing: 18) {
                 VStack(spacing: 14) {
@@ -972,10 +975,16 @@ struct HUDView: View {
                     }
                 }
                 .frame(width: 230 * scale)
-                .offset(x: railsIn ? 0 : -140)
-                .opacity(railsIn ? 1 : 0)
+                // Offsets rather than conditionals, so the centre never shifts
+                // as the rails arrive.
+                .offset(x: visible ? 0 : -(230 * scale + 60))
+                .opacity(visible ? 1 : 0)
 
+                // Grows out of the notch: the screen's top centre, which is
+                // what .top anchors to.
                 centre
+                    .scaleEffect(visible ? 1 : 0.04, anchor: .top)
+                    .opacity(visible ? 1 : 0)
 
                 VStack(spacing: 14) {
                     ForEach(Array(layout.right.enumerated()), id: \.offset) { index, panel in
@@ -987,24 +996,18 @@ struct HUDView: View {
                     }
                 }
                 .frame(width: 250 * scale)
-                .offset(x: railsIn ? 0 : 140)
-                .opacity(railsIn ? 1 : 0)
+                .offset(x: visible ? 0 : 250 * scale + 60)
+                .opacity(visible ? 1 : 0)
             }
             .padding(.horizontal, 22)
             .padding(.top, topInset + 16)
             .padding(.bottom, 20)
             .environment(\.hudScale, scale)
-            // Out of the notch and back into it: the notch is the screen's top
-            // centre, which is what .top anchors to.
-            .transition(.scale(scale: 0.04, anchor: .top).combined(with: .opacity))
         }
-        .onAppear {
-            // Rails follow the card rather than racing it, so the eye reads one
-            // motion opening into three.
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.85).delay(0.12)) {
-                railsIn = true
-            }
-        }
+        // One curve for everything. Long and well damped, because it covers a
+        // screen of travel and anything snappier reads as a snap rather than an
+        // expansion.
+        .animation(.spring(response: 0.52, dampingFraction: 0.86), value: visible)
         .onExitCommand(perform: onExit)
     }
 
