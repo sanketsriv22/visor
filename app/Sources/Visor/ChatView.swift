@@ -35,7 +35,15 @@ struct ChatCard: View {
         // Chrome and size belong to StickyRootView, so the card morphs between
         // modes as one shape instead of cross-fading with the note card.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onExitCommand(perform: onClose)
+        // Escape steps back one level rather than always closing the notch:
+        // from the chat list to the chat, and only then out.
+        .onExitCommand {
+            if chat.showingHistory {
+                withAnimation(.easeInOut(duration: 0.18)) { chat.showingHistory = false }
+            } else {
+                onClose()
+            }
+        }
         .task { await chat.loadModels() }
     }
 
@@ -331,6 +339,43 @@ struct ChatCard: View {
     // MARK: - History
 
     private var history: some View {
+        VStack(spacing: 0) {
+            // Opening a chat got you back, but only if you wanted one. Without
+            // this there was no way out of the list at all — the control that
+            // opened it lives in an overflow menu that the list itself covers.
+            HStack(spacing: 6) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) { chat.showingHistory = false }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 9, weight: .semibold))
+                        Text("Back")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundStyle(.white.opacity(0.6))
+                    .padding(.horizontal, 7)
+                    .frame(height: 20)
+                    .background(Capsule().fill(.white.opacity(0.07)))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.escape, modifiers: [])
+
+                Text("\(chat.store.summaries.count) saved")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.3))
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+            historyList
+        }
+    }
+
+    private var historyList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 if chat.store.summaries.isEmpty {
