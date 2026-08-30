@@ -157,6 +157,16 @@ final class NotchController {
     let ai: AIRunner
     let chat: ChatController
     private let modeKey = "visor.mode"
+    /// The HUD gets its own window.
+    ///
+    /// Making the card's panel screen-sized fixed the transition — nothing
+    /// resizes mid-flight — but a transparent panel at .statusBar level then
+    /// lies across the *whole* menu bar, and the menu titles of whatever app
+    /// is behind it flicker as macOS re-decides who owns that strip. Two
+    /// windows keeps both properties: the card's panel stays card-width and
+    /// off the menu bar, and the HUD's is created at full size and never
+    /// resized.
+    private var hudPanel: NotchPanel?
     private var screenObserver: Any?
     private var voiceObserver: AnyCancellable?
     private var localClickMonitor: Any?
@@ -276,6 +286,8 @@ final class NotchController {
                 // when the card is open the panel is already wide enough for
                 // the notch plus the extension, so nothing resizes and nothing
                 // can flash.
+                // Tracked in both states: collapsed it drives the window
+                // size, expanded it tells the note card's band to make room.
                 let needsResize = !self.ui.expanded
                 if listening && needsResize {
                     self.ui.listening = true
@@ -488,28 +500,11 @@ final class NotchController {
         } else {
             curve = .spring(response: 0.42, dampingFraction: 0.82)
         }
-        // Content first, then the window — both in this same runloop turn, so
-        // SwiftUI performs one layout pass with the new mode *and* the new
-        // size. There is no intermediate state to paint.
-        //
-        // This ordering works because the HUD's insertion starts at 4% scale,
-        // which is small enough to fit inside the card-sized window it begins
-        // in; by the time it has grown, the panel is already full-screen.
-        //
-        // Resizing first painted the outgoing card into a window it was never
-        // laid out for, and blanking the root instead just replaced one
-        // artifact with another — the card vanishing instead of transitioning.
+        // Neither window changes size here. The HUD has its own, built at
+        // full screen and simply shown or hidden, so the transition is pure
+        // SwiftUI on both sides.
         withAnimation(curve) { ui.mode = mode }
-        if mode.isFullScreen { applyFrame(expanded: true, mode: mode) }
-
-        // Coming back down, the window can only shrink once the card has
-        // finished travelling — otherwise it's cut off on the way.
-        if leavingFullScreen {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
-                guard let self, !self.ui.mode.isFullScreen, self.ui.expanded else { return }
-                self.applyFrame(expanded: true)
-            }
-        }
+        if mode.isFullScreen { showHUD() } else { hideHUD() }
     }
 
     /// Start or stop dictating.
@@ -527,6 +522,39 @@ final class NotchController {
 
     /// End a hold-to-talk recording and transcribe it.
     func endDictation() { chat.voice.finish() }
+
+    /// Show the HUD's window, built at full size before it is ever displayed.
+    private func showHUD() {
+        guard let screen = targetScreen else { return }
+        if hudPanel == nil {
+            let panel = NotchPanel(
+                contentRect: screen.frame,
+                styleMask: [.borderless, .nonactivatingPanel],
+                backing: .buffered, defer: false)
+            panel.level = .statusBar
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary,
+                                        .stationary, .ignoresCycle]
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.hasShadow = false
+            panel.isMovable = false
+            panel.hidesOnDeactivate = false
+            panel.contentView = FirstMouseHostingView(
+                rootView: HUDRootView(chat: chat, store: store, ui: ui,
+                                      onExit: { [weak self] in self?.setMode(.chat) }))
+            hudPanel = panel
+        }
+        hudPanel?.setFrame(screen.frame, display: false)
+        hudPanel?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Hide it once the collapse has finished, so it isn't cut off mid-flight.
+    private func hideHUD() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, !self.ui.mode.isFullScreen else { return }
+            self.hudPanel?.orderOut(nil)
+        }
+    }
 
     /// Toggle the full-screen HUD. Entering from notes goes through chat,
     /// since the HUD is that conversation at another scale.

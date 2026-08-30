@@ -26,33 +26,17 @@ struct StickyRootView: View {
                 // Unconditional: it decides for itself whether to draw, so
                 // starting dictation never invalidates this body and the card
                 // beneath it is never rebuilt.
+                //
+                // Suppressed on the chat face, which already shows the mic
+                // state and level in its own header — two indicators for one
+                // thing, and this one lands on top of the card's controls.
                 ListeningPillHost(voice: chat.voice,
                                   notch: ui.trueNotch,
-                                  suppressed: ui.mode.isFullScreen)
+                                  suppressed: ui.mode != .notes)
                     .zIndex(1)
 
-                if ui.mode.isFullScreen {
-                    HUDView(chat: chat, store: store, namespace: morph,
-                            notchWidth: ui.notchSize.width,
-                            topInset: ui.notchSize.height,
-                            onExit: { onMode(.chat) })
-                        // Grows out of the notch and collapses back into it.
-                        //
-                        // The window is full-screen here, so .top is the
-                        // screen's top-centre — which is exactly where the
-                        // notch is. Starting near zero rather than at 0.86 is
-                        // what makes it read as emanating from a point instead
-                        // of a panel zooming slightly; at 0.86 the eye sees a
-                        // fade with a nudge, not an origin.
-                        .transition(.asymmetric(
-                            insertion: .scale(scale: 0.04, anchor: .top)
-                                .combined(with: .opacity),
-                            removal: .scale(scale: 0.04, anchor: .top)
-                                .combined(with: .opacity)))
-                } else {
-                    morphingCard
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
+                morphingCard
+                    .transition(.move(edge: .top).combined(with: .opacity))
             } else {
                 // Collapsed. The strip sits over the physical notch; the
                 // listening pill extends to its right, so the notch appears to
@@ -107,8 +91,9 @@ struct StickyRootView: View {
                 case .notes:
                     StickyCard(store: store, ai: ai, topInset: ui.notchSize.height,
                                notchWidth: ui.notchSize.width,
-                               suppressHover: ui.settling, mode: ui.mode,
-                               onMode: onMode, onClose: onToggle)
+                               suppressHover: ui.settling,
+                               listening: ui.listening && ui.mode == .notes,
+                               mode: ui.mode, onMode: onMode, onClose: onToggle)
                 case .chat, .hud:
                     ChatCard(chat: chat, ai: ai, topInset: ui.notchSize.height,
                              notchWidth: ui.notchSize.width,
@@ -401,6 +386,8 @@ private struct StickyCard: View {
     var notchWidth: CGFloat
     /// Suppress per-row hover affordances while the card animates open.
     var suppressHover: Bool
+    /// True while dictation is showing its extension beside the notch.
+    var listening: Bool
     var mode: VisorMode
     var onMode: (VisorMode) -> Void
     var onClose: () -> Void
@@ -578,14 +565,18 @@ private struct StickyCard: View {
             .frame(width: NotchController.shoulderWidth, alignment: .trailing)
             Spacer(minLength: 0)
                 .frame(width: notchWidth + NotchController.notchClearance)
-            // Same reasoning on this side: hug the notch rather than the
-            // shoulder's outer edge.
+            // Hugs the notch normally, but steps aside while the dictation
+            // extension is out — that grows into exactly this space, and was
+            // landing on top of the beam button.
             HStack(spacing: 8) {
+                if listening { Spacer(minLength: 0) }
                 if store.isActiveNoteShared { sharedBeacon }
                 beamButton
-                Spacer(minLength: 0)
+                if !listening { Spacer(minLength: 0) }
             }
-            .frame(width: NotchController.shoulderWidth, alignment: .leading)
+            .frame(width: NotchController.shoulderWidth,
+                   alignment: listening ? .trailing : .leading)
+            .animation(.spring(response: 0.34, dampingFraction: 0.86), value: listening)
             Spacer(minLength: 0)
         }
         .frame(height: topInset)
@@ -1334,5 +1325,36 @@ private struct WindowReader: NSViewRepresentable {
     }
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async { onWindow(nsView.window) }
+    }
+}
+
+/// Root of the HUD's own window.
+///
+/// Separate from the card's root so neither window has to change size for the
+/// other: the card's panel stays card-width and off the menu bar, and this one
+/// is created at full screen and only ever shown or hidden.
+struct HUDRootView: View {
+    @ObservedObject var chat: ChatController
+    @ObservedObject var store: NotesStore
+    @ObservedObject var ui: UIState
+    var onExit: () -> Void
+
+    @Namespace private var hud
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            if ui.mode.isFullScreen {
+                HUDView(chat: chat, store: store, namespace: hud,
+                        notchWidth: ui.notchSize.width,
+                        topInset: ui.notchSize.height,
+                        onExit: onExit)
+                    // Out of the notch and back into it — the notch is the
+                    // screen's top centre, which is what .top anchors to.
+                    .transition(.scale(scale: 0.04, anchor: .top)
+                        .combined(with: .opacity))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .environment(\.colorScheme, .dark)
     }
 }
