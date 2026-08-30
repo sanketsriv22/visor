@@ -733,6 +733,11 @@ private struct MemoryPane: View {
                 }
                 .disabled(voiceEntries.isEmpty)
                 Button("Refresh") { voiceEntries = VoiceLog.recent(limit: 30) }
+                Button("Clear all") {
+                    VoiceLog.clear()
+                    voiceEntries = []
+                }
+                .disabled(voiceEntries.isEmpty)
             }
             if voiceEntries.isEmpty {
                 Text("Nothing dictated yet. ⌘⇧V, or hold your push-to-talk key.")
@@ -741,14 +746,27 @@ private struct MemoryPane: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(voiceEntries) { entry in
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(entry.text)
-                                    .font(.system(size: 11))
-                                    .textSelection(.enabled)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Text(Self.stamp.string(from: entry.date)
-                                     + (entry.duration.map { String(format: " · %.1fs", $0) } ?? ""))
-                                    .font(.caption2).foregroundStyle(.tertiary)
+                            HStack(alignment: .top, spacing: 8) {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(entry.text)
+                                        .font(.system(size: 11))
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Text(Self.stamp.string(from: entry.date)
+                                         + (entry.duration.map { String(format: " · %.1fs", $0) } ?? ""))
+                                        .font(.caption2).foregroundStyle(.tertiary)
+                                }
+                                Spacer(minLength: 0)
+                                Button {
+                                    VoiceLog.delete(entry.id)
+                                    voiceEntries.removeAll { $0.id == entry.id }
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Delete this entry")
                             }
                             Divider()
                         }

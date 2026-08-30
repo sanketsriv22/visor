@@ -866,6 +866,8 @@ struct HUDView: View {
     var onExit: () -> Void
 
     @State private var railsIn = false
+    /// Bumped after a deletion so the dictation panel re-reads the log.
+    @State private var voiceRefresh: Int = 0
     @StateObject private var layout = HUDLayout()
     /// Persisted so the HUD reopens at the density you left it.
     @AppStorage("visor.hudOpacity") private var glass: Double = 0.8
@@ -888,6 +890,12 @@ struct HUDView: View {
                 .opacity(glass)
                 .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
                     .stroke(.white.opacity(0.06 + 0.1 * glass), lineWidth: 1))
+                // The glass fades; only the content scales. A material that is
+                // being scaled gets rasterised at whatever size the animation
+                // passes through and re-rendered sharply once it settles, which
+                // reads as the panel shifting tone abruptly at the end. This
+                // way the blur is only ever drawn at its final size.
+                .transition(.opacity)
 
             HStack(alignment: .top, spacing: 18) {
                 VStack(spacing: 14) {
@@ -922,6 +930,9 @@ struct HUDView: View {
             .padding(.top, topInset + 16)
             .padding(.bottom, 20)
             .environment(\.hudScale, scale)
+            // Out of the notch and back into it: the notch is the screen's top
+            // centre, which is what .top anchors to.
+            .transition(.scale(scale: 0.04, anchor: .top).combined(with: .opacity))
         }
         .onAppear {
             // Rails follow the card rather than racing it, so the eye reads one
@@ -1087,6 +1098,7 @@ struct HUDView: View {
     @ViewBuilder
     private var dictationPanel: some View {
         let recent = VoiceLog.recent(limit: 6)
+        let _ = voiceRefresh   // re-reads when an entry is deleted
         if recent.isEmpty {
             Text("Nothing dictated yet.")
                 .font(.system(size: 11 * scale))
@@ -1094,11 +1106,11 @@ struct HUDView: View {
         } else {
             VStack(alignment: .leading, spacing: 7) {
                 ForEach(recent) { entry in
-                    Text(entry.text)
-                        .font(.system(size: 11 * scale))
-                        .foregroundStyle(.white.opacity(0.7))
-                        .lineLimit(3)
-                        .textSelection(.enabled)
+                    HUDVoiceRow(entry: entry, scale: scale) {
+                        VoiceLog.delete(entry.id)
+                        // Nudges the panel to re-read the log.
+                        voiceRefresh &+= 1
+                    }
                 }
             }
         }
@@ -1648,5 +1660,37 @@ struct ListeningPillHost: View {
         }
         .animation(.spring(response: 0.34, dampingFraction: 0.86), value: showing)
         .allowsHitTesting(false)
+    }
+}
+
+
+private struct HUDVoiceRow: View {
+    let entry: VoiceEntry
+    let scale: Double
+    let delete: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Text(entry.text)
+                .font(.system(size: 11 * scale))
+                .foregroundStyle(.white.opacity(0.7))
+                .lineLimit(3)
+                .textSelection(.enabled)
+            Spacer(minLength: 0)
+            if hovering {
+                Button(action: delete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 9 * scale))
+                        .foregroundStyle(.white.opacity(0.4))
+                        .frame(width: 18 * scale, height: 18 * scale)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Delete this entry")
+            }
+        }
+        .onHover { hovering = $0 }
     }
 }

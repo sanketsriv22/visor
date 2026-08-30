@@ -71,6 +71,33 @@ enum VoiceLog {
             .compactMap { try? decoder.decode(VoiceEntry.self, from: Data($0.utf8)) }
     }
 
+    /// Remove one utterance.
+    ///
+    /// Rewrites the file without it. That's the cost of an append-only log —
+    /// deletion is the one operation it can't do cheaply — but a spoken note
+    /// you can't take back isn't a log, it's a recording you didn't consent to
+    /// keeping.
+    static func delete(_ id: UUID) {
+        io.async {
+            guard let data = try? Data(contentsOf: url),
+                  let text = String(data: data, encoding: .utf8) else { return }
+            let kept = text
+                .split(separator: "\n", omittingEmptySubsequences: true)
+                .filter { line in
+                    guard let entry = try? decoder.decode(VoiceEntry.self, from: Data(line.utf8))
+                    else { return true }   // keep anything unparseable rather than quietly dropping it
+                    return entry.id != id
+                }
+            let rebuilt = kept.joined(separator: "\n") + (kept.isEmpty ? "" : "\n")
+            try? Data(rebuilt.utf8).write(to: url, options: .atomic)
+        }
+    }
+
+    /// Remove everything.
+    static func clear() {
+        io.async { try? FileManager.default.removeItem(at: url) }
+    }
+
     static var count: Int {
         guard let data = try? Data(contentsOf: url),
               let text = String(data: data, encoding: .utf8) else { return 0 }
