@@ -20,46 +20,15 @@ enum Keychain {
         var add = baseQuery(account)
         add[kSecValueData as String] = Data(value.utf8)
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        // Keychain ACLs are bound to the *signature* of the app that created
-        // the item. Visor is ad-hoc signed, and an ad-hoc signature is derived
-        // from the binary — so every build is a different identity, the ACL
-        // never matches, and macOS asks for a password on every launch. That
-        // only stops for good with a stable Developer ID signature.
+        // Bound to this app's signature, which is the default and the right
+        // behaviour: only Visor can read Visor's keys.
         //
-        // Until then, store these items without binding them to an identity
-        // that can't stay still. The cost is honest: any process running as
-        // this user can read them, where before it was any process plus a
-        // password prompt the user was being trained to approve reflexively —
-        // which is not a meaningful defence.
-        if let access = openAccess(label: "Visor \(account)") {
-            add[kSecAttrAccess as String] = access
-        }
+        // This was briefly relaxed to an any-application ACL, because every
+        // ad-hoc build had a different signature and so re-prompted for a
+        // password forever. Builds are signed with a Developer ID now, the
+        // signature is stable, and the strict binding works as intended — so
+        // the workaround is gone rather than left in as a permanent hole.
         SecItemAdd(add as CFDictionary, nil)
-    }
-
-    /// A SecAccess whose ACL trusts every application, so no signature has to
-    /// match for a read to succeed. Nil on failure, in which case the item is
-    /// stored with default (signature-bound) access.
-    private static func openAccess(label: String) -> SecAccess? {
-        var access: SecAccess?
-        guard SecAccessCreate(label as CFString, nil, &access) == errSecSuccess,
-              let access else { return nil }
-
-        var aclList: CFArray?
-        guard SecAccessCopyACLList(access, &aclList) == errSecSuccess,
-              let acls = aclList as? [SecACL] else { return access }
-
-        for acl in acls {
-            var applications: CFArray?
-            var description: CFString?
-            var prompt = SecKeychainPromptSelector()
-            guard SecACLCopyContents(acl, &applications, &description, &prompt) == errSecSuccess
-            else { continue }
-            // A nil application list means "any application" — that's the bit
-            // that removes the prompt.
-            _ = SecACLSetContents(acl, nil, (description ?? label as CFString), prompt)
-        }
-        return access
     }
 
     static func get(_ account: String) -> String? {
