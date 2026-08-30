@@ -118,6 +118,8 @@ private struct AgentsPane: View {
 
     @State private var keyDraft = ""
     @State private var voiceDraft = ""
+    @State private var cleanupOn = VoiceInput.cleanupEnabled
+    @State private var cleanupModel = VoiceInput.cleanupModel
     @State private var newAgentName = ""
 
     var body: some View {
@@ -227,6 +229,25 @@ private struct AgentsPane: View {
                 }
                 .disabled(voiceDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+            Toggle(isOn: Binding(
+                get: { VoiceInput.cleanupEnabled },
+                set: { VoiceInput.cleanupEnabled = $0; cleanupOn = $0 })) {
+                    Text("Tidy up transcripts").font(.caption)
+                }
+                .toggleStyle(.switch)
+            if cleanupOn {
+                HStack(spacing: 8) {
+                    Text("using").font(.caption).foregroundStyle(.secondary)
+                    ModelPickerButton(catalog: catalog, selection: VoiceInput.cleanupModel) { id in
+                        VoiceInput.cleanupModel = id
+                        cleanupModel = id
+                    }
+                }
+            }
+            Text("Whisper returns what you said, not what you meant to write — no punctuation, filler words, the odd homophone. A cheap model fixes that for a fraction of a cent before the text lands.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Text("⌘⇧V dictates into the composer using OpenAI's transcription API. This is a separate key because OpenRouter doesn't carry audio — leave it blank and dictation stays off.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

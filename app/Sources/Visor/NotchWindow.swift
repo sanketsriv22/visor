@@ -72,6 +72,13 @@ final class UIState: ObservableObject {
     /// True while dictation is recording or transcribing. Drives the listening
     /// pill beside the notch, independently of whether the card is open.
     @Published var listening = false
+    /// True for the single tick while the window changes size for the HUD.
+    ///
+    /// The root draws nothing during it. Resizing the panel and swapping the
+    /// content are two separate events, and any frame presented between them
+    /// shows the old card laid out in the new window — which is the flash.
+    /// There is no ordering of the two that avoids it; not drawing does.
+    @Published var resizing = false
 }
 
 /// Main-actor isolated: it owns the panel and drives the chat controller, both
@@ -384,10 +391,6 @@ final class NotchController {
         let leavingFullScreen = ui.mode.isFullScreen && !mode.isFullScreen
         UserDefaults.standard.set(mode.rawValue, forKey: modeKey)
 
-        // Grow the window *before* the content animates into it, so the HUD
-        // has room to expand inside a window that isn't itself moving. The
-        // reverse — shrinking first — would clip the card mid-flight.
-        if mode.isFullScreen { applyFrame(expanded: true, mode: mode) }
 
         // The HUD travels the whole screen, so it gets a longer, softer spring
         // than the card morph — the same 0.42 curve over that distance reads
@@ -401,8 +404,18 @@ final class NotchController {
         } else {
             curve = .spring(response: 0.42, dampingFraction: 0.82)
         }
-        withAnimation(curve) {
-            ui.mode = mode
+        if mode.isFullScreen {
+            // Blank the root, resize, and only then swap the content in — so
+            // the old card is never painted at the new size.
+            ui.resizing = true
+            applyFrame(expanded: true, mode: mode)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.ui.resizing = false
+                withAnimation(curve) { self.ui.mode = mode }
+            }
+        } else {
+            withAnimation(curve) { ui.mode = mode }
         }
 
         // Coming back down, the window can only shrink once the card has

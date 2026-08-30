@@ -28,6 +28,12 @@ struct AIProvider: Codable, Identifiable, Equatable {
     /// Route to the fastest provider serving this model rather than the
     /// cheapest. Costs more per token; worth it for short interactive turns.
     var fastMode: Bool?
+    /// Tools this agent may run without asking each time.
+    ///
+    /// Per agent, not global: a research agent you let browse freely and an
+    /// agent with shell access are not the same trust decision.
+    var autoApprovedTools: [String]?
+
     /// Models this agent switches between often.
     ///
     /// OpenRouter lists several hundred; nobody picks from that in a notch.

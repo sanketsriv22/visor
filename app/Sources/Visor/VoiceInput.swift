@@ -38,6 +38,25 @@ final class VoiceInput: NSObject, ObservableObject {
     var currentConversation: (() -> UUID?)?
     /// Called with the transcript when one arrives.
     var onTranscript: ((String) -> Void)?
+    /// Optional tidy-up pass over the raw transcript.
+    ///
+    /// Whisper returns what was said, which is not the same as what you meant
+    /// to write: no punctuation to speak of, filler words, and the occasional
+    /// homophone. A cheap model fixes that for a fraction of a cent. Runs
+    /// before logging, so the log holds the version you'd actually send.
+    var polish: ((String) async -> String)?
+
+    /// Whether the tidy-up pass runs.
+    static var cleanupEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: "visor.dictationCleanup") }
+        set { UserDefaults.standard.set(newValue, forKey: "visor.dictationCleanup") }
+    }
+
+    static var cleanupModel: String {
+        get { UserDefaults.standard.string(forKey: "visor.dictationCleanupModel")
+                ?? "anthropic/claude-haiku-4.5" }
+        set { UserDefaults.standard.set(newValue, forKey: "visor.dictationCleanupModel") }
+    }
 
     static var hasKey: Bool {
         guard let k = Keychain.get(keyAccount)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -189,9 +208,16 @@ final class VoiceInput: NSObject, ObservableObject {
                 state = .failed("Couldn't read the transcript")
                 return
             }
+            let raw = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !raw.isEmpty else { state = .idle; return }
+
+            var trimmed = raw
+            if Self.cleanupEnabled, let polish {
+                // Still .transcribing while this runs — from the outside it's
+                // one step, and the pill shouldn't flicker between two.
+                trimmed = await polish(raw)
+            }
             state = .idle
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return }
             // Logged whether or not anything is listening for it: a transcript
             // that only ever existed in a composer you then closed is gone.
             VoiceLog.append(VoiceEntry(

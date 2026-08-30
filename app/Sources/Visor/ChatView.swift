@@ -74,13 +74,13 @@ struct ChatCard: View {
                     .buttonStyle(.plain)
                     .help("Stop the reply — this also stops it being billed")
                 }
+                // Two buttons and an overflow. Five icon-only controls in a
+                // 106pt strip is a puzzle, not a toolbar — new chat and expand
+                // are the ones worth a permanent slot.
                 headerButton("square.and.pencil", "New chat") { chat.newChat() }
-                headerButton("clock.arrow.circlepath", "Past chats") {
-                    withAnimation(.easeInOut(duration: 0.18)) { chat.showingHistory.toggle() }
-                }
-                exportMenu.frame(width: 20)
                 headerButton("arrow.up.left.and.arrow.down.right", "Expand to HUD — ⌘⇧M",
                              action: onHUD)
+                overflowMenu.frame(width: 20)
             }
             .frame(width: NotchController.shoulderWidth, alignment: .trailing)
             Spacer(minLength: 0)
@@ -148,6 +148,38 @@ struct ChatCard: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+    }
+
+    /// Everything that doesn't need to be one click away.
+    private var overflowMenu: some View {
+        Menu {
+            Button("Past chats") {
+                withAnimation(.easeInOut(duration: 0.18)) { chat.showingHistory.toggle() }
+            }
+            Divider()
+            Button("Copy as Markdown") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(chat.markdown, forType: .string)
+            }
+            ForEach(ChatStore.ExportFormat.allCases, id: \.self) { format in
+                Button("Export as \(format.menuTitle)…") {
+                    if let url = chat.export(format) {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                }
+            }
+            Divider()
+            Button("Settings…") {
+                NotificationCenter.default.post(name: .visorOpenSettings, object: nil)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.6))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .help("Past chats, export, settings")
     }
 
     private var exportMenu: some View {
@@ -745,6 +777,10 @@ struct InlineModelPicker: View {
                         }
                     }
                 }
+                // The overlay scroller sat on top of the star and grew when
+                // grabbed, covering it entirely. Hidden, with the list inset
+                // from the edge so nothing needs to share that column.
+                .scrollIndicators(.hidden)
                 .frame(height: showingPinned ? 150 : 220)
             }
             .frame(width: 340)
@@ -787,7 +823,7 @@ struct InlineModelPicker: View {
             .buttonStyle(.plain)
             .help(chat.isFavourite(id) ? "Unpin from this agent" : "Pin to this agent")
         }
-        .padding(.horizontal, 9).padding(.vertical, 4)
+        .padding(.leading, 9).padding(.trailing, 6).padding(.vertical, 4)
         .background(RoundedRectangle(cornerRadius: 5)
             .fill(selected ? Color.accentColor.opacity(0.16) : .clear))
     }

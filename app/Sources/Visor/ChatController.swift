@@ -16,6 +16,20 @@ final class ChatController: ObservableObject {
     /// attempt — this is the app's only channel for explaining itself.
     @Published private(set) var error: String?
     @Published var showingHistory = false
+    /// A tool run waiting on the user. While this is set the turn is paused —
+    /// nothing runs and no request is in flight.
+    @Published private(set) var pendingApproval: PendingApproval?
+
+    /// Everything needed to resume a turn once the user decides.
+    struct PendingApproval: Equatable {
+        let calls: [ToolCall]
+        let needing: [ToolCall]
+        let model: String
+        let system: String?
+        let effort: String?
+        let fast: Bool
+        let round: Int
+    }
 
     let store: ChatStore
     let memory: KnowledgeBase
@@ -60,6 +74,25 @@ final class ChatController: ObservableObject {
         }
 
         voice.currentConversation = { [weak self] in self?.conversation.id }
+        voice.polish = { [weak self] raw in
+            guard let self else { return raw }
+            let instruction = """
+            Rewrite this dictated text as the person meant to write it. Fix \
+            punctuation, capitalisation, obvious mishearings and stray filler \
+            words ("um", "uh", "you know"). Change nothing else — do not \
+            summarise, rephrase, answer, or add anything. Return only the \
+            corrected text.
+            """
+            let messages = [ChatMessage(role: .user, content: instruction + "\n\n---\n\n" + raw)]
+            guard let cleaned = try? await self.client.complete(
+                messages: messages, model: VoiceInput.cleanupModel, temperature: 0)
+            else { return raw }   // a failed tidy-up must never lose the words
+            let result = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+            // A model that "helpfully" answers instead of correcting would
+            // produce something much longer; keep the original in that case.
+            guard !result.isEmpty, result.count < raw.count * 3 else { return raw }
+            return result
+        }
         voice.onTranscript = { [weak self] text in
             guard let self else { return }
             // Only fill the composer when it's actually on screen. Dictating
@@ -324,6 +357,32 @@ final class ChatController: ObservableObject {
             return
         }
 
+        // Anything that could spend money, change something outside Visor, or
+        // not be undoable stops here and asks. Checked before *any* of the
+        // batch runs, so a permitted call can't quietly execute alongside one
+        // the user is about to refuse.
+        let approved = agent?.autoApprovedTools ?? []
+        let needing = calls.filter { call in
+            (ToolRegistry.shared.tools[call.name]?.needsApproval ?? false)
+                && !approved.contains(call.name)
+        }
+        guard needing.isEmpty else {
+            isStreaming = false
+            pendingApproval = PendingApproval(
+                calls: calls, needing: needing, model: model, system: system,
+                effort: effort, fast: fast, round: round)
+            store.save(conversation)
+            return
+        }
+
+        await execute(calls, model: model, system: system, effort: effort,
+                      fast: fast, round: round)
+    }
+
+    /// Run a batch of calls and hand the results back to the model.
+    private func execute(_ calls: [ToolCall], model: String, system: String?,
+                         effort: String?, fast: Bool, round: Int) async {
+        isStreaming = true
         for call in calls {
             let result = await ToolRegistry.shared.run(call)
             conversation.messages.append(ChatMessage(
@@ -335,6 +394,48 @@ final class ChatController: ObservableObject {
         conversation.messages.append(ChatMessage(role: .assistant, content: "", model: model))
         await runTurn(model: model, system: system, effort: effort,
                       fast: fast, round: round + 1)
+    }
+
+    /// Let the pending calls run. `always` adds them to this agent's standing
+    /// permissions.
+    func approvePending(always: Bool) {
+        guard let pending = pendingApproval else { return }
+        pendingApproval = nil
+        if always, var agent {
+            var allowed = agent.autoApprovedTools ?? []
+            for call in pending.needing where !allowed.contains(call.name) {
+                allowed.append(call.name)
+            }
+            agent.autoApprovedTools = allowed
+            ai.upsert(agent)
+        }
+        streamTask = Task { [weak self] in
+            await self?.execute(pending.calls, model: pending.model, system: pending.system,
+                                effort: pending.effort, fast: pending.fast, round: pending.round)
+        }
+    }
+
+    /// Refuse the pending calls.
+    ///
+    /// The refusal is fed back as each call's result rather than the turn
+    /// simply ending — otherwise the model is left waiting on tools that never
+    /// answer, and can't say what it would have done instead.
+    func denyPending() {
+        guard let pending = pendingApproval else { return }
+        pendingApproval = nil
+        for call in pending.calls {
+            conversation.messages.append(ChatMessage(
+                role: .tool,
+                content: "The user declined to run \(call.name).",
+                toolCallID: call.id))
+        }
+        conversation.messages.append(ChatMessage(role: .assistant, content: "",
+                                                 model: pending.model))
+        streamTask = Task { [weak self] in
+            await self?.runTurn(model: pending.model, system: pending.system,
+                                effort: pending.effort, fast: pending.fast,
+                                round: pending.round + 1)
+        }
     }
 
     private func attachToolCalls(_ calls: [ToolCall]) {
