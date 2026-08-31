@@ -1151,7 +1151,9 @@ private struct VoicePane: View {
                 .padding(4)
                 .background(RoundedRectangle(cornerRadius: Design.Radius.control)
                     .fill(Color.primary.opacity(0.05)))
-                .onChange(of: promptDraft) { _, value in
+                // The single-argument form: Visor targets macOS 13, and the
+                // two-argument onChange arrived in 14.
+                .onChange(of: promptDraft) { value in
                     VoiceInput.cleanupPrompt = value
                 }
             Text("Sent as the system prompt, with only the raw transcript as the message. It stays identical between dictations, so the provider serves it from cache — which is most of why this is quick. Saying what not to do matters more than what to do: a small model handed dictation will happily answer it, and that loses what you said.")
