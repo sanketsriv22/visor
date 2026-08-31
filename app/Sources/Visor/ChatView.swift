@@ -297,7 +297,6 @@ struct ChatCard: View {
                     let clamped = min(max(height, 16), Self.composerMaxHeight)
                     if abs(clamped - draftHeight) > 0.5 { draftHeight = clamped }
                 }
-                .caretCursor()
             }
             .frame(height: draftHeight)
             .animation(.easeOut(duration: 0.12), value: draftHeight)
@@ -844,31 +843,69 @@ private struct CLIModelRow: View {
 }
 
 
-/// Keeps the I-beam over a text field in a panel that isn't key.
+/// The composer's text view.
 ///
-/// Cursor rects are a key-window feature: AppKit only consults them for the
-/// key window, and the notch is a nonactivating panel that spends most of its
-/// life not being one. So the text view never got to say "I'm text" and the
+/// Two things AppKit will not do for a text view living in a nonactivating
+/// panel, both of which it does automatically anywhere else.
+///
+/// The caret. The insertion point is drawn by a timer that AppKit starts when a
+/// text view becomes first responder *in a key window*. The notch takes key
+/// status after the click that focuses the field, so the order is inverted and
+/// the timer never starts — the field accepts every keystroke and shows no sign
+/// of being focused, which is a strange thing to be handed.
+///
+/// The cursor. Cursor rects are consulted only for the key window, so the
 /// pointer stayed an arrow over a field you could type in — the one place the
-/// cursor is load-bearing, since the arrow is how you tell a control from a
-/// label before you click it.
-///
-/// Continuous hover rather than onHover: the window resets the cursor as the
-/// mouse moves, so setting it once on entry doesn't hold.
-private struct CaretCursor: ViewModifier {
-    func body(content: Content) -> some View {
-        content.onContinuousHover { phase in
-            switch phase {
-            case .active: NSCursor.iBeam.set()
-            case .ended:  NSCursor.arrow.set()
-            @unknown default: NSCursor.arrow.set()
-            }
-        }
+/// cursor carries information, since the arrow is how you tell a label from
+/// something you can type in before you commit to clicking.
+final class ComposerTextView: NSTextView {
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { restartCaret() }
+        return became
     }
-}
 
-extension View {
-    func caretCursor() -> some View { modifier(CaretCursor()) }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window = window else { return }
+        // Focus can arrive before key status. When key status follows, start
+        // the caret then.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(windowBecameKey),
+            name: NSWindow.didBecomeKeyNotification, object: window)
+    }
+
+    @objc private func windowBecameKey() {
+        guard window?.firstResponder === self else { return }
+        restartCaret()
+    }
+
+    private func restartCaret() {
+        updateInsertionPointStateAndRestartTimer(true)
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .iBeam)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas where area.owner === self {
+            removeTrackingArea(area)
+        }
+        // .activeAlways, because the panel is usually not the active app's key
+        // window and .activeInKeyWindow would never fire.
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.cursorUpdate, .activeAlways, .inVisibleRect],
+            owner: self))
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.iBeam.set()
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
 }
 
 /// The message composer.
@@ -891,12 +928,33 @@ struct ComposerField: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSTextView.scrollableTextView()
+        // Assembled by hand rather than NSTextView.scrollableTextView(), which
+        // gives no way to substitute a subclass — and the caret and the cursor
+        // both need one. This is the same construction that convenience method
+        // performs internally.
+        let scroll = NSScrollView()
+        scroll.borderType = .noBorder
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = false
+        scroll.hasHorizontalScroller = false
         scroll.verticalScrollElasticity = .none
 
-        guard let view = scroll.documentView as? NSTextView else { return scroll }
+        let container = NSTextContainer(
+            size: NSSize(width: 0, height: .greatestFiniteMagnitude))
+        container.widthTracksTextView = true
+        let layout = NSLayoutManager()
+        layout.addTextContainer(container)
+        let storage = NSTextStorage()
+        storage.addLayoutManager(layout)
+
+        let view = ComposerTextView(frame: .zero, textContainer: container)
+        view.autoresizingMask = [.width]
+        view.isVerticallyResizable = true
+        view.isHorizontallyResizable = false
+        view.minSize = NSSize(width: 0, height: 0)
+        view.maxSize = NSSize(width: .greatestFiniteMagnitude,
+                              height: .greatestFiniteMagnitude)
+        scroll.documentView = view
         view.delegate = context.coordinator
         view.drawsBackground = false
         // Spelled out rather than relying on defaults: selection is the whole
@@ -1507,7 +1565,6 @@ private struct HUDComposer: View {
                         .allowsHitTesting(false)
                 }
                 ComposerField(text: $chat.draft, onSubmit: chat.send)
-                    .caretCursor()
             }
             .frame(height: 62)
 
