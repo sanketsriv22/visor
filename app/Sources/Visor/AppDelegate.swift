@@ -116,24 +116,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.controller?.saveNow()
         }
 
-        // Global shortcuts. RegisterEventHotKey fails when another app already
-        // owns a combination, and that used to be swallowed silently — leaving
-        // a shortcut that simply does nothing with no way to find out why.
-        register("⌘⌃K", Shortcut.kKey, purpose: "Open or close the notch",
-                 modifiers: Shortcut.commandControl) { [weak self] in
-            self?.controller?.toggle()
-        }
-        register("⌘⌃M", Shortcut.mKey, purpose: "Expand to the HUD",
-                 modifiers: Shortcut.commandControl) { [weak self] in
-            self?.controller?.toggleHUD()
-        }
-        register("⌘⌃I", Shortcut.iKey, purpose: "Swap notes and chat",
-                 modifiers: Shortcut.commandControl) { [weak self] in
-            self?.controller?.swapMode()
-        }
-        register("⌘⌃V", Shortcut.vKey, purpose: "Dictate",
-                 modifiers: Shortcut.commandControl) { [weak self] in
-            self?.controller?.toggleDictation()
+        bindShortcuts()
+        NotificationCenter.default.addObserver(
+            forName: .visorShortcutsChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.bindShortcuts()
         }
 
         pushToTalk.onHoldStart = { [weak self] in self?.controller?.beginDictation() }
@@ -426,18 +413,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// Bind one global shortcut, reporting the combinations we couldn't get.
-    private func register(_ label: String, _ keyCode: UInt32, purpose: String,
-                          modifiers: UInt32 = Shortcut.commandControl,
-                          _ action: @escaping () -> Void) {
-        let hotKey = HotKey(keyCode: keyCode, modifiers: modifiers, action: action)
-        if let hotKey { hotKeys.append(hotKey) }
-        // Recorded either way. A shortcut that quietly failed to bind is
-        // indistinguishable from one that's bound and broken, and that
-        // ambiguity costs more to debug than the list costs to show.
-        ShortcutRegistry.shared.record(label, purpose: purpose, bound: hotKey != nil)
-        if hotKey == nil {
-            NSLog("[Visor] Couldn't register \(label) — another app already owns it.")
+    /// Bind every shortcut to whatever the user has chosen.
+    ///
+    /// Rebuilt from scratch each time rather than patched: releasing the old
+    /// HotKey objects is what unregisters them, so dropping the array is both
+    /// the simplest and the only correct way to change a binding.
+    private func bindShortcuts() {
+        hotKeys.removeAll()
+        let settings = ShortcutSettings.shared
+        for action in ShortcutSettings.Action.allCases {
+            let chord = settings.chord(for: action)
+            let handler: () -> Void = { [weak self] in
+                guard let controller = self?.controller else { return }
+                switch action {
+                case .toggle:   controller.toggle()
+                case .swapMode: controller.swapMode()
+                case .hud:      controller.toggleHUD()
+                case .dictate:  controller.toggleDictation()
+                case .agent1:   controller.selectAgent(0)
+                case .agent2:   controller.selectAgent(1)
+                case .agent3:   controller.selectAgent(2)
+                case .agent4:   controller.selectAgent(3)
+                case .agent5:   controller.selectAgent(4)
+                }
+            }
+            let hotKey = HotKey(keyCode: chord.keyCode, modifiers: chord.modifiers,
+                                action: handler)
+            if let hotKey { hotKeys.append(hotKey) }
+            // Recorded either way: a combination another app already owns fails
+            // to bind, and a silent failure is indistinguishable from a
+            // shortcut that's bound and misbehaving.
+            settings.markBound(action, bound: hotKey != nil)
+            if hotKey == nil {
+                NSLog("[Visor] Couldn't bind \(chord.display) — another app owns it.")
+            }
         }
     }
 

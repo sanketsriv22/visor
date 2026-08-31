@@ -583,7 +583,7 @@ private struct ModelPickerButton: View {
 
 private struct WorkspacePane: View {
     @ObservedObject var ai: AIRunner
-    @ObservedObject private var shortcuts = ShortcutRegistry.shared
+    @ObservedObject private var shortcuts = ShortcutSettings.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -630,25 +630,11 @@ private struct WorkspacePane: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Shortcuts").font(.headline)
-                // Shown with their real state: a combination another app
-                // already owns fails to bind, and without this there's no way
-                // to tell that from a shortcut that's bound but misbehaving.
-                ForEach(ShortcutRegistry.shared.entries) { entry in
-                    HStack(spacing: 8) {
-                        Text(entry.label)
-                            .font(.system(size: 11, design: .monospaced))
-                            .frame(width: 60, alignment: .leading)
-                        Text(entry.purpose)
-                            .font(.caption).foregroundStyle(.secondary)
-                        Spacer(minLength: 0)
-                        if entry.bound {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.caption2).foregroundStyle(.green)
-                        } else {
-                            Label("taken by another app", systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption2).foregroundStyle(.orange)
-                        }
-                    }
+                Text("Click one and press the keys you want. Every combination macOS leaves free is claimed by *some* app, and a global shortcut wins over whatever's in front — so a clash breaks that app, not Visor. Better to set them than to guess.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                ForEach(ShortcutSettings.Action.allCases) { action in
+                    ShortcutRecorder(action: action)
                 }
             }
 
