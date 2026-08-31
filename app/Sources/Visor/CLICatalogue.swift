@@ -62,6 +62,16 @@ enum CLICatalogue {
         name(of: command) == "claude"
     }
 
+    /// Whether this command can say which account it's signed in as.
+    static func reportsAccount(command: String) -> Bool {
+        name(of: command) == "claude"
+    }
+
+    /// Where a tool keeps its credentials, so two agents can be two accounts.
+    static func configDirVariable(command: String) -> String? {
+        name(of: command) == "claude" ? "CLAUDE_CONFIG_DIR" : nil
+    }
+
     /// The executable's own name, so `/opt/homebrew/bin/claude` and `claude`
     /// are the same agent.
     private static func name(of command: String) -> String {

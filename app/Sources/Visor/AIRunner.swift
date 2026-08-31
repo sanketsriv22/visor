@@ -15,6 +15,13 @@ struct AIProvider: Codable, Identifiable, Equatable {
     var command: String       // executable name or absolute path, e.g. "devin"
     var args: [String]        // fixed args; the prompt is appended after these
     var apiKeyEnv: String?    // env var the CLI reads its key from, if any (e.g. "OPENAI_API_KEY")
+    /// Where this agent's CLI keeps its credentials.
+    ///
+    /// A tool signs in once for the whole machine, so without this every CLI
+    /// agent shares one account — which is how a work subscription ends up
+    /// answering personal questions with nothing on screen to say so. Pointing
+    /// two agents at two directories makes them two accounts.
+    var configDir: String?
     var interactiveArgs: [String]?  // args used in Terminal mode instead of `args`, to run the
                                     // CLI interactively (e.g. claude with no -p). Falls back to `args`.
     var kind: Kind?           // nil / .cli = local CLI; .devinCloud = Devin REST API

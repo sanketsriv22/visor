@@ -7,6 +7,7 @@ import SwiftUI
 struct ChatCard: View {
     @ObservedObject var chat: ChatController
     @ObservedObject var ai: AIRunner
+    @ObservedObject private var accounts = CLIAccounts.shared
     /// Height of the notch the card tucks up behind.
     var topInset: CGFloat
     /// Width of the notch, so the band can flank it exactly as the note card's
@@ -121,6 +122,16 @@ struct ChatCard: View {
         .help(help)
     }
 
+    /// What to say under an agent's name: the model for a hosted one, and for a
+    /// local one the account it runs as, which matters more and is otherwise
+    /// invisible.
+    private func subtitle(for agent: AIProvider) -> String {
+        if agent.isNotchCLI, let account = accounts.account(for: agent) {
+            return account.summary
+        }
+        return agent.model ?? ""
+    }
+
     /// Agents are named by the user, so the picker shows names and keeps the
     /// model id as the subtitle — the name is what they think in.
     private var agentPicker: some View {
@@ -130,7 +141,10 @@ struct ChatCard: View {
                     chat.use(agent)
                 } label: {
                     Text(agent.name)
-                    if let model = agent.model { Text(model) }
+                    // For a local agent this says whose subscription answers.
+                    // It was knowable only by asking the agent, which is not a
+                    // thing anyone thinks to do about their own billing.
+                    Text(subtitle(for: agent))
                 }
             }
             if chat.chatAgents.isEmpty {

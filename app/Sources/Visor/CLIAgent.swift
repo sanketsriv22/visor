@@ -39,7 +39,7 @@ final class CLIAgentRunner {
 
     /// Where an agent's executable is likely to be. A GUI app inherits a bare
     /// PATH, so a bare command name would otherwise never resolve.
-    private static let searchPath: String = {
+    static let searchPath: String = {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return "\(home)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     }()
@@ -63,6 +63,7 @@ final class CLIAgentRunner {
     /// turn cost, since a subscription CLI has no billing endpoint to ask.
     func run(command: String, arguments: [String], prompt: String,
              directory: URL, environmentKey: (name: String, value: String)? = nil,
+             extraEnvironment: [String: String] = [:],
              structured: Bool = false)
         -> AsyncStream<Event> {
         AsyncStream { continuation in
@@ -81,6 +82,7 @@ final class CLIAgentRunner {
             var env = ProcessInfo.processInfo.environment
             env["PATH"] = Self.searchPath + ":" + (env["PATH"] ?? "")
             if let environmentKey { env[environmentKey.name] = environmentKey.value }
+            for (name, value) in extraEnvironment { env[name] = value }
             task.environment = env
 
             // Separate pipes, because these carry different things. Agents

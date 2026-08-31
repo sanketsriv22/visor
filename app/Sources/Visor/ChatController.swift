@@ -558,11 +558,21 @@ final class ChatController: ObservableObject {
             && !arguments.contains("--output-format")
         if structured { arguments += CLICatalogue.streamingArguments }
 
+        // Which account this agent runs as, when it has been given one of its
+        // own. Without it the tool uses whatever it was last signed in to,
+        // machine-wide.
+        var environment: [String: String] = [:]
+        if let variable = CLICatalogue.configDirVariable(command: agent.command),
+           let dir = agent.configDir, !dir.isEmpty {
+            environment[variable] = (dir as NSString).expandingTildeInPath
+        }
+
         for await event in runner.run(command: agent.command,
                                       arguments: arguments,
                                       prompt: prompt,
                                       directory: ai.workDirURL,
                                       environmentKey: key,
+                                      extraEnvironment: environment,
                                       structured: structured) {
             switch event {
             case .text(let chunk):

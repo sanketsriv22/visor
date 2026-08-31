@@ -364,6 +364,8 @@ private struct AgentRow: View {
                 .font(.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            CLIAccountRow(provider: provider, ai: ai)
+
             Toggle(isOn: Binding(
                 get: { provider.runsInNotch ?? false },
                 set: { value in var p = provider; p.runsInNotch = value; ai.upsert(p) })) {
@@ -1158,4 +1160,107 @@ extension VoicePane {
         f.timeStyle = .short
         return f
     }()
+}
+
+
+/// Which account a CLI agent is actually signed in as, and how to change it.
+///
+/// Shown because it was invisible. The tool signs in once for the whole
+/// machine, so an agent can spend a work subscription on personal questions
+/// with nothing on screen saying so — the only way to find out was to ask the
+/// agent, which is not a thing anyone should have to think to do about their
+/// own billing.
+private struct CLIAccountRow: View {
+    let provider: AIProvider
+    @ObservedObject var ai: AIRunner
+    @ObservedObject private var accounts = CLIAccounts.shared
+    @State private var showingProfile = false
+
+    private var account: CLIAccount? { accounts.account(for: provider) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                fieldLabel("Account")
+                if accounts.isChecking(provider) {
+                    Text("checking…").font(.caption).foregroundStyle(.secondary)
+                } else if let account {
+                    Image(systemName: account.loggedIn
+                          ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(account.loggedIn ? Color.green : Color.orange)
+                    Text(account.summary).font(.caption)
+                } else {
+                    Text("unknown").font(.caption).foregroundStyle(.secondary)
+                }
+                Button("Check") { accounts.refresh(provider) }
+                    .font(.caption2).buttonStyle(.borderless)
+                Spacer(minLength: 0)
+                Button(showingProfile ? "Hide profile" : "Use a different account") {
+                    showingProfile.toggle()
+                }
+                .font(.caption2).buttonStyle(.borderless)
+            }
+
+            if showingProfile {
+                HStack(spacing: 8) {
+                    fieldLabel("Profile")
+                    TextField("~/.claude — leave blank for the default", text: Binding(
+                        get: { provider.configDir ?? "" },
+                        set: { value in
+                            var p = provider
+                            p.configDir = value.isEmpty ? nil : value
+                            ai.upsert(p)
+                        }))
+                        .textFieldStyle(.roundedBorder)
+                    Button("Choose…") { chooseDirectory() }
+                        .font(.caption2)
+                }
+                // Said plainly, because the sign-in itself has to happen in a
+                // terminal: it opens a browser and waits, which is not
+                // something to run inside a notch.
+                Text("A separate directory is a separate login, so one agent can be your personal account and another your work one. Point it somewhere new, then sign that profile in:")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    Text(signInCommand)
+                        .font(.system(size: 10, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.primary.opacity(0.06)))
+                    Button("Copy") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(signInCommand, forType: .string)
+                    }
+                    .font(.caption2).buttonStyle(.borderless)
+                }
+            }
+        }
+        .onAppear { if account == nil { accounts.refresh(provider) } }
+    }
+
+    private var signInCommand: String {
+        let dir = provider.configDir?.trimmingCharacters(in: .whitespaces) ?? ""
+        guard !dir.isEmpty else { return "\(provider.command) auth login" }
+        return "CLAUDE_CONFIG_DIR=\(dir) \(provider.command) auth login"
+    }
+
+    private func chooseDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Use"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        var updated = provider
+        updated.configDir = url.path
+        ai.upsert(updated)
+        accounts.refresh(updated)
+    }
+
+    private func fieldLabel(_ text: String) -> some View {
+        Text(text).font(.caption).foregroundStyle(.secondary)
+            .frame(width: 64, alignment: .leading)
+    }
 }

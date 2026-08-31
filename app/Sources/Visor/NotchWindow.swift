@@ -209,6 +209,7 @@ final class NotchController {
 
         registerNoteTools()
         registerShellTool()
+        CLIAccounts.shared.refreshAll(ai.providers)
 
         chat.isComposerVisible = { [weak self] in
             guard let self else { return false }
