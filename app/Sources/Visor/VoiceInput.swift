@@ -242,8 +242,21 @@ final class VoiceInput: NSObject, ObservableObject {
 
     // MARK: - Transcription
 
+    /// Which model turns the audio into text.
+    ///
+    /// Configurable because it's the half of the wait nobody looks at: the
+    /// cleanup model has a picker and gets blamed, while transcription is a
+    /// bigger upload and a slower service and has been a hard-coded constant.
+    static var transcriptionModel: String {
+        get { UserDefaults.standard.string(forKey: "visor.transcriptionModel") ?? "whisper-1" }
+        set { UserDefaults.standard.set(newValue, forKey: "visor.transcriptionModel") }
+    }
+
     private func transcribe(_ url: URL) async {
         defer { try? FileManager.default.removeItem(at: url) }
+        // From the moment there's audio to send, so the measurement includes
+        // the upload — which for a minute of speech is most of it.
+        let transcribeStarted = Date()
         guard let key = Keychain.get(Self.keyAccount), !key.isEmpty else {
             state = .failed("Add an OpenAI key in Settings to dictate")
             return
@@ -279,6 +292,7 @@ final class VoiceInput: NSObject, ObservableObject {
             guard !raw.isEmpty else { state = .idle; return }
 
             var trimmed = raw
+            let cleanupStarted = Date()
             if Self.cleanupEnabled, let polish {
                 // Still .transcribing while this runs — from the outside it's
                 // one step, and the pill shouldn't flicker between two.
@@ -290,7 +304,10 @@ final class VoiceInput: NSObject, ObservableObject {
             VoiceLog.append(VoiceEntry(
                 text: trimmed,
                 duration: startedAt.map { Date().timeIntervalSince($0) },
-                conversation: currentConversation?()))
+                conversation: currentConversation?(),
+                transcribeSeconds: transcribeStarted.map { cleanupStarted.timeIntervalSince($0) },
+                cleanupSeconds: Self.cleanupEnabled
+                    ? Date().timeIntervalSince(cleanupStarted) : nil))
             startedAt = nil
             onTranscript?(trimmed)
         } catch {
@@ -305,7 +322,7 @@ final class VoiceInput: NSObject, ObservableObject {
             body.append(Data("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".utf8))
             body.append(Data("\(value)\r\n".utf8))
         }
-        field("model", "whisper-1")
+        field("model", VoiceInput.transcriptionModel)
         // Nudges the model away from inventing punctuation-only output on very
         // short clips.
         field("response_format", "json")

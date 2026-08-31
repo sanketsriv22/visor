@@ -985,6 +985,10 @@ private struct VoicePane: View {
 
             Divider()
 
+            transcriptionModelField
+
+            Divider()
+
             voiceLogSection
         }
     }
@@ -1124,6 +1128,27 @@ private struct VoicePane: View {
         ("qwen/qwen3.7-flash", "cheapest of the three"),
     ]
 
+    /// Which service turns speech into text.
+    ///
+    /// whisper-1 is the original and the slowest of the options; the newer
+    /// transcription models are quicker on the same audio. Free text, because
+    /// this list is OpenAI's to change.
+    var transcriptionModelField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text("Transcribe with").font(.caption).foregroundStyle(.secondary)
+                TextField("whisper-1", text: Binding(
+                    get: { VoiceInput.transcriptionModel },
+                    set: { VoiceInput.transcriptionModel = $0.isEmpty ? "whisper-1" : $0 }))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+            }
+            Text("The upload and the transcription are usually the longer half of the wait — the cleanup model is the part with a picker, so it tends to get the blame. The voice log below now times both.")
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     var suggestedModels: some View {
         HStack(spacing: 6) {
             Text("try").font(.caption2).foregroundStyle(.secondary)
@@ -1204,7 +1229,8 @@ private struct VoicePane: View {
                                         .textSelection(.enabled)
                                         .fixedSize(horizontal: false, vertical: true)
                                     Text(VoicePane.stamp.string(from: entry.date)
-                                         + (entry.duration.map { String(format: " · %.1fs", $0) } ?? ""))
+                                         + (entry.duration.map { String(format: " · %.1fs", $0) } ?? "")
+                                         + VoicePane.timings(entry))
                                         .font(.caption2).foregroundStyle(.tertiary)
                                 }
                                 Spacer(minLength: 0)
@@ -1234,6 +1260,23 @@ private struct VoicePane: View {
 }
 
 extension VoicePane {
+    /// Where the wait went, per entry.
+    ///
+    /// Two numbers rather than one, because they're separate problems: the
+    /// audio upload and transcription on one side, the rewrite on the other.
+    /// Shown rather than reasoned about — the visible symptom is a single
+    /// pause, and which half it is isn't guessable.
+    static func timings(_ entry: VoiceEntry) -> String {
+        var parts: [String] = []
+        if let heard = entry.transcribeSeconds {
+            parts.append(String(format: "heard in %.1fs", heard))
+        }
+        if let tidied = entry.cleanupSeconds {
+            parts.append(String(format: "tidied in %.1fs", tidied))
+        }
+        return parts.isEmpty ? "" : " · " + parts.joined(separator: ", ")
+    }
+
     static let stamp: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .short

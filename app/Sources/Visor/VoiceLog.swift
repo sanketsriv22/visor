@@ -9,6 +9,15 @@ struct VoiceEntry: Codable, Identifiable, Equatable {
     var duration: Double?
     /// Where it went, if anywhere — a chat id when it was dictated into one.
     var conversation: UUID?
+    /// Seconds spent turning audio into words, and then words into writing.
+    ///
+    /// Recorded separately because they're separate problems with separate
+    /// fixes, and the wait feels like one thing from the outside. Guessing
+    /// which half is slow is how you optimise the wrong one.
+    ///
+    /// Optional so entries written before this decode unchanged.
+    var transcribeSeconds: Double?
+    var cleanupSeconds: Double?
 }
 
 /// Append-only log of everything dictated.
