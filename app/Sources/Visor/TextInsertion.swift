@@ -86,30 +86,32 @@ enum TextInsertion {
         }
     }
 
-    /// Put `text` into the app dictation started in.
+    /// Put `text` where the caret is, in the app dictation started in.
     ///
-    /// The clipboard is written *first*, before any check that can fail. Every
-    /// early return below used to leave the words nowhere at all — the setting
-    /// being off didn't even copy them. Whatever else goes wrong, the user can
-    /// paste.
+    /// Nothing here goes through the clipboard on the way. Dictation should
+    /// land at the caret and be finished — needing to press ⌘V afterwards is
+    /// the feature not working. And the clipboard belongs to the user: they
+    /// may have something in it they are part-way through using, and borrowing
+    /// it for 700ms is still borrowing it. Something pasted in that window is
+    /// the wrong thing, and no amount of putting it back afterwards helps.
+    ///
+    /// So the clipboard is touched in exactly one case: both insertion routes
+    /// failed and the alternative is losing the words. Then it's a rescue, not
+    /// a mechanism, and the user is told it happened.
     @MainActor
     @discardableResult
     static func insert(_ text: String) async -> Outcome {
-        let pasteboard = NSPasteboard.general
-        let previous = pasteboard.string(forType: .string)
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
         defer { captured = nil }
 
         guard insertIntoFocusedApp else {
-            return .copied(reason: "typing into other apps is off in Settings")
+            return stash(text, reason: "typing into other apps is off in Settings")
         }
         guard let target else {
-            return .copied(reason: "no other app was in front")
+            return stash(text, reason: "no other app was in front")
         }
         guard isTrusted else {
             requestTrust()
-            return .copied(reason: "Visor needs Accessibility to type it")
+            return stash(text, reason: "Visor needs Accessibility to type it")
         }
 
         // Focus may have moved to Visor while the transcript was in flight —
@@ -125,39 +127,43 @@ enum TextInsertion {
             // Activation is asynchronous, so wait for it rather than guessing a
             // delay: a fixed sleep is either a stall or a race, depending on
             // the machine. Bounded, because an app that won't come forward
-            // shouldn't hang dictation — the clipboard already has the text.
+            // shouldn't hang dictation.
             var waited = 0
             while !target.isActive && waited < 30 {
                 try? await Task.sleep(nanoseconds: 20_000_000)
                 waited += 1
             }
             guard target.isActive else {
-                return .copied(reason: "\(name(of: target)) didn't come to the front")
+                return stash(text, reason: "\(name(of: target)) didn't come to the front")
             }
         }
 
         // Two ways in, neither of which is ⌘V.
         //
         // Synthesising ⌘V assumes the target app maps ⌘V to paste. Terminals
-        // routinely don't — the user's own report was dictating into cmux and
-        // getting nothing, in a terminal where ⌘C already didn't copy. The
-        // keystroke was posted, the app had no such binding, and the words
-        // went nowhere with everything apparently working.
+        // routinely don't — the report was dictating into cmux and getting
+        // nothing, in a terminal where ⌘C already didn't copy. The keystroke
+        // was posted, the app had no such binding, and the words went nowhere
+        // with everything apparently working.
         //
-        // Accessibility first: it hands the text to the focused field
-        // directly, so it can't be misrouted by a keybinding and doesn't
-        // depend on the clipboard at all. Where that isn't offered — most
-        // terminals — the text is typed as characters, which is what a
-        // terminal is built to receive.
-        if insertViaAccessibility(text) {
-            restoreClipboard(previous, after: text)
-            return .inserted(app: name(of: target))
-        }
-        if typeOut(text) {
-            restoreClipboard(previous, after: text)
-            return .inserted(app: name(of: target))
-        }
-        return .copied(reason: "\(name(of: target)) wouldn't take the text")
+        // Accessibility first: it writes into the focused field directly, at
+        // the caret, so it can't be misrouted by a keybinding. Where that
+        // isn't offered — most terminals — the text is typed as characters,
+        // which is what a terminal is built to receive.
+        if insertViaAccessibility(text) { return .inserted(app: name(of: target)) }
+        if typeOut(text) { return .inserted(app: name(of: target)) }
+        return stash(text, reason: "\(name(of: target)) wouldn't take the text")
+    }
+
+    /// Last resort: the words survive on the clipboard, and the user is told.
+    ///
+    /// Only ever reached when they can't be inserted — losing a transcript
+    /// outright is the one outcome worse than borrowing the clipboard.
+    private static func stash(_ text: String, reason: String) -> Outcome {
+        let board = NSPasteboard.general
+        board.clearContents()
+        board.setString(text, forType: .string)
+        return .copied(reason: reason)
     }
 
     /// Hand the text to the focused field through the Accessibility API.
@@ -223,21 +229,6 @@ enum TextInsertion {
             usleep(3_000)
         }
         return true
-    }
-
-    /// Put back what the user had copied, once the insertion has been read.
-    ///
-    /// Quietly eating someone's clipboard is its own small betrayal.
-    private static func restoreClipboard(_ previous: String?, after text: String) {
-        guard let previous else { return }
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 700_000_000)
-            let board = NSPasteboard.general
-            // Only if nothing else has claimed it since.
-            guard board.string(forType: .string) == text else { return }
-            board.clearContents()
-            board.setString(previous, forType: .string)
-        }
     }
 
     private static func name(of app: NSRunningApplication) -> String {

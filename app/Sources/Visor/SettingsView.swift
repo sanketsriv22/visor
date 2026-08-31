@@ -259,7 +259,7 @@ private struct AgentsPane: View {
                     Text("Type dictation into the app you're using").font(.caption)
                 }
                 .toggleStyle(.switch)
-            Text("When the composer isn't focused, the transcript is typed into the app you were in when you started speaking. Your previous clipboard contents are restored afterwards.")
+            Text("When the composer isn't focused, the transcript is inserted at the caret in the app you were in when you started speaking. Your clipboard is left alone — it's only used if the text can't be inserted at all.")
                 .font(.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
