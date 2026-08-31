@@ -114,11 +114,13 @@ struct ChatCard: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.6))
+                .foregroundStyle(Design.Ink.secondary)
                 .frame(width: 20, height: 20)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        // Was .plain, which acknowledges a click with nothing at all. Every
+        // icon button in the band now lifts on hover and gives on press.
+        .buttonStyle(.visor)
         .help(help)
     }
 
@@ -622,12 +624,12 @@ struct ModeSwitcher: View {
                     Image(systemName: candidate.symbol)
                         .font(.system(size: 9, weight: .semibold))
                         .frame(width: 24, height: 16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(candidate == mode ? Color.white.opacity(0.15) : .clear))
-                        .foregroundStyle(.white.opacity(candidate == mode ? 0.9 : 0.36))
+                        .foregroundStyle(candidate == mode
+                                         ? Design.Ink.primary : Design.Ink.tertiary)
                 }
-                .buttonStyle(.plain)
+                // The selected fill is the style's business now, so the
+                // switcher's "on" state matches every other on state.
+                .buttonStyle(.visor(active: candidate == mode))
                 .help("\(candidate.title) — \(ShortcutSettings.hint(.swapMode)) swaps from anywhere")
             }
         }
@@ -1273,21 +1275,6 @@ struct HUDView: View {
         // One curve for everything. Long and well damped, because it covers a
         // screen of travel and anything snappier reads as a snap rather than an
         // expansion.
-        // The notch, which the HUD covers.
-        //
-        // Without this, clicking it while the HUD is up lands on the glass and
-        // does nothing at all — the card's window is ordered out once the HUD
-        // is up, so there's nothing underneath to receive it. The notch means
-        // "put this away" at every size, and putting the HUD away should bring
-        // the HUD back when you next open it.
-        .overlay(alignment: .top) {
-            Color.clear
-                .frame(width: notchWidth + NotchController.notchClearance,
-                       height: topInset)
-                .contentShape(Rectangle())
-                .onTapGesture(perform: onClose)
-                .allowsHitTesting(visible)
-        }
         .animation(.spring(response: 0.52, dampingFraction: 0.86), value: visible)
         .onExitCommand(perform: onExit)
     }

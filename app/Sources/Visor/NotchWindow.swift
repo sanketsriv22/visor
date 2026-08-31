@@ -154,6 +154,8 @@ final class NotchController {
     private let ui = UIState()
     let ai: AIRunner
     let chat: ChatController
+    /// Watches for clicks on the notch while the HUD is covering it.
+    private var hudClickMonitor: Any?
     private let modeKey = "visor.mode"
     /// Whether the notch was showing the HUD when it was last put away, so
     /// reopening returns you to where you were rather than one level below it.
@@ -666,6 +668,7 @@ final class NotchController {
                     onExit: { [weak self] in self?.setMode(.chat) },
                     onClose: { [weak self] in self?.toggle() }))
             hudPanel = panel
+            watchForNotchClicks()
         }
         hudPanel?.setFrame(screen.frame, display: false)
         hudPanel?.makeKeyAndOrderFront(nil)
@@ -680,6 +683,43 @@ final class NotchController {
         }
         panelWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.42, execute: work)
+    }
+
+    /// Catch clicks on the notch while the HUD is up.
+    ///
+    /// Done in AppKit rather than SwiftUI because SwiftUI wasn't winning the
+    /// click. A transparent hit target over the notch, however it was layered,
+    /// competed with a full-screen glass panel and the HUD's own gestures, and
+    /// lost — leaving the notch either inert or falling through to the
+    /// collapse button's behaviour, which drops you onto the chat card.
+    ///
+    /// A window-level monitor has no such competition: it sees the event
+    /// before any view does, checks one rectangle, and either handles it or
+    /// passes it along untouched. The notch means "put this away" at every
+    /// size, and putting the HUD away should bring the HUD back.
+    private func watchForNotchClicks() {
+        guard hudClickMonitor == nil else { return }
+        hudClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) {
+            [weak self] event in
+            guard let self,
+                  let panel = self.hudPanel,
+                  event.window === panel,
+                  self.ui.mode.isFullScreen,
+                  let screen = self.targetScreen
+            else { return event }
+
+            let point = panel.convertPoint(toScreen: event.locationInWindow)
+            // The clearance either side, so it matches the strip you see rather
+            // than the hardware exactly — people aim at the black, and the
+            // cursor is invisible inside it.
+            let target = self.stripRect(on: screen)
+                .insetBy(dx: -Self.notchClearance / 2, dy: 0)
+            guard target.contains(point) else { return event }
+
+            self.toggle()
+            // Swallowed: it was for the notch, not for whatever is underneath.
+            return nil
+        }
     }
 
     /// Hide it once the collapse has finished, so it isn't cut off mid-flight.

@@ -142,12 +142,10 @@ final class ChatController: ObservableObject {
         // longer than the utterance.
         guard raw.count >= 12 else { return raw }
 
-        let system = """
-            Rewrite dictated speech as the speaker meant to write it. Fix \
-            punctuation, capitalisation, obvious mishearings, and filler words. \
-            Change nothing else: do not summarise, rephrase, answer, translate, \
-            or add. Reply with the corrected text only.
-            """
+        // The user's, not ours. Kept as a *system* prompt so it stays
+        // byte-identical between dictations and can be served from the
+        // provider's cache — which is most of why this is quick.
+        let system = VoiceInput.cleanupPrompt
 
         let result: String? = await withTaskGroup(of: String?.self) { group in
             group.addTask {

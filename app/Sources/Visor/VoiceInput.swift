@@ -71,6 +71,44 @@ final class VoiceInput: NSObject, ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "visor.dictationCleanupModel") }
     }
 
+    /// What the cleanup model is told to do.
+    ///
+    /// Editable, and visible, because it was neither: the instruction lived in
+    /// the source, so the only way to know why a transcript came back the way
+    /// it did was to read the app. This is the one prompt in Visor a user has
+    /// reason to tune — it runs on their words, dozens of times a day, and what
+    /// counts as "cleaned up" is a matter of taste.
+    ///
+    /// Every clause earns its place. Naming what not to do matters more than
+    /// naming what to do: a small model handed dictation will cheerfully answer
+    /// it, summarise it, or translate it, and any of those silently destroys
+    /// what you said.
+    static let defaultCleanupPrompt = """
+        Rewrite dictated speech as the speaker meant to write it. Fix \
+        punctuation, capitalisation, obvious mishearings, and filler words. \
+        Change nothing else: do not summarise, rephrase, answer, translate, \
+        or add. Reply with the corrected text only.
+        """
+
+    static var cleanupPrompt: String {
+        get {
+            let stored = UserDefaults.standard.string(forKey: "visor.dictationCleanupPrompt")
+            guard let stored, !stored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return defaultCleanupPrompt }
+            return stored
+        }
+        set {
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            // An empty prompt would leave the model with no instruction at all,
+            // which doesn't disable cleanup — it makes it unpredictable.
+            if trimmed.isEmpty {
+                UserDefaults.standard.removeObject(forKey: "visor.dictationCleanupPrompt")
+            } else {
+                UserDefaults.standard.set(newValue, forKey: "visor.dictationCleanupPrompt")
+            }
+        }
+    }
+
     static var hasKey: Bool {
         guard let k = Keychain.get(keyAccount)?.trimmingCharacters(in: .whitespacesAndNewlines)
         else { return false }
