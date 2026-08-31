@@ -1602,7 +1602,9 @@ struct DictationControl: View {
             if voice.state == .recording {
                 AudioLevelMeter(level: voice.level)
             } else if voice.state == .transcribing {
-                DotMatrixIndicator(size: 10)
+                // Matched to the level meter it replaces, so the control
+                // doesn't shrink when recording stops and processing starts.
+                DotMatrixIndicator(size: 16)
             }
 
             Button(action: onToggle) {
@@ -1684,7 +1686,11 @@ struct ListeningPill: View {
     private var content: some View {
         switch voice.state {
         case .transcribing:
-            DotMatrixIndicator(size: 13)
+            // Sized to the pill rather than tucked inside it. This is the only
+            // thing on screen while a transcript is being cleaned up, and at 13
+            // it read as a detail in an empty space instead of the answer to
+            // "is it still working".
+            DotMatrixIndicator(size: 22)
         case .recording:
             AudioLevelMeter(level: voice.level, columns: 9, rows: 4, cell: 2.5)
         case .denied:

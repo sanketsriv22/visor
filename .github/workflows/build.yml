@@ -113,9 +113,23 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
           security find-identity -v -p codesigning "$KEYCHAIN"
 
-      - name: Sign
+      # Notarized, not merely signed.
+      #
+      # macOS ties an Accessibility grant to the exact code hashes of the build
+      # it was given to when it can't validate the app any other way, so every
+      # unnotarized build silently invalidated the permission while System
+      # Settings went on showing it as enabled. A notarized, stapled build is
+      # the only version of this that macOS can check without pinning.
+      #
+      # It costs a round trip to Apple on every build. Re-granting a permission
+      # by hand after every install costs more.
+      - name: Sign and notarize
         if: env.HAS_CERT == 'true'
-        run: ./scripts/sign-and-notarize.sh --skip-notarize
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: ./scripts/sign-and-notarize.sh
 
       # ditto, not zip: an .app bundle contains symlinks (Sparkle.framework's
       # Versions/Current especially), and a naive zip flattens them into copies
