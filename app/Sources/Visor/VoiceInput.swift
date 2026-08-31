@@ -65,9 +65,19 @@ final class VoiceInput: NSObject, ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "visor.dictationCleanup") }
     }
 
+    /// Default chosen for the job rather than for capability.
+    ///
+    /// This was Haiku 4.5 — a capable mid-tier model asked to insert commas.
+    /// It costs roughly twelve times as much as a small model for the same
+    /// task, and being larger it is also slower, on a step that sits between
+    /// someone speaking and their words appearing. The size that matters here
+    /// is instruction-following, not intelligence: a model that decides to
+    /// *answer* dictation instead of punctuating it has destroyed what was
+    /// said, and that failure is not one the big models are meaningfully
+    /// better at avoiding.
     static var cleanupModel: String {
         get { UserDefaults.standard.string(forKey: "visor.dictationCleanupModel")
-                ?? "anthropic/claude-haiku-4.5" }
+                ?? "google/gemini-2.5-flash-lite" }
         set { UserDefaults.standard.set(newValue, forKey: "visor.dictationCleanupModel") }
     }
 

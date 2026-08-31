@@ -1143,11 +1143,33 @@ private struct VoicePane: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 200)
             }
+            HStack(spacing: 6) {
+                Text("try").font(.caption2).foregroundStyle(.secondary)
+                ForEach(Self.transcriptionSuggestions, id: \.id) { option in
+                    Button { VoiceInput.transcriptionModel = option.id } label: {
+                        Text(option.id).font(.system(size: 10))
+                    }
+                    .buttonStyle(.borderless)
+                    .help(option.note)
+                }
+                Spacer(minLength: 0)
+            }
             Text("The upload and the transcription are usually the longer half of the wait — the cleanup model is the part with a picker, so it tends to get the blame. The voice log below now times both.")
                 .font(.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
+
+    /// What OpenAI offers on the transcription endpoint.
+    ///
+    /// whisper-1 is the original: it can't stream, so nothing comes back until
+    /// the whole recording has been processed, and it follows instructions
+    /// less well than the models that replaced it.
+    static let transcriptionSuggestions: [(id: String, note: String)] = [
+        ("gpt-transcribe", "OpenAI's recommended model — can stream partial results"),
+        ("gpt-4o-mini-transcribe", "smaller and quicker still"),
+        ("whisper-1", "the original — no streaming, weaker punctuation"),
+    ]
 
     var suggestedModels: some View {
         HStack(spacing: 6) {
