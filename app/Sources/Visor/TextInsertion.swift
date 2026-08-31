@@ -109,11 +109,6 @@ enum TextInsertion {
         guard let target else {
             return stash(text, reason: "no other app was in front")
         }
-        guard isTrusted else {
-            requestTrust()
-            return stash(text, reason: "Visor needs Accessibility to type it")
-        }
-
         // Focus may have moved to Visor while the transcript was in flight —
         // opening the notch to watch the level meter is enough to do it.
         // Without putting the original app back in front, the text goes to
@@ -150,7 +145,23 @@ enum TextInsertion {
         // the caret, so it can't be misrouted by a keybinding. Where that
         // isn't offered — most terminals — the text is typed as characters,
         // which is what a terminal is built to receive.
+        // Attempted before consulting `isTrusted`, deliberately.
+        //
+        // AXIsProcessTrusted is a cached answer to a question that changes:
+        // grant the permission to a running app and it can keep reporting
+        // false, so gating on it meant a correctly-configured Mac still fell
+        // back to the clipboard. The AX call reports its own failure honestly,
+        // which makes it the better test — if it succeeds, the text is in,
+        // whatever the flag believed.
         if insertViaAccessibility(text) { return .inserted(app: name(of: target)) }
+
+        // Synthesising keystrokes has no such tell: without the grant the
+        // events are dropped silently and it would look like it worked. So
+        // this one does have to ask first.
+        guard isTrusted else {
+            requestTrust()
+            return stash(text, reason: "Visor needs Accessibility — quit and reopen it if it's already granted")
+        }
         if typeOut(text) { return .inserted(app: name(of: target)) }
         return stash(text, reason: "\(name(of: target)) wouldn't take the text")
     }

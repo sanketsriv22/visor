@@ -122,6 +122,7 @@ private struct AgentsPane: View {
     @State private var keyDraft = ""
     @State private var voiceDraft = ""
     @State private var cleanupOn = VoiceInput.cleanupEnabled
+    @StateObject private var trust = AccessibilityTrust()
     @State private var insertOn = TextInsertion.insertIntoFocusedApp
     @State private var cleanupModel = VoiceInput.cleanupModel
     @State private var newAgentName = ""
@@ -236,7 +237,7 @@ private struct AgentsPane: View {
             Toggle(isOn: Binding(
                 get: { VoiceInput.cleanupEnabled },
                 set: { VoiceInput.cleanupEnabled = $0; cleanupOn = $0 })) {
-                    Text("Tidy up transcripts").font(.caption)
+                    Text("Clean up dictation before it lands").font(.caption)
                 }
                 .toggleStyle(.switch)
             if cleanupOn {
@@ -248,7 +249,7 @@ private struct AgentsPane: View {
                     }
                 }
             }
-            Text("Whisper returns what you said, not what you meant to write — no punctuation, filler words, the odd homophone. A cheap model fixes that for a fraction of a cent before the text lands.")
+            Text("Speech-to-text returns what you said, not what you meant to write: no punctuation, \"um\"s left in, and the occasional wrong homophone. With this on, the raw transcript is passed through the model below to punctuate and clean it before it's inserted — a fraction of a cent per dictation, and about a second. Off, you get the transcript exactly as heard.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -269,21 +270,28 @@ private struct AgentsPane: View {
             // Stated, not discovered. Without Accessibility this feature
             // degrades to a clipboard copy, and a silent degradation is
             // indistinguishable from the feature being broken.
-            if insertOn && !TextInsertion.isTrusted {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text("Accessibility is off, so dictation can only reach the clipboard.")
+            if insertOn && !trust.granted {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text("Accessibility is off, so dictation can only reach the clipboard.")
+                            .font(.caption2)
+                        Button("Open Settings") {
+                            guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+                            else { return }
+                            NSWorkspace.shared.open(url)
+                        }
                         .font(.caption2)
-                    Button("Open Settings") {
-                        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
-                        else { return }
-                        NSWorkspace.shared.open(url)
+                        .buttonStyle(.borderless)
                     }
-                    .font(.caption2)
-                    .buttonStyle(.borderless)
+                    // Said here because the alternative is someone switching it
+                    // on, seeing this warning stay, and reasonably concluding
+                    // the app is broken.
+                    Text("If it's already on there, quit and reopen Visor — macOS doesn't always hand a new grant to a process that's already running.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack(spacing: 8) {
@@ -1094,4 +1102,32 @@ private enum UsageFormat {
         if value >= 1_000 { return String(format: "%.1fk", Double(value) / 1_000) }
         return "\(value)"
     }
+}
+
+
+/// Watches whether Visor has Accessibility, so the warning can go away by
+/// itself.
+///
+/// It used to be read once while the view was built, which meant granting the
+/// permission and coming back to a panel still insisting it was off — the
+/// setting was right and the screen was wrong, and there's no way to tell those
+/// apart from the outside.
+@MainActor
+private final class AccessibilityTrust: ObservableObject {
+    @Published private(set) var granted = TextInsertion.isTrusted
+    private var timer: Timer?
+
+    init() {
+        // There is no reliable notification for this, so it's polled — slowly,
+        // and only while something is looking at it.
+        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                let now = TextInsertion.isTrusted
+                if now != self.granted { self.granted = now }
+            }
+        }
+    }
+
+    deinit { timer?.invalidate() }
 }
