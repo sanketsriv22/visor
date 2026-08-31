@@ -190,7 +190,19 @@ final class NotchController {
         panel.hasShadow = false
         panel.isMovable = false
         panel.hidesOnDeactivate = false
-        panel.becomesKeyOnlyIfNeeded = true
+        // Left at the default (false) deliberately.
+        //
+        // Set true, AppKit only hands the panel key status when the clicked
+        // view answers `needsPanelToBecomeKey`. An NSHostingView doesn't — it
+        // has no idea what SwiftUI put under the cursor — so once the panel
+        // lost key to another app, clicking the composer never got it back.
+        // The caret went nowhere and the field looked dead, for every agent,
+        // because it has nothing to do with agents.
+        //
+        // It reads like the cautious setting and isn't: the panel is
+        // nonactivating, so becoming key doesn't activate Visor or disturb the
+        // app in front. It just means a click in a text field lands in it.
+        panel.becomesKeyOnlyIfNeeded = false
 
         registerNoteTools()
         registerShellTool()

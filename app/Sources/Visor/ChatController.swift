@@ -271,10 +271,20 @@ final class ChatController: ObservableObject {
     /// Whether the composer should offer a CLI model chip.
     var isCLIAgent: Bool { agent?.isNotchCLI ?? false }
 
-    /// Aliases Claude Code documents in its own `--help`. Free text covers
-    /// everything else, because this list is the CLI's to change, not Visor's
-    /// to hard-code — a stale list that silently fails is worse than a field.
+    /// What the CLI accepts for `--model`: an alias, or a model's full name.
+    ///
+    /// Both are offered, because they aren't the same choice. An alias tracks
+    /// the latest of its line and quietly moves under you when a new one
+    /// ships; a full name pins the exact model and keeps answering the same
+    /// way next month. Offering only aliases — which is what shipped first —
+    /// meant there was no way to say *this* model, which is the whole reason
+    /// to have a picker.
+    ///
+    /// The list is short and the field below it is the real answer: these
+    /// names belong to the CLI, not to Visor, and a hard-coded list goes stale
+    /// silently. Anything the CLI knows can be typed.
     static let cliModelAliases = ["default", "fable", "sonnet", "opus", "haiku"]
+    static let cliModelNames = ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"]
 
     var cliModelName: String {
         let name = agent?.model ?? ""

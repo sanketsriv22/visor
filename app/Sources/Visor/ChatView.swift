@@ -626,6 +626,35 @@ struct CLIModelPicker: View {
     @State private var showing = false
     @State private var custom = ""
 
+    private func section(_ title: String, _ names: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(.system(size: 8, weight: .semibold))
+                .tracking(0.6)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 2)
+            ForEach(names, id: \.self) { name in
+                Button {
+                    chat.useCLIModel(name)
+                    showing = false
+                } label: {
+                    HStack {
+                        Text(name).font(.system(size: 12))
+                        Spacer()
+                        if name == chat.cliModelName {
+                            Image(systemName: "checkmark").font(.system(size: 10))
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     var body: some View {
         Button { showing = true } label: {
             HStack(spacing: 4) {
@@ -642,24 +671,11 @@ struct CLIModelPicker: View {
         .help("Model for this agent — changing it starts a new chat")
         .popover(isPresented: $showing, arrowEdge: .top) {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(ChatController.cliModelAliases, id: \.self) { alias in
-                    Button {
-                        chat.useCLIModel(alias)
-                        showing = false
-                    } label: {
-                        HStack {
-                            Text(alias).font(.system(size: 12))
-                            Spacer()
-                            if alias == chat.cliModelName {
-                                Image(systemName: "checkmark").font(.system(size: 10))
-                            }
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
+                section("LATEST", ChatController.cliModelAliases)
+                Divider().padding(.vertical, 4)
+                // Named separately because it's a different decision: an alias
+                // moves to the next model when one ships, a full name doesn't.
+                section("PINNED TO A VERSION", ChatController.cliModelNames)
                 Divider().padding(.vertical, 4)
                 TextField("Other model name…", text: $custom)
                     .textFieldStyle(.roundedBorder)
@@ -676,7 +692,7 @@ struct CLIModelPicker: View {
                 // when it opens a session and ignores the flag on resume, so
                 // this genuinely cannot apply to a conversation already
                 // running.
-                Text("Starts a new chat — the CLI fixes its model when a session begins.")
+                Text("Any model name the CLI knows works here. Starts a new chat — the CLI fixes its model when a session begins.")
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

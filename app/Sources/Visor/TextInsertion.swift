@@ -86,16 +86,12 @@ enum TextInsertion {
         }
     }
 
-    /// Paste `text` into the app dictation started in.
+    /// Put `text` into the app dictation started in.
     ///
-    /// Via the pasteboard and a synthetic ⌘V rather than typing character by
-    /// character: synthesised keystrokes drop and reorder under load, and
-    /// mangling someone's dictation is worse than not inserting it.
-    ///
-    /// The text goes on the clipboard *first*, before any check that could
-    /// fail. Every early return below used to leave the words nowhere at all —
-    /// the setting being off didn't even copy them. Whatever else goes wrong,
-    /// ⌘V now works.
+    /// The clipboard is written *first*, before any check that can fail. Every
+    /// early return below used to leave the words nowhere at all — the setting
+    /// being off didn't even copy them. Whatever else goes wrong, the user can
+    /// paste.
     @MainActor
     @discardableResult
     static func insert(_ text: String) async -> Outcome {
@@ -117,9 +113,9 @@ enum TextInsertion {
         }
 
         // Focus may have moved to Visor while the transcript was in flight —
-        // opening the notch to watch the level meter is enough to do it. Paste
-        // without putting the original app back in front and the keystroke
-        // goes to Visor, or to nothing.
+        // opening the notch to watch the level meter is enough to do it.
+        // Without putting the original app back in front, the text goes to
+        // Visor, or to nothing.
         if !target.isActive {
             if #available(macOS 14.0, *) {
                 target.activate()
@@ -140,32 +136,108 @@ enum TextInsertion {
             }
         }
 
-        guard let source = CGEventSource(stateID: .combinedSessionState) else {
-            return .copied(reason: "couldn't synthesise the keystroke")
+        // Two ways in, neither of which is ⌘V.
+        //
+        // Synthesising ⌘V assumes the target app maps ⌘V to paste. Terminals
+        // routinely don't — the user's own report was dictating into cmux and
+        // getting nothing, in a terminal where ⌘C already didn't copy. The
+        // keystroke was posted, the app had no such binding, and the words
+        // went nowhere with everything apparently working.
+        //
+        // Accessibility first: it hands the text to the focused field
+        // directly, so it can't be misrouted by a keybinding and doesn't
+        // depend on the clipboard at all. Where that isn't offered — most
+        // terminals — the text is typed as characters, which is what a
+        // terminal is built to receive.
+        if insertViaAccessibility(text) {
+            restoreClipboard(previous, after: text)
+            return .inserted(app: name(of: target))
         }
-        let v: CGKeyCode = 9   // kVK_ANSI_V
-        guard let down = CGEvent(keyboardEventSource: source, virtualKey: v, keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: v, keyDown: false)
-        else { return .copied(reason: "couldn't synthesise the keystroke") }
-        down.flags = .maskCommand
-        up.flags = .maskCommand
-        down.post(tap: .cghidEventTap)
-        up.post(tap: .cghidEventTap)
+        if typeOut(text) {
+            restoreClipboard(previous, after: text)
+            return .inserted(app: name(of: target))
+        }
+        return .copied(reason: "\(name(of: target)) wouldn't take the text")
+    }
 
-        // Long enough for the paste to be read before the clipboard changes
-        // back under it. Quietly eating what someone had copied is its own
-        // small betrayal.
-        if let previous {
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 700_000_000)
-                let board = NSPasteboard.general
-                // Only if nothing else has claimed the clipboard since.
-                guard board.string(forType: .string) == text else { return }
-                board.clearContents()
-                board.setString(previous, forType: .string)
-            }
+    /// Hand the text to the focused field through the Accessibility API.
+    ///
+    /// Replaces the selection, which with an ordinary caret is an insert. Only
+    /// attempted where the element says it's settable — writing to something
+    /// that isn't leaves the app in a state neither of us intended.
+    private static func insertViaAccessibility(_ text: String) -> Bool {
+        let system = AXUIElementCreateSystemWide()
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString,
+                                            &focused) == .success,
+              let raw = focused
+        else { return false }
+        let element = raw as! AXUIElement
+
+        var settable = DarwinBoolean(false)
+        guard AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString,
+                                             &settable) == .success,
+              settable.boolValue
+        else { return false }
+
+        return AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString,
+                                            text as CFTypeRef) == .success
+    }
+
+    /// Type the text as characters.
+    ///
+    /// Unicode is attached to the event rather than translated into key codes,
+    /// so it doesn't depend on the keyboard layout and can't be scrambled into
+    /// a different character on a non-US layout.
+    ///
+    /// Newlines become spaces. In a terminal a newline is not a line break,
+    /// it's Return — it would run whatever is on the line. Dictation should
+    /// never be able to submit something on the user's behalf.
+    private static func typeOut(_ text: String) -> Bool {
+        guard let source = CGEventSource(stateID: .combinedSessionState) else { return false }
+        let flat = text
+            .replacingOccurrences(of: "\r\n", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        let units = Array(flat.utf16)
+        guard !units.isEmpty else { return false }
+
+        var index = 0
+        while index < units.count {
+            // Short chunks: the event's unicode payload is small, and a long
+            // string silently truncates rather than erroring.
+            let end = min(index + 16, units.count)
+            var chunk = Array(units[index..<end])
+            guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
+                  let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
+            else { return false }
+            down.flags = []
+            up.flags = []
+            down.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: &chunk)
+            up.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: &chunk)
+            down.post(tap: .cghidEventTap)
+            up.post(tap: .cghidEventTap)
+            index = end
+            // Enough for the receiving app to keep up. Without it, fast
+            // consecutive events arrive out of order in some apps.
+            usleep(3_000)
         }
-        return .inserted(app: name(of: target))
+        return true
+    }
+
+    /// Put back what the user had copied, once the insertion has been read.
+    ///
+    /// Quietly eating someone's clipboard is its own small betrayal.
+    private static func restoreClipboard(_ previous: String?, after text: String) {
+        guard let previous else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            let board = NSPasteboard.general
+            // Only if nothing else has claimed it since.
+            guard board.string(forType: .string) == text else { return }
+            board.clearContents()
+            board.setString(previous, forType: .string)
+        }
     }
 
     private static func name(of app: NSRunningApplication) -> String {
