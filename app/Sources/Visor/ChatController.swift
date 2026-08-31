@@ -271,24 +271,103 @@ final class ChatController: ObservableObject {
     /// Whether the composer should offer a CLI model chip.
     var isCLIAgent: Bool { agent?.isNotchCLI ?? false }
 
-    /// What the CLI accepts for `--model`: an alias, or a model's full name.
+    /// What the CLI accepts for `--model`.
     ///
-    /// Both are offered, because they aren't the same choice. An alias tracks
-    /// the latest of its line and quietly moves under you when a new one
-    /// ships; a full name pins the exact model and keeps answering the same
-    /// way next month. Offering only aliases — which is what shipped first —
-    /// meant there was no way to say *this* model, which is the whole reason
-    /// to have a picker.
+    /// Taken from the CLI's own binary rather than remembered: every id below
+    /// appears in the installed `claude` executable. Guessing them is how you
+    /// ship a picker whose entries fail at session start, and the failure
+    /// arrives a turn later, attributed to the model.
     ///
-    /// The list is short and the field below it is the real answer: these
-    /// names belong to the CLI, not to Visor, and a hard-coded list goes stale
-    /// silently. Anything the CLI knows can be typed.
-    static let cliModelAliases = ["default", "fable", "sonnet", "opus", "haiku"]
-    static let cliModelNames = ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"]
+    /// Aliases and pinned versions are kept apart because they're different
+    /// decisions. An alias follows its line and moves under you when a new
+    /// model ships; a pinned id answers the same way next month. A picker that
+    /// only offered aliases — which is what shipped first — couldn't express
+    /// "this model", which is the entire reason to have one.
+    struct CLIModel: Identifiable, Hashable {
+        let id: String
+        let title: String
+        var note: String?
+    }
 
-    var cliModelName: String {
+    enum CLIModelGroup: String, CaseIterable, Identifiable {
+        case aliases = "Tracks the latest"
+        case five = "Claude 5"
+        case four = "Claude 4"
+        case earlier = "Earlier"
+
+        var id: String { rawValue }
+
+        var models: [CLIModel] {
+            switch self {
+            case .aliases:
+                return [
+                    CLIModel(id: "default", title: "Default", note: "whatever the CLI is set to"),
+                    CLIModel(id: "best", title: "Best available"),
+                    CLIModel(id: "opus", title: "Opus"),
+                    CLIModel(id: "sonnet", title: "Sonnet"),
+                    CLIModel(id: "haiku", title: "Haiku"),
+                    CLIModel(id: "fable", title: "Fable"),
+                    CLIModel(id: "opus[1m]", title: "Opus", note: "1M context"),
+                    CLIModel(id: "sonnet[1m]", title: "Sonnet", note: "1M context"),
+                ]
+            case .five:
+                return [
+                    CLIModel(id: "claude-opus-5", title: "Opus 5"),
+                    CLIModel(id: "claude-sonnet-5", title: "Sonnet 5"),
+                    CLIModel(id: "claude-fable-5", title: "Fable 5"),
+                ]
+            case .four:
+                return [
+                    CLIModel(id: "claude-opus-4-8", title: "Opus 4.8"),
+                    CLIModel(id: "claude-opus-4-7", title: "Opus 4.7"),
+                    CLIModel(id: "claude-opus-4-6", title: "Opus 4.6"),
+                    CLIModel(id: "claude-opus-4-5", title: "Opus 4.5"),
+                    CLIModel(id: "claude-opus-4-1", title: "Opus 4.1"),
+                    CLIModel(id: "claude-opus-4", title: "Opus 4"),
+                    CLIModel(id: "claude-sonnet-4-6", title: "Sonnet 4.6"),
+                    CLIModel(id: "claude-sonnet-4-5", title: "Sonnet 4.5"),
+                    CLIModel(id: "claude-sonnet-4", title: "Sonnet 4"),
+                    CLIModel(id: "claude-haiku-4-5", title: "Haiku 4.5"),
+                ]
+            case .earlier:
+                return [
+                    CLIModel(id: "claude-3-7-sonnet", title: "Sonnet 3.7"),
+                    CLIModel(id: "claude-3-5-sonnet-20241022", title: "Sonnet 3.5"),
+                    CLIModel(id: "claude-3-5-haiku-20241022", title: "Haiku 3.5"),
+                ]
+            }
+        }
+    }
+
+    static let allCLIModels: [CLIModel] = CLIModelGroup.allCases.flatMap(\.models)
+
+    /// Groups filtered by a search term, empty groups dropped.
+    static func cliModels(matching query: String) -> [(CLIModelGroup, [CLIModel])] {
+        let term = query.trimmingCharacters(in: .whitespaces).lowercased()
+        var out: [(CLIModelGroup, [CLIModel])] = []
+        for group in CLIModelGroup.allCases {
+            let models = term.isEmpty ? group.models : group.models.filter {
+                $0.id.lowercased().contains(term) || $0.title.lowercased().contains(term)
+            }
+            if !models.isEmpty { out.append((group, models)) }
+        }
+        return out
+    }
+
+    /// The id currently set, "default" when the agent has none.
+    var cliModelID: String {
         let name = agent?.model ?? ""
         return name.isEmpty ? "default" : name
+    }
+
+    /// How that reads in the composer: a name, not an id. "Opus 4.8" is what
+    /// you chose; "claude-opus-4-8" is how it's spelled to the CLI, and a chip
+    /// this narrow has room for one of them.
+    var cliModelName: String {
+        let id = cliModelID
+        guard let known = Self.allCLIModels.first(where: { $0.id == id }) else { return id }
+        if let note = known.note, note == "1M context" { return "\(known.title) 1M" }
+        return known.title
     }
 
     /// Point a CLI agent at a different model.
@@ -299,7 +378,7 @@ final class ChatController: ObservableObject {
     /// the other — the picker would look like it worked and wouldn't have.
     func useCLIModel(_ name: String) {
         guard var agent, agent.isNotchCLI else { return }
-        let chosen = name == "default" ? "" : name
+        let chosen = name == "default" ? "" : name.trimmingCharacters(in: .whitespaces)
         guard chosen != (agent.model ?? "") else { return }
         agent.model = chosen
         ai.upsert(agent)

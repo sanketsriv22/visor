@@ -155,6 +155,9 @@ final class NotchController {
     let ai: AIRunner
     let chat: ChatController
     private let modeKey = "visor.mode"
+    /// Whether the notch was showing the HUD when it was last put away, so
+    /// reopening returns you to where you were rather than one level below it.
+    private let hudResumeKey = "visor.resumeHUD"
     /// The HUD gets its own window.
     ///
     /// Making the card's panel screen-sized fixed the transition — nothing
@@ -715,7 +718,14 @@ final class NotchController {
     /// like the same key. Swapping a surface nobody is looking at isn't a swap.
     func swapMode() {
         guard ui.expanded else { return }
-        // From the HUD, swapping means coming back down to the note.
+        // Not from the HUD.
+        //
+        // It used to drop you onto the note card, which is two moves in one
+        // key: leaving a full-screen surface *and* changing face. Leaving is
+        // its own decision — ⌘⌃M puts the HUD away, ⌘⌃K puts everything away —
+        // and a swap key that also closes things is a swap key you can't
+        // press without thinking first.
+        guard !ui.mode.isFullScreen else { return }
         setMode(ui.mode == .notes ? .chat : .notes)
     }
 
@@ -765,23 +775,23 @@ final class NotchController {
     }
 
     func toggle() {
-        // From the HUD, the notch closes the HUD rather than the card
-        // underneath it.
+        // From the HUD this puts everything away, in one movement.
         //
-        // Collapsing instead left the two out of step: the HUD's window stayed
-        // up while ui.expanded went false, which silently disabled ⌘⌃M, ⌘⌃I and
-        // the mode switcher — all of which guard on the notch being open — and
-        // made the card panel take key focus back off the HUD.
+        // It used to step down to the chat card instead, which made closing a
+        // two-key affair: one to leave the HUD, another to close what was
+        // underneath. The reason it did that was mechanical — collapsing left
+        // the HUD's window up while ui.expanded went false, which silently
+        // disabled every shortcut that guards on the notch being open. That's
+        // fixed by taking the HUD down as part of the collapse rather than by
+        // refusing to collapse.
         if ui.mode.isFullScreen {
-            setMode(.chat)
+            collapseFromHUD()
             return
         }
         if ui.expanded {
-            // Whatever the reason for collapsing, the HUD can't outlive it.
-            if ui.mode.isFullScreen {
-                ui.mode = .chat
-                UserDefaults.standard.set(VisorMode.chat.rawValue, forKey: modeKey)
-            }
+            // A collapse from anywhere else is a collapse from chat or notes,
+            // so there's nothing to resume into.
+            UserDefaults.standard.set(false, forKey: hudResumeKey)
             hudPanel?.orderOut(nil)
             store.prepareToHide()  // prune blank rows + save (discards the note if now empty)
             // Suppress the notch hover popup until the collapse + window resize
@@ -801,6 +811,9 @@ final class NotchController {
                     withAnimation(.easeInOut(duration: 0.2)) { self.ui.settling = false }
                 }
             }
+        } else if UserDefaults.standard.bool(forKey: hudResumeKey) {
+            store.reloadFromDiskIfClean()
+            expandIntoHUD()
         } else {
             store.reloadFromDiskIfClean()
             applyFrame(expanded: true)
@@ -815,6 +828,60 @@ final class NotchController {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.ui.settling = false
             }
+        }
+    }
+
+    /// Collapse straight from the HUD into the notch.
+    ///
+    /// The mode and the expansion change inside one animation, so the card
+    /// underneath never appears: it would be a face flashing into view for a
+    /// third of a second on its way to being hidden, which is the sort of
+    /// thing that reads as a glitch even when you can't say what you saw.
+    private func collapseFromHUD() {
+        UserDefaults.standard.set(true, forKey: hudResumeKey)
+        // Chat is what's under the HUD, and what a plain reopen should land
+        // on if the resume flag is ever cleared.
+        UserDefaults.standard.set(VisorMode.chat.rawValue, forKey: modeKey)
+        panelWork?.cancel()
+        store.prepareToHide()
+
+        // The strip first, so there's a notch for the HUD to retract into
+        // rather than an empty gap where it used to be. The card window was
+        // ordered out when the HUD came up.
+        applyFrame(expanded: false)
+        panel.orderFront(nil)
+
+        ui.settling = true
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+            ui.mode = .chat
+            ui.expanded = false
+        }
+        // Once it has finished shrinking, not before — ordering the window out
+        // early cuts the animation off at frame one.
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.ui.expanded else { return }
+            self.hudPanel?.orderOut(nil)
+            withAnimation(.easeInOut(duration: 0.2)) { self.ui.settling = false }
+        }
+        panelWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.62, execute: work)
+    }
+
+    /// Reopen into the HUD, because that's where you were.
+    ///
+    /// One animation rather than expanding to chat and then expanding again:
+    /// the HUD flows out of the notch directly, the same movement in reverse.
+    private func expandIntoHUD() {
+        UserDefaults.standard.set(VisorMode.hud.rawValue, forKey: modeKey)
+        applyFrame(expanded: true)
+        ui.settling = true
+        withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) {
+            ui.mode = .hud
+            ui.expanded = true
+        }
+        showHUD()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            self?.ui.settling = false
         }
     }
 

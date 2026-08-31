@@ -281,6 +281,7 @@ struct ChatCard: View {
                     let clamped = min(max(height, 16), Self.composerMaxHeight)
                     if abs(clamped - draftHeight) > 0.5 { draftHeight = clamped }
                 }
+                .caretCursor()
             }
             .frame(height: draftHeight)
             .animation(.easeOut(duration: 0.12), value: draftHeight)
@@ -618,42 +619,10 @@ struct ModeSwitcher: View {
 /// OpenRouter's catalogue to hosted agents and, to a CLI agent, printed the
 /// model name with nothing to click. Changing it meant Settings, which is not
 /// where you are when you want a different model.
-///
-/// Aliases the CLI documents, plus a field for anything it adds later — the
-/// list belongs to the CLI, and a hard-coded one goes stale silently.
 struct CLIModelPicker: View {
     @ObservedObject var chat: ChatController
     @State private var showing = false
-    @State private var custom = ""
-
-    private func section(_ title: String, _ names: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(.system(size: 8, weight: .semibold))
-                .tracking(0.6)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 2)
-            ForEach(names, id: \.self) { name in
-                Button {
-                    chat.useCLIModel(name)
-                    showing = false
-                } label: {
-                    HStack {
-                        Text(name).font(.system(size: 12))
-                        Spacer()
-                        if name == chat.cliModelName {
-                            Image(systemName: "checkmark").font(.system(size: 10))
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
+    @State private var query = ""
 
     var body: some View {
         Button { showing = true } label: {
@@ -669,41 +638,173 @@ struct CLIModelPicker: View {
         }
         .buttonStyle(.plain)
         .help("Model for this agent — changing it starts a new chat")
-        .popover(isPresented: $showing, arrowEdge: .top) {
+        .popover(isPresented: $showing, arrowEdge: .top) { menu }
+    }
+
+    private var menu: some View {
+        VStack(spacing: 0) {
+            search
+            Divider()
+            list
+            Divider()
+            footer
+        }
+        .frame(width: 286)
+        .onDisappear { query = "" }
+    }
+
+    private var search: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            // Plain rather than .roundedBorder: a bordered box inside a
+            // popover that already has an edge is two frames around one field.
+            TextField("Search models", text: $query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .onSubmit(useTyped)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+    }
+
+    private var groups: [(ChatController.CLIModelGroup, [ChatController.CLIModel])] {
+        ChatController.cliModels(matching: query)
+    }
+
+    private var list: some View {
+        ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                section("LATEST", ChatController.cliModelAliases)
-                Divider().padding(.vertical, 4)
-                // Named separately because it's a different decision: an alias
-                // moves to the next model when one ships, a full name doesn't.
-                section("PINNED TO A VERSION", ChatController.cliModelNames)
-                Divider().padding(.vertical, 4)
-                TextField("Other model name…", text: $custom)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 11))
-                    .onSubmit {
-                        let name = custom.trimmingCharacters(in: .whitespaces)
-                        guard !name.isEmpty else { return }
-                        chat.useCLIModel(name)
-                        custom = ""
-                        showing = false
+                ForEach(groups, id: \.0) { group, models in
+                    Text(group.rawValue)
+                        .font(.system(size: 9, weight: .semibold))
+                        .tracking(0.5)
+                        .foregroundStyle(.white.opacity(0.35))
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+                        .padding(.bottom, 3)
+                    ForEach(models) { model in
+                        CLIModelRow(model: model,
+                                    selected: model.id == chat.cliModelID) {
+                            chat.useCLIModel(model.id)
+                            showing = false
+                        }
                     }
-                    .padding(.horizontal, 8)
-                // Said plainly rather than discovered: the CLI fixes a model
-                // when it opens a session and ignores the flag on resume, so
-                // this genuinely cannot apply to a conversation already
-                // running.
-                Text("Any model name the CLI knows works here. Starts a new chat — the CLI fixes its model when a session begins.")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(width: 190, alignment: .leading)
-                    .padding(.horizontal, 8)
-                    .padding(.top, 6)
+                }
+                // Any name the CLI knows is valid, and this list is a snapshot
+                // of one version of it. Typing something unlisted has to stay
+                // possible or the picker becomes a smaller CLI.
+                if groups.isEmpty && !query.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Button(action: useTyped) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "return").font(.system(size: 9))
+                            Text("Use “\(query.trimmingCharacters(in: .whitespaces))”")
+                                .font(.system(size: 12))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            .padding(.bottom, 6)
+        }
+        .frame(maxHeight: 268)
+    }
+
+    private var footer: some View {
+        Text("Starts a new chat — the CLI fixes its model when a session begins.")
+            .font(.system(size: 9))
+            .foregroundStyle(.white.opacity(0.4))
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .frame(width: 206)
+    }
+
+    private func useTyped() {
+        let name = query.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        chat.useCLIModel(name)
+        showing = false
+    }
+}
+
+/// One row: what you'd call it, and what it's actually called.
+private struct CLIModelRow: View {
+    let model: ChatController.CLIModel
+    let selected: Bool
+    let choose: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: choose) {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .opacity(selected ? 1 : 0)
+                    .frame(width: 10)
+                Text(model.title)
+                    .font(.system(size: 12, weight: selected ? .medium : .regular))
+                if let note = model.note {
+                    Text(note)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.35))
+                }
+                Spacer(minLength: 8)
+                // The id, quietly. It's what the CLI is told, so it should be
+                // visible before you pick — but it's not the thing you're
+                // choosing between.
+                Text(model.id)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.white.opacity(hovering ? 0.4 : 0.22))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(hovering ? Color.white.opacity(0.07) : .clear)
+                    .padding(.horizontal, 6))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.1), value: hovering)
+    }
+}
+
+
+/// Keeps the I-beam over a text field in a panel that isn't key.
+///
+/// Cursor rects are a key-window feature: AppKit only consults them for the
+/// key window, and the notch is a nonactivating panel that spends most of its
+/// life not being one. So the text view never got to say "I'm text" and the
+/// pointer stayed an arrow over a field you could type in — the one place the
+/// cursor is load-bearing, since the arrow is how you tell a control from a
+/// label before you click it.
+///
+/// Continuous hover rather than onHover: the window resets the cursor as the
+/// mouse moves, so setting it once on entry doesn't hold.
+private struct CaretCursor: ViewModifier {
+    func body(content: Content) -> some View {
+        content.onContinuousHover { phase in
+            switch phase {
+            case .active: NSCursor.iBeam.set()
+            case .ended:  NSCursor.arrow.set()
+            @unknown default: NSCursor.arrow.set()
+            }
         }
     }
+}
+
+extension View {
+    func caretCursor() -> some View { modifier(CaretCursor()) }
 }
 
 /// The message composer.
@@ -1339,6 +1440,7 @@ private struct HUDComposer: View {
                         .allowsHitTesting(false)
                 }
                 ComposerField(text: $chat.draft, onSubmit: chat.send)
+                    .caretCursor()
             }
             .frame(height: 62)
 
