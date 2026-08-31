@@ -41,6 +41,30 @@ struct StickyRootView: View {
                         .transition(.scale(scale: 0.02, anchor: .top)
                             .combined(with: .opacity))
                 }
+
+                // One switcher, measured from the notch rather than the card.
+                //
+                // Two bugs met here. Each face used to build its own, so a
+                // swap destroyed one instance and created another and SwiftUI
+                // cross-faded them — the icons read as replaced rather than
+                // switched. Hoisting to one instance fixed that, but it hung
+                // off the card as an overlay, and the card's width animates
+                // 420 → 530 during a swap. Its centre is stable only once the
+                // layout settles; mid-flight the overlay is re-proposed the
+                // card's intermediate width every frame, so the switcher
+                // drifted for the length of the transition and landed back
+                // where it started.
+                //
+                // Here it's a sibling of the card, positioned off the notch —
+                // which cannot move while the notch is open — so there is no
+                // animating geometry between it and the screen.
+                if !ui.mode.isFullScreen {
+                    ModeSwitcher(mode: ui.mode, onSelect: onMode)
+                        .frame(height: ui.notchSize.height)
+                        .offset(x: -((ui.notchSize.width + NotchController.notchClearance) / 2
+                                     + ModeSwitcher.width / 2))
+                        .zIndex(3)
+                }
             } else {
                 // Collapsed. The strip sits over the physical notch; the
                 // listening pill extends to its right, so the notch appears to
@@ -114,18 +138,6 @@ struct StickyRootView: View {
         .clipShape(cardShape)
         .overlay(CardEdgeBorder(radius: 18).stroke(.white.opacity(0.14), lineWidth: 1))
         .shadow(color: .black.opacity(0.35), radius: 5, y: 2)
-        // One switcher, owned by the root rather than by each face.
-        //
-        // Each card used to carry its own, so swapping modes destroyed one
-        // instance and built another — SwiftUI cross-faded the two, which is
-        // why the icons looked replaced rather than switching in place. A
-        // single persistent view can't do that, and it can't drift either.
-        .overlay(alignment: .top) {
-            ModeSwitcher(mode: ui.mode, onSelect: onMode)
-                .frame(height: ui.notchSize.height)
-                .offset(x: -((ui.notchSize.width + NotchController.notchClearance) / 2
-                             + ModeSwitcher.width / 2))
-        }
     }
 }
 

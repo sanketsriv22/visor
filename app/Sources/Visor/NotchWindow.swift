@@ -681,11 +681,19 @@ final class NotchController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.62, execute: work)
     }
 
-    /// Toggle the full-screen HUD. Entering from notes goes through chat,
-    /// since the HUD is that conversation at another scale.
+    /// Toggle the full-screen HUD, which only chat can reach.
+    ///
+    /// The HUD *is* the conversation at another scale — there's nothing to
+    /// expand a note into, and going notes → chat → HUD is two mode changes
+    /// for one keystroke, which reads as the app deciding where you wanted
+    /// to be. From notes the key does nothing.
     func toggleHUD() {
         guard ui.expanded else { return }
-        setMode(ui.mode.isFullScreen ? .chat : .hud)
+        if ui.mode.isFullScreen {
+            setMode(.chat)
+        } else if ui.mode == .chat {
+            setMode(.hud)
+        }
     }
 
     /// Flip to the other face, only when the notch is already open.

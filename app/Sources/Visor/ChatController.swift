@@ -263,6 +263,39 @@ final class ChatController: ObservableObject {
         ai.upsert(agent)
     }
 
+    /// Whether the composer should offer a CLI model chip.
+    var isCLIAgent: Bool { agent?.isNotchCLI ?? false }
+
+    /// Aliases Claude Code documents in its own `--help`. Free text covers
+    /// everything else, because this list is the CLI's to change, not Visor's
+    /// to hard-code — a stale list that silently fails is worse than a field.
+    static let cliModelAliases = ["default", "fable", "sonnet", "opus", "haiku"]
+
+    var cliModelName: String {
+        let name = agent?.model ?? ""
+        return name.isEmpty ? "default" : name
+    }
+
+    /// Point a CLI agent at a different model.
+    ///
+    /// This has to start a new chat. The CLI binds a model when a session is
+    /// created and ignores `--model` on resume, so changing it mid-session
+    /// would leave the chip showing one model while the session kept running
+    /// the other — the picker would look like it worked and wouldn't have.
+    func useCLIModel(_ name: String) {
+        guard var agent, agent.isNotchCLI else { return }
+        let chosen = name == "default" ? "" : name
+        guard chosen != (agent.model ?? "") else { return }
+        agent.model = chosen
+        ai.upsert(agent)
+        if !conversation.messages.isEmpty {
+            store.save(conversation)
+            stop()
+            error = nil
+            conversation = Self.blank(agent: agent)
+        }
+    }
+
     func useModel(_ id: String) {
         conversation.model = id
         if var agent {
@@ -272,12 +305,31 @@ final class ChatController: ObservableObject {
         if !conversation.messages.isEmpty { store.save(conversation) }
     }
 
-    /// Switch the active agent. An in-progress chat keeps its history — the
-    /// new agent simply answers the next turn.
+    /// Switch the active agent, starting a new chat if this one has run.
+    ///
+    /// Keeping the transcript looked like continuity and wasn't. A local CLI
+    /// agent holds its own session on its own side, and Visor resumes it by
+    /// id: hand that conversation to a hosted model and it answers from a
+    /// transcript the CLI never had, hand a hosted conversation to the CLI and
+    /// it starts blank while the screen still shows the history. Either way
+    /// the visible chat and the agent's actual context disagree, which is the
+    /// one thing a transcript must never do.
+    ///
+    /// So a used chat is saved and a new one opens. The old one is one click
+    /// away in history, still attached to the agent that can actually continue
+    /// it.
     func use(_ agent: AIProvider) {
+        guard agent.name != conversation.agentName else { return }
+        if !conversation.messages.isEmpty {
+            store.save(conversation)
+            stop()
+            error = nil
+            draft = ""
+            conversation = Self.blank(agent: agent)
+            return
+        }
         conversation.agentName = agent.name
         conversation.model = agent.model ?? Self.defaultModel
-        if !conversation.messages.isEmpty { store.save(conversation) }
     }
 
     // MARK: - Conversation lifecycle
@@ -407,6 +459,11 @@ final class ChatController: ObservableObject {
         }
 
         var arguments = agent.args
+
+        // The CLI has its own system prompt and its own idea of what it is;
+        // this appends rather than replaces, so it keeps every capability it
+        // came with and merely learns what it's called in here.
+        arguments += ["--append-system-prompt", Self.identity(for: agent)]
 
         if let session = conversation.cliSessionID {
             arguments += ["--resume", session]
@@ -638,18 +695,41 @@ final class ChatController: ObservableObject {
 
     // MARK: - Prompt assembly
 
+    /// Who the agent is, in its own words.
+    ///
+    /// Without this there was no system message at all unless the user had
+    /// written a persona, so an agent named Visor introduced itself as
+    /// whatever model was answering — ask it its name and it said "Claude
+    /// Code". The agent's name is a fact about the setup that only Visor
+    /// knows; nothing else in the request carries it.
+    ///
+    /// It states identity, it doesn't hide provenance: the model is told what
+    /// it's called and where it's running, and told to answer plainly about
+    /// what it's built on. Naming an agent isn't a licence to make it lie
+    /// about what it is.
+    static func identity(for agent: AIProvider) -> String {
+        """
+        You are \(agent.name), an agent inside Visor — a macOS app that lives \
+        in the notch at the top of the screen. Visor is the app; \(agent.name) \
+        is you. Asked your name, it's \(agent.name). Asked what you're built \
+        on, say so plainly — being called \(agent.name) doesn't make the \
+        underlying model a secret.
+        """
+    }
+
     private static func system(for agent: AIProvider, recalled: String?,
                                known: String?) -> String? {
-        var parts: [String] = []
+        var parts: [String] = [identity(for: agent)]
         if let persona = agent.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
            !persona.isEmpty {
+            // After the identity, so a persona the user wrote can reshape it.
             parts.append(persona)
         }
         // Facts first: they're compact and specific, where recalled excerpts
         // are long and only maybe relevant.
         if let known { parts.append(known) }
         if let recalled { parts.append(recalled) }
-        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+        return parts.joined(separator: "\n\n")
     }
 
     /// A chat's title is its first question, shortened at a word boundary.

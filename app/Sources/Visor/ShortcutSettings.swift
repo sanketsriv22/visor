@@ -131,6 +131,20 @@ final class ShortcutSettings: ObservableObject {
         chords[action] ?? action.fallback
     }
 
+    /// How a binding reads, for tooltips. Hard-coded hints went stale the
+    /// moment shortcuts became editable, and a tooltip naming a key that does
+    /// nothing is worse than a tooltip with no key in it.
+    static func hint(_ action: Action) -> String {
+        shared.chord(for: action).display
+    }
+
+    /// The binding for the nth agent slot, for the HUD's agent list.
+    static func agentHint(_ index: Int) -> String {
+        let slots: [Action] = [.agent1, .agent2, .agent3, .agent4, .agent5]
+        guard slots.indices.contains(index) else { return "" }
+        return hint(slots[index])
+    }
+
     func set(_ chord: Chord, for action: Action) {
         chords[action] = chord
         save()

@@ -84,7 +84,8 @@ struct ChatCard: View {
                 // 106pt strip is a puzzle, not a toolbar — new chat and expand
                 // are the ones worth a permanent slot.
                 headerButton("square.and.pencil", "New chat") { chat.newChat() }
-                headerButton("arrow.up.left.and.arrow.down.right", "Expand to HUD — ⌘⌃M",
+                headerButton("arrow.up.left.and.arrow.down.right",
+                             "Expand to HUD — \(ShortcutSettings.hint(.hud))",
                              action: onHUD)
                 overflowMenu.frame(width: 20)
                 Spacer(minLength: 0)
@@ -254,7 +255,7 @@ struct ChatCard: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.white.opacity(0.4))
             } else {
-                Text("Replies stream here. ⌘⌃I switches back to your notes.")
+                Text("Replies stream here. \(ShortcutSettings.hint(.swapMode)) switches back to your notes.")
                     .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.4))
                     .fixedSize(horizontal: false, vertical: true)
@@ -294,11 +295,8 @@ struct ChatCard: View {
                     InlineModelPicker(chat: chat)
                     EffortPicker(chat: chat)
                     FastToggle(chat: chat)
-                } else if let model = chat.agent?.model, !model.isEmpty {
-                    Text(model)
-                        .font(.system(size: 9))
-                        .foregroundStyle(.white.opacity(0.45))
-                        .lineLimit(1)
+                } else if chat.isCLIAgent {
+                    CLIModelPicker(chat: chat)
                 }
 
                 // No "working" here and no keyboard hint. The transcript
@@ -607,11 +605,88 @@ struct ModeSwitcher: View {
                         .foregroundStyle(.white.opacity(candidate == mode ? 0.9 : 0.36))
                 }
                 .buttonStyle(.plain)
-                .help("\(candidate.title) — ⌘⌃I swaps from anywhere")
-                .keyboardShortcut(candidate == .notes ? "1" : "2", modifiers: .command)
+                .help("\(candidate.title) — \(ShortcutSettings.hint(.swapMode)) swaps from anywhere")
             }
         }
         .animation(.easeInOut(duration: 0.15), value: mode)
+    }
+}
+
+/// Model chip for a local CLI agent.
+///
+/// There was a chip here before and it was dead text: the composer offered
+/// OpenRouter's catalogue to hosted agents and, to a CLI agent, printed the
+/// model name with nothing to click. Changing it meant Settings, which is not
+/// where you are when you want a different model.
+///
+/// Aliases the CLI documents, plus a field for anything it adds later — the
+/// list belongs to the CLI, and a hard-coded one goes stale silently.
+struct CLIModelPicker: View {
+    @ObservedObject var chat: ChatController
+    @State private var showing = false
+    @State private var custom = ""
+
+    var body: some View {
+        Button { showing = true } label: {
+            HStack(spacing: 4) {
+                Text(chat.cliModelName)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 6, weight: .bold))
+                    .opacity(0.6)
+            }
+            .composerPill(active: true, enabled: true)
+        }
+        .buttonStyle(.plain)
+        .help("Model for this agent — changing it starts a new chat")
+        .popover(isPresented: $showing, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(ChatController.cliModelAliases, id: \.self) { alias in
+                    Button {
+                        chat.useCLIModel(alias)
+                        showing = false
+                    } label: {
+                        HStack {
+                            Text(alias).font(.system(size: 12))
+                            Spacer()
+                            if alias == chat.cliModelName {
+                                Image(systemName: "checkmark").font(.system(size: 10))
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                Divider().padding(.vertical, 4)
+                TextField("Other model name…", text: $custom)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 11))
+                    .onSubmit {
+                        let name = custom.trimmingCharacters(in: .whitespaces)
+                        guard !name.isEmpty else { return }
+                        chat.useCLIModel(name)
+                        custom = ""
+                        showing = false
+                    }
+                    .padding(.horizontal, 8)
+                // Said plainly rather than discovered: the CLI fixes a model
+                // when it opens a session and ignores the flag on resume, so
+                // this genuinely cannot apply to a conversation already
+                // running.
+                Text("Starts a new chat — the CLI fixes its model when a session begins.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: 190, alignment: .leading)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 6)
+            }
+            .padding(.vertical, 8)
+            .frame(width: 206)
+        }
     }
 }
 
@@ -1068,7 +1143,7 @@ struct HUDView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Back to the notch — Esc, or ⌘⌃M")
+                .help("Back to the notch — Esc, or \(ShortcutSettings.hint(.hud))")
             }
 
             HUDTranscript(chat: chat)
@@ -1119,7 +1194,7 @@ struct HUDView: View {
                         }
                         Spacer(minLength: 0)
                         if index < 5 {
-                            Text("⌘⌃\(index + 1)")
+                            Text(ShortcutSettings.agentHint(index))
                                 .font(.system(size: 8 * scale, design: .monospaced))
                                 .foregroundStyle(.white.opacity(0.22))
                         }
@@ -1367,11 +1442,11 @@ struct DictationControl: View {
 
     private var helpText: String {
         switch voice.state {
-        case .recording:    return "Stop and transcribe — ⌘⌃V"
+        case .recording:    return "Stop and transcribe — \(ShortcutSettings.hint(.dictate))"
         case .transcribing: return "Transcribing…"
         case .denied:       return "Microphone access denied — enable it in System Settings > Privacy"
         case .failed(let why): return why
-        case .idle:         return "Dictate — ⌘⌃V"
+        case .idle:         return "Dictate — \(ShortcutSettings.hint(.dictate))"
         }
     }
 }

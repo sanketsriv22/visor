@@ -249,7 +249,7 @@ private struct AgentsPane: View {
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text("⌘⌃V dictates into the composer using OpenAI's transcription API. This is a separate key because OpenRouter doesn't carry audio — leave it blank and dictation stays off.")
+            Text("\(ShortcutSettings.hint(.dictate)) dictates into the composer using OpenAI's transcription API. This is a separate key because OpenRouter doesn't carry audio — leave it blank and dictation stays off.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -643,16 +643,16 @@ private struct WorkspacePane: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Notes").font(.headline)
                 HStack(spacing: 6) {
-                    Text("⌘⌃K").font(.system(size: 12, design: .monospaced))
+                    Text(ShortcutSettings.hint(.toggle)).font(.system(size: 12, design: .monospaced))
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(RoundedRectangle(cornerRadius: 4).fill(.secondary.opacity(0.18)))
                     Text("opens and closes the notch from any app.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("⌘⌃I swaps between notes and chat.")
-                    Text("⌘⌃M expands chat into the full-screen HUD.")
-                    Text("⌘⌃1–5 jump straight to an agent.")
+                    Text("\(ShortcutSettings.hint(.swapMode)) swaps between notes and chat.")
+                    Text("\(ShortcutSettings.hint(.hud)) expands chat into the full-screen HUD.")
+                    Text("\(ShortcutSettings.agentHint(0))–\(ShortcutSettings.agentHint(4)) jump straight to an agent.")
                 }
                 .font(.caption).foregroundStyle(.secondary)
             }
