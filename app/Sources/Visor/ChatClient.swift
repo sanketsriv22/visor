@@ -163,6 +163,10 @@ final class OpenRouterClient {
         }
 
         var body: [String: Any] = ["model": model, "messages": wire, "stream": stream]
+        // Asked for explicitly, or the streaming response never mentions it.
+        // It arrives as a final chunk with an empty `choices`, which is why
+        // the parser has to look for it before it looks for a delta.
+        body["usage"] = ["include": true]
         if let temperature { body["temperature"] = temperature }
         // Reasoning effort is ignored by models that don't reason, so it's
         // safe to send whenever the user has picked one.
@@ -185,6 +189,8 @@ final class OpenRouterClient {
         case text(String)
         /// Emitted once, at the end, when the model wants tools run.
         case toolCalls([ToolCall])
+        /// Tokens and cost for the request, as the provider accounts for them.
+        case usage(tokensIn: Int, tokensOut: Int, costUSD: Double?)
     }
 
     func stream(messages: [ChatMessage], model: String, system: String? = nil,
@@ -222,8 +228,20 @@ final class OpenRouterClient {
                         let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
                         if payload == "[DONE]" { break }
                         guard let data = payload.data(using: .utf8),
-                              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                              let choices = obj["choices"] as? [[String: Any]],
+                              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                        else { continue }
+
+                        // Before the delta check: the usage chunk carries an
+                        // empty `choices`, so looking for a delta first would
+                        // skip straight past it.
+                        if let report = obj["usage"] as? [String: Any] {
+                            continuation.yield(.usage(
+                                tokensIn: report["prompt_tokens"] as? Int ?? 0,
+                                tokensOut: report["completion_tokens"] as? Int ?? 0,
+                                costUSD: report["cost"] as? Double))
+                        }
+
+                        guard let choices = obj["choices"] as? [[String: Any]],
                               let delta = choices.first?["delta"] as? [String: Any]
                         else { continue }
 

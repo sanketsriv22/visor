@@ -547,14 +547,35 @@ final class ChatController: ObservableObject {
             store.save(conversation)
         }
 
+        // Structured output, so the reply arrives as it's written rather than
+        // in one lump when the process exits. `-p` on its own buffers the whole
+        // turn — which is why a CLI agent used to sit silent for a minute and
+        // then produce everything at once, while a hosted agent streamed.
+        //
+        // Only when the tool is known to speak it, and never on top of a
+        // format the user has chosen themselves in the agent's arguments.
+        let structured = CLICatalogue.streamsJSON(command: agent.command)
+            && !arguments.contains("--output-format")
+        if structured { arguments += CLICatalogue.streamingArguments }
+
         for await event in runner.run(command: agent.command,
                                       arguments: arguments,
                                       prompt: prompt,
                                       directory: ai.workDirURL,
-                                      environmentKey: key) {
+                                      environmentKey: key,
+                                      structured: structured) {
             switch event {
             case .text(let chunk):
                 appendToReply(chunk)
+            case .usage(let used):
+                UsageLedger.record(UsageEntry(
+                    agent: agent.name,
+                    account: agent.name,
+                    source: (agent.command as NSString).lastPathComponent,
+                    model: used.model ?? agent.model ?? "default",
+                    input: used.input, output: used.output,
+                    cacheRead: used.cacheRead, cacheWrite: used.cacheWrite,
+                    costUSD: used.costUSD))
             case .finished(let status):
                 if status != 0, conversation.messages.last?.content.isEmpty ?? true {
                     appendToReply("_\(agent.name) exited with status \(status)._")
@@ -587,6 +608,17 @@ final class ChatController: ObservableObject {
                     appendToReply(chunk)
                 case .toolCalls(let calls):
                     attachToolCalls(calls)
+                case .usage(let tokensIn, let tokensOut, let cost):
+                    // Against the key, not the agent: five agents can sit
+                    // behind one OpenRouter key, and "what am I spending" is a
+                    // question about the key.
+                    UsageLedger.record(UsageEntry(
+                        agent: agent?.name ?? "",
+                        account: agent?.keyAccount ?? OpenRouterClient.sharedKeyAccount,
+                        source: "openrouter",
+                        model: model,
+                        input: tokensIn, output: tokensOut,
+                        costUSD: cost))
                 }
             }
         } catch {

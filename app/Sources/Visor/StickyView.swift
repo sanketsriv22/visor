@@ -1376,7 +1376,7 @@ struct HUDRootView: View {
     @ObservedObject var store: NotesStore
     @ObservedObject var ui: UIState
     var onExit: () -> Void
-
+    var onClose: () -> Void
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -1387,6 +1387,7 @@ struct HUDRootView: View {
                     notchWidth: ui.notchSize.width,
                     topInset: ui.notchSize.height,
                     onExit: onExit,
+                    onClose: onClose,
                     visible: ui.mode.isFullScreen)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

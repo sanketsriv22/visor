@@ -47,6 +47,21 @@ enum CLICatalogue {
         !groups(for: command).isEmpty
     }
 
+    /// Flags that turn a tool's output into a JSON event stream.
+    ///
+    /// `--verbose` isn't optional here: the CLI refuses stream-json in print
+    /// mode without it.
+    static let streamingArguments = [
+        "--output-format", "stream-json", "--include-partial-messages", "--verbose",
+    ]
+
+    /// Whether this command understands those flags. Anything else is left
+    /// alone — passing a tool flags it doesn't know makes it exit before it
+    /// has said anything, which reads as the agent being broken.
+    static func streamsJSON(command: String) -> Bool {
+        name(of: command) == "claude"
+    }
+
     /// The executable's own name, so `/opt/homebrew/bin/claude` and `claude`
     /// are the same agent.
     private static func name(of command: String) -> String {

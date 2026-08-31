@@ -441,13 +441,21 @@ struct MessageRow: View {
             HStack {
                 Group {
                     if isStreaming && message.content.isEmpty {
-                        // Waiting on the first token: the indicator *is* the
-                        // message. No name, no empty bubble text — just the
-                        // thing that says work is happening, at a size you can
-                        // read without leaning in.
-                        DotMatrixIndicator(size: 22 * scale)
-                            .padding(.vertical, 6)
-                            .padding(.horizontal, 4)
+                        // Waiting on the first token: this *is* the message.
+                        //
+                        // The indicator alone, at 22pt, was a large abstract
+                        // shape sitting where a sentence goes — it said
+                        // something was happening without saying what. Sized to
+                        // the text beside it, it reads as a line in the
+                        // transcript rather than a graphic pasted over one.
+                        HStack(spacing: 6) {
+                            DotMatrixIndicator(size: 12 * scale)
+                            Text("working")
+                                .font(.system(size: 12 * scale))
+                                .foregroundStyle(.white.opacity(0.5))
+                        }
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 4)
                     } else {
                         replyText
                     }
@@ -1169,6 +1177,9 @@ struct HUDView: View {
     var notchWidth: CGFloat
     var topInset: CGFloat
     var onExit: () -> Void
+    /// Put Visor away entirely, remembering it was the HUD you closed. Distinct
+    /// from `onExit`, which steps back down to the chat card.
+    var onClose: () -> Void
     /// Drives the whole entrance and exit. One value, one animation — the
     /// previous version ran a `.transition` on the HUD *and* a separate delayed
     /// offset on the rails, so two curves competed over the same frames, which
@@ -1248,6 +1259,21 @@ struct HUDView: View {
         // One curve for everything. Long and well damped, because it covers a
         // screen of travel and anything snappier reads as a snap rather than an
         // expansion.
+        // The notch, which the HUD covers.
+        //
+        // Without this, clicking it while the HUD is up lands on the glass and
+        // does nothing at all — the card's window is ordered out once the HUD
+        // is up, so there's nothing underneath to receive it. The notch means
+        // "put this away" at every size, and putting the HUD away should bring
+        // the HUD back when you next open it.
+        .overlay(alignment: .top) {
+            Color.clear
+                .frame(width: notchWidth + NotchController.notchClearance,
+                       height: topInset)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onClose)
+                .allowsHitTesting(visible)
+        }
         .animation(.spring(response: 0.52, dampingFraction: 0.86), value: visible)
         .onExitCommand(perform: onExit)
     }

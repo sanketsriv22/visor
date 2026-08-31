@@ -11,13 +11,14 @@ final class SettingsFocus: ObservableObject {
 }
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case agents, workspace, mcp, memory
+    case agents, usage, workspace, mcp, memory
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .agents:    return "Agents"
+        case .usage:     return "Usage"
         case .workspace: return "Workspace"
         case .mcp:       return "MCP"
         case .memory:    return "Memory"
@@ -27,6 +28,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .agents:    return "person.2"
+        case .usage:     return "chart.bar"
         case .workspace: return "folder"
         case .mcp:       return "app.connected.to.app.below.fill"
         case .memory:    return "brain"
@@ -101,6 +103,7 @@ struct SettingsView: View {
         switch tab {
         case .agents:    AgentsPane(ai: ai, catalog: catalog, focus: focus,
                                     pushToTalk: pushToTalk)
+        case .usage:     UsagePane()
         case .workspace: WorkspacePane(ai: ai)
         case .mcp:       MCPPane()
         case .memory:    MemoryPane(chat: chat, catalog: catalog)
@@ -928,5 +931,167 @@ private struct MCPPane: View {
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+
+// MARK: - Usage
+
+/// What each key has actually been used for.
+///
+/// Grouped by account rather than by agent, because that's the question: five
+/// agents can sit behind one OpenRouter key, and the bill doesn't care which
+/// of them ran. A local CLI agent is billed by whoever the user signed in to
+/// that tool as — not by Visor, and not against the OpenRouter key — so it gets
+/// its own row and says "subscription" rather than a cost, since a $0.00 there
+/// would be a claim rather than an absence.
+private struct UsagePane: View {
+    @State private var window: UsageLedger.Window = .week
+    /// Bumped to re-read the file, which is appended to from outside this view.
+    @State private var refresh = 0
+    @State private var confirmingClear = false
+
+    private var totals: [UsageTotal] {
+        _ = refresh
+        return UsageLedger.totals(in: window)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Picker("", selection: $window) {
+                    ForEach(UsageLedger.Window.allCases) { option in
+                        Text(option.rawValue).tag(option)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: 300)
+                Spacer()
+                Button("Refresh") { refresh += 1 }
+                    .font(.caption)
+            }
+
+            if totals.isEmpty {
+                Text("Nothing recorded in this period. Usage is written as each reply finishes.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .padding(.top, 4)
+            } else {
+                ForEach(totals) { total in
+                    UsageRow(total: total)
+                }
+                Divider()
+                summary
+            }
+
+            Spacer()
+
+            HStack(spacing: 8) {
+                // A usage log is a record of what someone has been doing, so
+                // deleting it is theirs to do.
+                Button(confirmingClear ? "Delete history?" : "Clear history") {
+                    if confirmingClear {
+                        UsageLedger.clear()
+                        confirmingClear = false
+                        refresh += 1
+                    } else {
+                        confirmingClear = true
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(confirmingClear ? Color.red : .secondary)
+                if confirmingClear {
+                    Button("Cancel") { confirmingClear = false }.font(.caption)
+                }
+                Spacer()
+            }
+
+            Text("Counted from what each provider reports for the request — not estimated. Cached input is listed separately because it's billed at a different rate.")
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .onAppear { refresh += 1 }
+    }
+
+    private var summary: some View {
+        let billed = totals.filter(\.billed)
+        let cost = billed.reduce(0) { $0 + $1.costUSD }
+        let requests = totals.reduce(0) { $0 + $1.requests }
+        return HStack {
+            Text("\(requests) request\(requests == 1 ? "" : "s")")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            if !billed.isEmpty {
+                Text(UsageFormat.money(cost))
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+            }
+        }
+    }
+}
+
+private struct UsageRow: View {
+    let total: UsageTotal
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: total.source == "openrouter" ? "globe" : "terminal")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(total.account).font(.system(size: 12, weight: .medium))
+                Text(subtitle)
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 12)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                if total.billed {
+                    Text(UsageFormat.money(total.costUSD))
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                } else {
+                    Text("subscription")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                Text(tokens)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 5)
+    }
+
+    private var subtitle: String {
+        let names = total.agents.sorted().joined(separator: ", ")
+        let count = total.requests
+        return "\(count) request\(count == 1 ? "" : "s") · \(names)"
+    }
+
+    private var tokens: String {
+        var parts = ["\(UsageFormat.count(total.input)) in",
+                     "\(UsageFormat.count(total.output)) out"]
+        if total.cacheRead > 0 { parts.append("\(UsageFormat.count(total.cacheRead)) cached") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+private enum UsageFormat {
+    /// Fractions of a cent are the normal case for a single request, so the
+    /// usual two decimal places would show most of this history as $0.00.
+    static func money(_ amount: Double) -> String {
+        if amount == 0 { return "$0" }
+        if amount < 0.01 { return String(format: "$%.4f", amount) }
+        if amount < 1 { return String(format: "$%.3f", amount) }
+        return String(format: "$%.2f", amount)
+    }
+
+    static func count(_ value: Int) -> String {
+        if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
+        if value >= 1_000 { return String(format: "%.1fk", Double(value) / 1_000) }
+        return "\(value)"
     }
 }

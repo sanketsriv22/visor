@@ -660,8 +660,10 @@ final class NotchController {
             panel.isMovable = false
             panel.hidesOnDeactivate = false
             panel.contentView = FirstMouseHostingView(
-                rootView: HUDRootView(chat: chat, store: store, ui: ui,
-                                      onExit: { [weak self] in self?.setMode(.chat) }))
+                rootView: HUDRootView(
+                    chat: chat, store: store, ui: ui,
+                    onExit: { [weak self] in self?.setMode(.chat) },
+                    onClose: { [weak self] in self?.toggle() }))
             hudPanel = panel
         }
         hudPanel?.setFrame(screen.frame, display: false)
