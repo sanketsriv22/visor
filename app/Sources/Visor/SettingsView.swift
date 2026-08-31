@@ -967,6 +967,7 @@ private struct VoicePane: View {
     @State private var cleanupOn = VoiceInput.cleanupEnabled
     @State private var cleanupModel = VoiceInput.cleanupModel
     @State private var insertOn = TextInsertion.insertIntoFocusedApp
+    @State private var clipboardOn = TextInsertion.clipboardFallback
     @State private var voiceEntries: [VoiceEntry] = []
     @State private var promptDraft = VoiceInput.cleanupPrompt
     @StateObject private var trust = AccessibilityTrust()
@@ -1038,6 +1039,16 @@ private struct VoicePane: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Toggle(isOn: Binding(
+                get: { TextInsertion.clipboardFallback },
+                set: { TextInsertion.clipboardFallback = $0; clipboardOn = $0 })) {
+                    Text("Fall back to the clipboard if it can't be inserted").font(.caption)
+                }
+                .toggleStyle(.switch)
+            Text("Off by default. A transcript on the clipboard is one you still have to paste, and it takes over something you may have been using. Every transcript is in the log below regardless.")
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle(isOn: Binding(
                 get: { TextInsertion.insertIntoFocusedApp },
                 set: { TextInsertion.insertIntoFocusedApp = $0; insertOn = $0 })) {
                     Text("Type dictation into the app you're using").font(.caption)
@@ -1065,10 +1076,10 @@ private struct VoicePane: View {
                         .font(.caption2)
                         .buttonStyle(.borderless)
                     }
-                    // Said here because the alternative is someone switching it
-                    // on, seeing this warning stay, and reasonably concluding
-                    // the app is broken.
-                    Text("If it's already on there, quit and reopen Visor — macOS doesn't always hand a new grant to a process that's already running.")
+                    // Said here because the alternative is someone opening
+                    // that pane, seeing Visor already switched on, and
+                    // reasonably concluding the app is broken.
+                    Text("If Visor is already switched on there, switch it off and on again. macOS ties the permission to the exact build it was granted to, and every update is a new one — the pane keeps showing the app as enabled either way, because it's listing the entry rather than checking it still matches.")
                         .font(.caption2).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }

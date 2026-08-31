@@ -103,3 +103,23 @@ extension ButtonStyle where Self == VisorControl {
         VisorControl(active: active, inset: inset, radius: radius)
     }
 }
+
+
+/// Press feedback for a control that already draws its own background.
+///
+/// Chips, capsules and rows that carry their own fill can't take `VisorControl`
+/// — its background would sit under theirs and read as a double edge. But they
+/// were still on `.plain`, so they had hover and no press: the two halves of
+/// the same gesture answered differently depending on which control you
+/// touched. This gives them the same give, and nothing else.
+struct VisorBareControl: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(Design.press, value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == VisorBareControl {
+    static var visorBare: VisorBareControl { VisorBareControl() }
+}

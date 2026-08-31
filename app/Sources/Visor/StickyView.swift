@@ -651,7 +651,7 @@ private struct StickyCard: View {
                 .padding(.leading, 6)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.visor)
         .help("Add a task")
     }
 
@@ -677,7 +677,7 @@ private struct StickyCard: View {
                 .padding(.horizontal, 4)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.visor)
         .help("Beam a live link — edits sync both ways")
     }
 
@@ -806,7 +806,7 @@ private struct StickyCard: View {
                 .foregroundStyle(.secondary)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.visor)
             .padding(.top, 6)
             .padding(.bottom, 2)
 
@@ -1011,14 +1011,14 @@ private struct StickyCard: View {
                         .font(.system(size: 10))
                         .foregroundStyle(.green)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.visorBare)
             case .failed(let why):
                 Button(action: ai.revealLog) {
                     Label("\(ai.lastProviderName) failed (\(why))", systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 10))
                         .foregroundStyle(.red)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.visorBare)
             }
         }
     }
@@ -1218,7 +1218,7 @@ private struct NoteRow: View {
                                 .frame(width: 24, height: 24)   // solid, reliable hit target
                                 .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.visor)
                         .modifier(IconHoverGlow())
                         .help("Send just this task to the chosen agent")
                     }

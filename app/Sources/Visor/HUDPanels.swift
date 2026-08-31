@@ -308,7 +308,7 @@ private struct HUDChatRow: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.visor)
 
             if hovering || confirming {
                 // Two steps, because deleting a chat also erases what the
@@ -336,7 +336,7 @@ private struct HUDChatRow: View {
                         .fill(confirming ? Color.red.opacity(0.16) : .clear))
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.visorBare)
                 .help(confirming ? "Click again to delete" : "Delete this chat")
             }
         }

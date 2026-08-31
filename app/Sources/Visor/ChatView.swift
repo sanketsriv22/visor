@@ -264,7 +264,7 @@ struct ChatCard: View {
                     Button("Settings") {
                         NotificationCenter.default.post(name: .visorOpenSettings, object: nil)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.visorBare)
                     .foregroundStyle(Color.accentColor)
                     .underline()
                 }
@@ -329,7 +329,7 @@ struct ChatCard: View {
                                          ? Color.orange
                                          : (canSend ? Color.white.opacity(0.9) : Color.white.opacity(0.22)))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.visorBare)
                 .disabled(!chat.isStreaming && !canSend)
                 .keyboardShortcut(chat.isStreaming ? "." : .return, modifiers: [.command])
             }
@@ -381,7 +381,7 @@ struct ChatCard: View {
                     .background(Capsule().fill(Design.Surface.hover))
                     .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.visorBare)
                 .keyboardShortcut(.escape, modifiers: [])
 
                 Text("\(chat.store.summaries.count) saved")
@@ -560,7 +560,7 @@ private struct HistoryRow: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.visor)
 
             // Two-step, because deleting a chat also erases what the knowledge
             // base learned from it — and a single mis-click shouldn't do that.
@@ -590,7 +590,7 @@ private struct HistoryRow: View {
                         .fill(confirming ? Color.red.opacity(0.16) : .clear))
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.visorBare)
                 .help(confirming ? "Click again to delete" : "Delete this chat")
                 .transition(.opacity)
             }
@@ -660,7 +660,7 @@ struct CLIModelPicker: View {
             }
             .composerPill(active: true, enabled: true)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.visorBare)
         .help("Model for this agent — changing it starts a new chat")
         .popover(isPresented: $showing, arrowEdge: .top) { menu }
     }
@@ -746,7 +746,7 @@ struct CLIModelPicker: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.visor)
                 }
             }
             .padding(.bottom, 6)
@@ -816,7 +816,7 @@ private struct CLIModelRow: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.visor)
 
             // Its own button, outside the choosing one: pinning a model you
             // aren't switching to is the normal case, and a nested tap target
@@ -1082,7 +1082,7 @@ struct InlineModelPicker: View {
             }
             .composerPill(active: true, enabled: chat.agent != nil)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.visorBare)
         .disabled(chat.agent == nil)
         .help("Model for this message")
         .popover(isPresented: $showing, arrowEdge: .top) {
@@ -1151,7 +1151,7 @@ struct InlineModelPicker: View {
                 .lineLimit(1)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.visor)
 
             Button {
                 chat.toggleFavourite(id)
@@ -1389,7 +1389,7 @@ struct HUDView: View {
                               ? Design.Surface.hover : .clear))
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.visorBare)
             }
         }
     }
@@ -1536,7 +1536,7 @@ private struct HUDComposer: View {
                         .font(.system(size: 19))
                         .foregroundStyle(chat.isStreaming ? Color.orange : Color.white.opacity(0.9))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.visorBare)
             }
         }
         .padding(14)
@@ -1792,7 +1792,7 @@ struct EffortPicker: View {
                 .background(Capsule().fill(.white.opacity(selected ? 0.16 : 0)))
                 .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.visorBare)
         .animation(.easeOut(duration: 0.14), value: selected)
     }
 
@@ -1830,7 +1830,7 @@ struct FastToggle: View {
             // only the text responded and the chevron did nothing.
             .composerPill(active: chat.isFast, enabled: chat.agent != nil)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.visorBare)
         .fixedSize()
         .disabled(chat.agent == nil)
         .help(chat.isFast
@@ -1945,13 +1945,13 @@ struct ToolApprovalRow: View {
 
             HStack(spacing: 6) {
                 Button("Allow", action: allow)
-                    .buttonStyle(.plain)
+                    .buttonStyle(.visorBare)
                     .composerPill(active: true)
                 Button("Always", action: allowAlways)
-                    .buttonStyle(.plain)
+                    .buttonStyle(.visorBare)
                     .composerPill()
                 Button("Deny", action: deny)
-                    .buttonStyle(.plain)
+                    .buttonStyle(.visorBare)
                     .composerPill()
                 Spacer(minLength: 0)
             }

@@ -18,6 +18,19 @@ enum TextInsertion {
     /// can't be overridden.
     private static let decidedKey = "visor.insertDictation.set"
 
+    /// Whether a transcript that couldn't be inserted goes to the clipboard.
+    ///
+    /// Off. It was on as a safety net and the net was the problem: dictation
+    /// that lands on the clipboard is dictation you have to go and paste, which
+    /// is the feature not working, and it does it while quietly taking over
+    /// something that belongs to you. A failure should look like a failure.
+    ///
+    /// The transcript is never lost either way — every one is in the voice log.
+    static var clipboardFallback: Bool {
+        get { UserDefaults.standard.bool(forKey: "visor.dictationClipboardFallback") }
+        set { UserDefaults.standard.set(newValue, forKey: "visor.dictationClipboardFallback") }
+    }
+
     /// Whether transcripts are typed into the app in front.
     ///
     /// On by default now. It was off, on the reasoning that typing into
@@ -72,8 +85,10 @@ enum TextInsertion {
     /// What happened, so the caller can say so.
     enum Outcome {
         case inserted(app: String)
-        /// On the clipboard, not typed. Says why.
+        /// On the clipboard, not typed. Only when that was asked for.
         case copied(reason: String?)
+        /// Not inserted anywhere. It's in the voice log.
+        case failed(reason: String)
 
         /// A line for the user, or nil when it worked and needs no comment.
         var notice: String? {
@@ -82,6 +97,7 @@ enum TextInsertion {
             case .copied(let reason):
                 guard let reason else { return "Copied to the clipboard" }
                 return "Copied to the clipboard — \(reason)"
+            case .failed(let reason): return reason
             }
         }
     }
@@ -160,17 +176,20 @@ enum TextInsertion {
         // this one does have to ask first.
         guard isTrusted else {
             requestTrust()
-            return stash(text, reason: "Visor needs Accessibility — quit and reopen it if it's already granted")
+            return stash(text, reason: Self.staleGrantAdvice)
         }
         if typeOut(text) { return .inserted(app: name(of: target)) }
         return stash(text, reason: "\(name(of: target)) wouldn't take the text")
     }
 
-    /// Last resort: the words survive on the clipboard, and the user is told.
+    /// Insertion didn't happen. Say so, and don't touch anything else.
     ///
-    /// Only ever reached when they can't be inserted — losing a transcript
-    /// outright is the one outcome worse than borrowing the clipboard.
+    /// The clipboard is only involved if the user has asked for it. Otherwise
+    /// this reports the failure and stops: the transcript is in the voice log,
+    /// and a silent copy is how someone ends up believing the feature worked
+    /// when it didn't.
     private static func stash(_ text: String, reason: String) -> Outcome {
+        guard clipboardFallback else { return .failed(reason: reason) }
         let board = NSPasteboard.general
         board.clearContents()
         board.setString(text, forType: .string)
@@ -245,6 +264,21 @@ enum TextInsertion {
     private static func name(of app: NSRunningApplication) -> String {
         app.localizedName ?? "the app in front"
     }
+
+    /// What to say when macOS reports no Accessibility while its own settings
+    /// show the switch on.
+    ///
+    /// This is not a mistake by the user. macOS binds an Accessibility grant to
+    /// the exact code hash of the build that was running when it was given, and
+    /// every new build has a different one. Settings goes on showing the app as
+    /// enabled, because it lists the entry rather than whether the entry still
+    /// matches. Toggling it off and on rewrites the binding.
+    ///
+    /// Worth saying out loud rather than sending someone to a pane that looks
+    /// correct, which is exactly where they'd go otherwise.
+    static let staleGrantAdvice =
+        "macOS still has this tied to a previous build — switch Visor off and " +
+        "on again under Privacy & Security ▸ Accessibility"
 
     /// Ask for Accessibility, once, with the system's own dialog.
     private static func requestTrust() {
