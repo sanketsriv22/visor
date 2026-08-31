@@ -89,6 +89,14 @@ struct StickyRootView: View {
                 // the strip below it is 8pt taller than the hardware because of
                 // the click underhang.
                 HStack(alignment: .top, spacing: 0) {
+                    if ui.listening {
+                        // The mirror of the meter: same width, same shape,
+                        // rounded on the outer corner instead of the inner one.
+                        ListeningPill(voice: chat.voice,
+                                      height: ui.trueNotch.height,
+                                      side: .leading)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
                     NotchStrip(size: ui.notchSize)
                     if ui.listening {
                         ListeningPill(voice: chat.voice, height: ui.trueNotch.height)
@@ -99,7 +107,7 @@ struct StickyRootView: View {
                     }
                 }
                 .animation(.spring(response: 0.34, dampingFraction: 0.86), value: ui.listening)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

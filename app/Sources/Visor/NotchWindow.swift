@@ -1010,11 +1010,16 @@ final class NotchController {
         } else {
             let hit = collapsedHitRect(on: screen)
             ui.notchSize = hit.size
-            // While dictating, the strip extends to the right of the notch for
-            // the level meter.
+            // While dictating, the notch widens on *both* sides.
+            //
+            // It grew only to the right, which made a symmetrical piece of
+            // hardware lopsided for the duration — the eye reads the notch as
+            // centred, so a one-sided extension looks like the whole thing has
+            // shifted rather than widened.
             frame = ui.listening
-                ? NSRect(x: hit.minX, y: hit.minY,
-                         width: hit.width + Self.listeningPillWidth, height: hit.height)
+                ? NSRect(x: hit.minX - Self.listeningPillWidth, y: hit.minY,
+                         width: hit.width + Self.listeningPillWidth * 2,
+                         height: hit.height)
                 : hit
         }
         panel.setFrame(frame, display: true)

@@ -1714,26 +1714,32 @@ struct DictationControl: View {
 /// transcribing — there's nothing else worth saying in 86 points, and anything
 /// more would make it a UI rather than an indicator.
 struct ListeningPill: View {
+    /// Which side of the notch this one sits on. Everything mirrors: the
+    /// rounded corner is on the outer edge, and the overlap reaches back under
+    /// the strip from the inner one.
+    enum Side { case leading, trailing }
+
     @ObservedObject var voice: VoiceInput
     var height: CGFloat
+    var side: Side = .trailing
 
     var body: some View {
         ZStack {
-            // Square on the leading edge so it butts flush against the notch,
-            // rounded only on the trailing bottom corner to echo the notch's
-            // own. A rounded leading corner drew a visible seam and made this
-            // read as a second notch sitting beside the first, rather than the
-            // one notch getting wider.
+            // Square against the notch, rounded only on the outer bottom corner
+            // to echo the notch's own. A rounded inner corner drew a visible
+            // seam and made this read as a second notch beside the first,
+            // rather than the one notch getting wider.
             UnevenRoundedRectangle(
                 topLeadingRadius: 0,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: 10,
+                bottomLeadingRadius: side == .leading ? 10 : 0,
+                bottomTrailingRadius: side == .trailing ? 10 : 0,
                 topTrailingRadius: 0)
                 .fill(Color.black)
                 // Reach back under the notch strip so the black is continuous
                 // even though the strip is a few points wider than the
                 // hardware. Black over black — invisible, and no seam.
-                .padding(.leading, -NotchController.listeningPillOverlap)
+                .padding(side == .leading ? .trailing : .leading,
+                         -NotchController.listeningPillOverlap)
 
             content
         }
@@ -1742,6 +1748,24 @@ struct ListeningPill: View {
 
     @ViewBuilder
     private var content: some View {
+        // The left side says what's happening; the right side shows it
+        // happening. Two meters would be a mirror rather than information, and
+        // a mic on both sides says nothing twice.
+        if side == .leading {
+            // No symbol animation: those arrived in macOS 14 and Visor
+            // targets 13. The colour carries the state, and the meter on the
+            // other side is already doing the moving.
+            Image(systemName: voice.state == .recording ? "mic.fill" : "waveform")
+                .font(.system(size: 13))
+                .foregroundStyle(voice.state == .recording
+                                 ? Color.red.opacity(0.85) : Design.Ink.secondary)
+        } else {
+            trailingContent
+        }
+    }
+
+    @ViewBuilder
+    private var trailingContent: some View {
         switch voice.state {
         case .transcribing:
             // Sized to the pill rather than tucked inside it. This is the only
