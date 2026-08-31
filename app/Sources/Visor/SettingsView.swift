@@ -1096,6 +1096,70 @@ private struct VoicePane: View {
         }
     }
 
+    /// Three that suit this job, with what they cost.
+    ///
+    /// The job is narrow — a couple of hundred tokens in, the same out, and it
+    /// sits between you speaking and the words appearing. Instruction-following
+    /// matters more than size here: a model that decides to *answer* your
+    /// dictation instead of punctuating it has destroyed what you said, and at
+    /// these prices the difference between the cheapest and the best of them is
+    /// a rounding error.
+    ///
+    /// Avoid anything ending in `:batch`. Those are queued rather than
+    /// answered, which is the opposite of what this needs.
+    private static let suggestions: [(id: String, note: String)] = [
+        ("google/gemini-2.5-flash-lite", "fast, follows instructions closely"),
+        ("openai/gpt-5-nano", "cheaper out, still precise"),
+        ("qwen/qwen3.7-flash", "cheapest of the three"),
+    ]
+
+    var suggestedModels: some View {
+        HStack(spacing: 6) {
+            Text("try").font(.caption2).foregroundStyle(.secondary)
+            ForEach(Self.suggestions, id: \.id) { suggestion in
+                Button {
+                    VoiceInput.cleanupModel = suggestion.id
+                    cleanupModel = suggestion.id
+                } label: {
+                    Text(suggestion.id.split(separator: "/").last.map(String.init) ?? suggestion.id)
+                        .font(.system(size: 10))
+                }
+                .buttonStyle(.borderless)
+                .help("\(suggestion.id) — \(suggestion.note)")
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// The instruction the cleanup model runs on.
+    var cleanupPromptEditor: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Instruction").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                if promptDraft != VoiceInput.defaultCleanupPrompt {
+                    Button("Reset") {
+                        promptDraft = VoiceInput.defaultCleanupPrompt
+                        VoiceInput.cleanupPrompt = promptDraft
+                    }
+                    .font(.caption2).buttonStyle(.borderless)
+                }
+            }
+            TextEditor(text: $promptDraft)
+                .font(.system(size: 11, design: .monospaced))
+                .frame(height: 74)
+                .padding(4)
+                .background(RoundedRectangle(cornerRadius: Design.Radius.control)
+                    .fill(Color.primary.opacity(0.05)))
+                .onChange(of: promptDraft) { _, value in
+                    VoiceInput.cleanupPrompt = value
+                }
+            Text("Sent as the system prompt, with only the raw transcript as the message. It stays identical between dictations, so the provider serves it from cache — which is most of why this is quick. Saying what not to do matters more than what to do: a small model handed dictation will happily answer it, and that loses what you said.")
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     /// Everything dictated, whether or not it ever reached a chat.
     private var voiceLogSection: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -1243,70 +1307,6 @@ private struct CLIAccountRow: View {
         .onAppear { if account == nil { accounts.refresh(provider) } }
     }
 
-
-    /// Three that suit this job, with what they cost.
-    ///
-    /// The job is narrow — a couple of hundred tokens in, the same out, and it
-    /// sits between you speaking and the words appearing. Instruction-following
-    /// matters more than size here: a model that decides to *answer* your
-    /// dictation instead of punctuating it has destroyed what you said, and at
-    /// these prices the difference between the cheapest and the best of them is
-    /// a rounding error.
-    ///
-    /// Avoid anything ending in `:batch`. Those are queued rather than
-    /// answered, which is the opposite of what this needs.
-    private static let suggestions: [(id: String, note: String)] = [
-        ("google/gemini-2.5-flash-lite", "fast, follows instructions closely"),
-        ("openai/gpt-5-nano", "cheaper out, still precise"),
-        ("qwen/qwen3.7-flash", "cheapest of the three"),
-    ]
-
-    var suggestedModels: some View {
-        HStack(spacing: 6) {
-            Text("try").font(.caption2).foregroundStyle(.secondary)
-            ForEach(Self.suggestions, id: \.id) { suggestion in
-                Button {
-                    VoiceInput.cleanupModel = suggestion.id
-                    cleanupModel = suggestion.id
-                } label: {
-                    Text(suggestion.id.split(separator: "/").last.map(String.init) ?? suggestion.id)
-                        .font(.system(size: 10))
-                }
-                .buttonStyle(.borderless)
-                .help("\(suggestion.id) — \(suggestion.note)")
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    /// The instruction the cleanup model runs on.
-    var cleanupPromptEditor: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("Instruction").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                if promptDraft != VoiceInput.defaultCleanupPrompt {
-                    Button("Reset") {
-                        promptDraft = VoiceInput.defaultCleanupPrompt
-                        VoiceInput.cleanupPrompt = promptDraft
-                    }
-                    .font(.caption2).buttonStyle(.borderless)
-                }
-            }
-            TextEditor(text: $promptDraft)
-                .font(.system(size: 11, design: .monospaced))
-                .frame(height: 74)
-                .padding(4)
-                .background(RoundedRectangle(cornerRadius: Design.Radius.control)
-                    .fill(Color.primary.opacity(0.05)))
-                .onChange(of: promptDraft) { _, value in
-                    VoiceInput.cleanupPrompt = value
-                }
-            Text("Sent as the system prompt, with only the raw transcript as the message. It stays identical between dictations, so the provider serves it from cache — which is most of why this is quick. Saying what not to do matters more than what to do: a small model handed dictation will happily answer it, and that loses what you said.")
-                .font(.caption2).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
 
     private var signInCommand: String {
         let dir = provider.configDir?.trimmingCharacters(in: .whitespaces) ?? ""
