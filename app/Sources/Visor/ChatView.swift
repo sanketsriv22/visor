@@ -939,8 +939,10 @@ struct ComposerField: NSViewRepresentable {
         scroll.hasHorizontalScroller = false
         scroll.verticalScrollElasticity = .none
 
-        let container = NSTextContainer(
-            size: NSSize(width: 0, height: .greatestFiniteMagnitude))
+        // Spelled with explicit CGFloats: NSSize's initialiser is overloaded
+        // and the bare literals leave it ambiguous.
+        let unbounded = CGFloat.greatestFiniteMagnitude
+        let container = NSTextContainer(size: NSSize(width: 0, height: unbounded))
         container.widthTracksTextView = true
         let layout = NSLayoutManager()
         layout.addTextContainer(container)
@@ -952,8 +954,7 @@ struct ComposerField: NSViewRepresentable {
         view.isVerticallyResizable = true
         view.isHorizontallyResizable = false
         view.minSize = NSSize(width: 0, height: 0)
-        view.maxSize = NSSize(width: .greatestFiniteMagnitude,
-                              height: .greatestFiniteMagnitude)
+        view.maxSize = NSSize(width: unbounded, height: unbounded)
         scroll.documentView = view
         view.delegate = context.coordinator
         view.drawsBackground = false
