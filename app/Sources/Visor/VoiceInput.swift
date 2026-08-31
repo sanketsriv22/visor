@@ -257,8 +257,15 @@ final class VoiceInput: NSObject, ObservableObject {
     /// Configurable because it's the half of the wait nobody looks at: the
     /// cleanup model has a picker and gets blamed, while transcription is a
     /// bigger upload and a slower service and has been a hard-coded constant.
+    /// gpt-transcribe by default: faster *and* cheaper than what it replaces.
+    ///
+    /// whisper-1 costs $0.006 a minute and cannot stream, so nothing comes back
+    /// until the whole recording has been processed. gpt-transcribe is $0.0045
+    /// and can return partial results. There is no axis on which the old
+    /// default was the better choice — it was simply the one that existed when
+    /// this was written.
     static var transcriptionModel: String {
-        get { UserDefaults.standard.string(forKey: "visor.transcriptionModel") ?? "whisper-1" }
+        get { UserDefaults.standard.string(forKey: "visor.transcriptionModel") ?? "gpt-transcribe" }
         set { UserDefaults.standard.set(newValue, forKey: "visor.transcriptionModel") }
     }
 

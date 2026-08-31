@@ -970,6 +970,7 @@ private struct VoicePane: View {
     @State private var clipboardOn = TextInsertion.clipboardFallback
     @State private var voiceEntries: [VoiceEntry] = []
     @State private var promptDraft = VoiceInput.cleanupPrompt
+    @StateObject private var benchmark = CleanupBenchmark()
     @StateObject private var trust = AccessibilityTrust()
 
     var body: some View {
@@ -1033,6 +1034,7 @@ private struct VoicePane: View {
                 }
                 suggestedModels
                 cleanupPromptEditor
+                benchmarkSection
             }
             Text("Speech-to-text returns what you said, not what you meant to write: no punctuation, \"um\"s left in, and the occasional wrong homophone. With this on, the raw transcript is passed through the model below to punctuate and clean it before it's inserted — a fraction of a cent per dictation, and about a second. Off, you get the transcript exactly as heard.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -1170,6 +1172,57 @@ private struct VoicePane: View {
         ("gpt-4o-mini-transcribe", "smaller and quicker still"),
         ("whisper-1", "the original — no streaming, weaker punctuation"),
     ]
+
+    /// Try the shortlist against a real transcript and keep the winner.
+    var benchmarkSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Button(benchmark.running ? "Comparing…" : "Compare models") {
+                    // Your most recent dictation if there is one: a model that
+                    // handles a made-up sample well and your actual speech
+                    // badly is the wrong winner.
+                    benchmark.run(on: voiceEntries.first?.text)
+                }
+                .font(.caption)
+                .disabled(benchmark.running)
+                Text("Runs the instruction above against your last dictation on each model.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+
+            ForEach(benchmark.results) { result in
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(result.model)
+                            .font(.system(size: 10, design: .monospaced))
+                        if let seconds = result.seconds {
+                            Text(String(format: "%.2fs", seconds))
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(seconds < 1 ? Color.green : .secondary)
+                        } else {
+                            Text("…").font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        if result.output != nil {
+                            Button("Use") {
+                                VoiceInput.cleanupModel = result.model
+                                cleanupModel = result.model
+                            }
+                            .font(.caption2).buttonStyle(.borderless)
+                        }
+                    }
+                    if let error = result.error {
+                        Text(error).font(.caption2).foregroundStyle(.orange).lineLimit(2)
+                    } else if let output = result.output {
+                        Text(output)
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .lineLimit(3)
+                            .textSelection(.enabled)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
 
     var suggestedModels: some View {
         HStack(spacing: 6) {
