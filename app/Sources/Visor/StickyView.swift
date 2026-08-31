@@ -1227,7 +1227,7 @@ private struct NoteRow: View {
                             .frame(width: 24, height: 24)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.visor)
                     .modifier(IconHoverGlow())
                     .help("Delete task")
                     if item.isTask {
@@ -1238,7 +1238,7 @@ private struct NoteRow: View {
                                 .frame(width: 24, height: 24)
                                 .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.visor)
                         .modifier(IconHoverGlow())
                         .help(item.link?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? "Open link" : "Add link")
                     }

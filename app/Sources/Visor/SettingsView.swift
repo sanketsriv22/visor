@@ -84,7 +84,7 @@ struct SettingsView: View {
                     .font(.system(size: 12))
                     .padding(.horizontal, 9)
                     .padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 6)
+                    .background(RoundedRectangle(cornerRadius: Design.Radius.control)
                         .fill(tab == candidate ? Color.accentColor.opacity(0.18) : .clear))
                     .contentShape(Rectangle())
                 }
@@ -290,7 +290,7 @@ private struct AgentRow: View {
             if provider.isChat { chatFields } else { cliFields }
         }
         .padding(.horizontal, 8).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 7)
+        .background(RoundedRectangle(cornerRadius: Design.Radius.pill)
             .fill(highlighted ? Color.accentColor.opacity(0.12) : .clear))
         .animation(.easeInOut(duration: 0.2), value: highlighted)
         .onAppear { nameDraft = provider.name }
@@ -318,7 +318,7 @@ private struct AgentRow: View {
                         set: { value in var p = provider; p.systemPrompt = value; ai.upsert(p) }))
                         .font(.system(size: 11))
                         .frame(height: 46)
-                        .overlay(RoundedRectangle(cornerRadius: 5)
+                        .overlay(RoundedRectangle(cornerRadius: Design.Radius.control)
                             .stroke(.secondary.opacity(0.3), lineWidth: 1))
                     Text("Optional. Prepended to every conversation with this agent.")
                         .font(.caption2).foregroundStyle(.secondary)
@@ -451,7 +451,7 @@ private struct ModelPickerButton: View {
             .font(.system(size: 11))
             .padding(.horizontal, 7).padding(.vertical, 3)
             .frame(width: 320, alignment: .leading)
-            .overlay(RoundedRectangle(cornerRadius: 5)
+            .overlay(RoundedRectangle(cornerRadius: Design.Radius.control)
                 .stroke(.secondary.opacity(0.35), lineWidth: 1))
             .contentShape(Rectangle())
         }
@@ -564,7 +564,7 @@ private struct WorkspacePane: View {
                 HStack(spacing: 6) {
                     Text(ShortcutSettings.hint(.toggle)).font(.system(size: 12, design: .monospaced))
                         .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(.secondary.opacity(0.18)))
+                        .background(RoundedRectangle(cornerRadius: Design.Radius.control).fill(.secondary.opacity(0.18)))
                     Text("opens and closes the notch from any app.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -1296,7 +1296,7 @@ private struct CLIAccountRow: View {
                         .font(.system(size: 10, design: .monospaced))
                         .textSelection(.enabled)
                         .padding(.horizontal, 6).padding(.vertical, 3)
-                        .background(RoundedRectangle(cornerRadius: 4)
+                        .background(RoundedRectangle(cornerRadius: Design.Radius.control)
                             .fill(Color.primary.opacity(0.06)))
                     Button("Copy") {
                         NSPasteboard.general.clearContents()

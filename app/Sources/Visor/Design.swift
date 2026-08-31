@@ -16,6 +16,7 @@ enum Design {
     enum Radius {
         static let control: CGFloat = 5
         static let pill: CGFloat = 7
+        static let panel: CGFloat = 10
         static let card: CGFloat = 14
         static let surface: CGFloat = 26
     }
@@ -38,7 +39,10 @@ enum Design {
         static let hover = Color.white.opacity(0.07)
         static let press = Color.white.opacity(0.13)
         static let selected = Color.white.opacity(0.15)
-        static let hairline = Color.white.opacity(0.09)
+        static let hairline = Color.white.opacity(0.07)
+        /// A resting surface — a chip or capsule that sits slightly proud of
+        /// the card behind it, before anyone has touched it.
+        static let raised = Color.white.opacity(0.06)
     }
 
     /// Text weights by role rather than by number, so "secondary" means the

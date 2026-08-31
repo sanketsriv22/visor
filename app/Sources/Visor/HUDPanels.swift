@@ -111,10 +111,10 @@ struct HUDPanelSlot<Content: View>: View {
         }
         .padding(12)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
             .fill(.white.opacity(0.05)))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .stroke(.white.opacity(0.07), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
+            .stroke(Design.Surface.hairline, lineWidth: 1))
     }
 }
 
@@ -144,7 +144,7 @@ struct HUDTasksPanel: View {
                     .onSubmit(add)
             }
             .padding(.horizontal, 8).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 7).fill(.white.opacity(0.06)))
+            .background(RoundedRectangle(cornerRadius: Design.Radius.pill).fill(Design.Surface.raised))
 
             ForEach(store.items.filter { $0.isTask && !$0.done }.prefix(14)) { item in
                 HUDTaskRow(item: item, scale: scale, store: store)
@@ -189,7 +189,7 @@ private struct HUDTaskRow: View {
                     .frame(width: 22 * scale, height: 22 * scale)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.visor)
             .help("Change status")
 
             Text(item.text)
@@ -214,7 +214,7 @@ private struct HUDTaskRow: View {
                         .frame(width: 20 * scale, height: 20 * scale)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.visor)
                 .help("Complete")
 
                 Button {
@@ -227,7 +227,7 @@ private struct HUDTaskRow: View {
                         .frame(width: 20 * scale, height: 20 * scale)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.visor)
                 .help("Delete")
             }
         }
@@ -332,7 +332,7 @@ private struct HUDChatRow: View {
                     .frame(height: 20 * scale)
                     .padding(.horizontal, confirming ? 6 : 0)
                     .frame(minWidth: 20 * scale)
-                    .background(RoundedRectangle(cornerRadius: 5)
+                    .background(RoundedRectangle(cornerRadius: Design.Radius.control)
                         .fill(confirming ? Color.red.opacity(0.16) : .clear))
                     .contentShape(Rectangle())
                 }

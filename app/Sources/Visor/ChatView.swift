@@ -25,7 +25,7 @@ struct ChatCard: View {
         VStack(spacing: 0) {
             notchBand
             agentBar
-            Divider().overlay(Color.white.opacity(0.08))
+            Divider().overlay(Design.Surface.hairline)
             if chat.showingHistory {
                 history
             } else {
@@ -78,7 +78,7 @@ struct ChatCard: View {
                             .frame(width: 20, height: 20)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.visor)
                     .help("Stop the reply — this also stops it being billed")
                 }
                 // Two buttons and an overflow. Five icon-only controls in a
@@ -201,7 +201,7 @@ struct ChatCard: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.55))
                 .frame(width: 20, height: 20)
-                .background(Circle().fill(.white.opacity(0.06)))
+                .background(Circle().fill(Design.Surface.raised))
                 .contentShape(Circle())
         }
         .menuStyle(.borderlessButton)
@@ -341,9 +341,9 @@ struct ChatCard: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.white.opacity(0.06))
-                .overlay(RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: Design.Radius.panel)
+                .fill(Design.Surface.hover)
+                .overlay(RoundedRectangle(cornerRadius: Design.Radius.panel)
                     .stroke(.white.opacity(0.09), lineWidth: 1)))
         .padding(.horizontal, 12)
         .padding(.bottom, 12)
@@ -378,7 +378,7 @@ struct ChatCard: View {
                     .foregroundStyle(.white.opacity(0.6))
                     .padding(.horizontal, 7)
                     .frame(height: 20)
-                    .background(Capsule().fill(.white.opacity(0.07)))
+                    .background(Capsule().fill(Design.Surface.hover))
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -492,7 +492,7 @@ struct MessageRow: View {
                     UnevenRoundedRectangle(
                         topLeadingRadius: 11, bottomLeadingRadius: 3,
                         bottomTrailingRadius: 11, topTrailingRadius: 11)
-                        .stroke(.white.opacity(0.06), lineWidth: 1))
+                        .stroke(Design.Surface.hairline, lineWidth: 1))
                 Spacer(minLength: 28)
             }
         }
@@ -586,7 +586,7 @@ private struct HistoryRow: View {
                     .frame(height: 22)
                     .padding(.horizontal, confirming ? 6 : 0)
                     .frame(minWidth: 22)
-                    .background(RoundedRectangle(cornerRadius: 5)
+                    .background(RoundedRectangle(cornerRadius: Design.Radius.control)
                         .fill(confirming ? Color.red.opacity(0.16) : .clear))
                     .contentShape(Rectangle())
                 }
@@ -597,8 +597,8 @@ private struct HistoryRow: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 7)
-            .fill(hovering ? Color.white.opacity(0.07) : .clear))
+        .background(RoundedRectangle(cornerRadius: Design.Radius.pill)
+            .fill(hovering ? Design.Surface.hover : .clear))
         .animation(.easeOut(duration: 0.12), value: hovering)
         .onHover { over in
             hovering = over
@@ -829,14 +829,14 @@ private struct CLIModelRow: View {
                     .frame(width: 14, height: 14)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.visor)
             .help(pinned ? "Unpin" : "Pin to the top")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .background(
-            RoundedRectangle(cornerRadius: 5)
-                .fill(hovering ? Color.white.opacity(0.07) : .clear)
+            RoundedRectangle(cornerRadius: Design.Radius.control)
+                .fill(hovering ? Design.Surface.hover : .clear)
                 .padding(.horizontal, 6))
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.1), value: hovering)
@@ -1162,11 +1162,11 @@ struct InlineModelPicker: View {
                     .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.visor)
             .help(chat.isFavourite(id) ? "Unpin from this agent" : "Pin to this agent")
         }
         .padding(.leading, 9).padding(.trailing, 6).padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: 5)
+        .background(RoundedRectangle(cornerRadius: Design.Radius.control)
             .fill(selected ? Color.accentColor.opacity(0.16) : .clear))
     }
 }
@@ -1218,12 +1218,12 @@ struct HUDView: View {
             // only the black overlay moved, so the blur stayed at full strength
             // and the HUD could never be more than translucent no matter how
             // far the slider went.
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
+            RoundedRectangle(cornerRadius: Design.Radius.surface, style: .continuous)
                 .fill(.ultraThinMaterial)
-                .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .overlay(RoundedRectangle(cornerRadius: Design.Radius.surface, style: .continuous)
                     .fill(Color.black.opacity(0.55)))
                 .opacity(glass)
-                .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .overlay(RoundedRectangle(cornerRadius: Design.Radius.surface, style: .continuous)
                     .stroke(.white.opacity(0.06 + 0.1 * glass), lineWidth: 1))
                 // The glass fades; only the content scales. A material that is
                 // being scaled gets rasterised at whatever size the animation
@@ -1326,7 +1326,7 @@ struct HUDView: View {
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.visor)
                 .help("Back to the notch — Esc, or \(ShortcutSettings.hint(.hud))")
             }
 
@@ -1384,9 +1384,9 @@ struct HUDView: View {
                         }
                     }
                     .padding(.horizontal, 6).padding(.vertical, 5)
-                    .background(RoundedRectangle(cornerRadius: 6)
+                    .background(RoundedRectangle(cornerRadius: Design.Radius.control)
                         .fill(agent.name == chat.agent?.name
-                              ? Color.white.opacity(0.07) : .clear))
+                              ? Design.Surface.hover : .clear))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -1486,10 +1486,10 @@ private struct HUDTranscript: View {
                 proxy.scrollTo("bottom", anchor: .bottom)
             }
         }
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
             .fill(.white.opacity(0.04)))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .stroke(.white.opacity(0.07), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
+            .stroke(Design.Surface.hairline, lineWidth: 1))
     }
 }
 
@@ -1540,9 +1540,9 @@ private struct HUDComposer: View {
             }
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .fill(.white.opacity(0.06)))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
+            .fill(Design.Surface.raised))
+        .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
             .stroke(.white.opacity(0.09), lineWidth: 1))
     }
 }
@@ -1612,7 +1612,7 @@ struct DictationControl: View {
                     .frame(width: 20, height: 20)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.visor)
             .help(helpText)
         }
     }
@@ -1860,7 +1860,7 @@ struct ToolActivityRow: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 8).padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: 7).fill(.white.opacity(0.04)))
+        .background(RoundedRectangle(cornerRadius: Design.Radius.pill).fill(.white.opacity(0.04)))
     }
 }
 
@@ -1940,7 +1940,7 @@ struct ToolApprovalRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 7).padding(.vertical, 5)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(.black.opacity(0.35)))
+                    .background(RoundedRectangle(cornerRadius: Design.Radius.control).fill(.black.opacity(0.35)))
             }
 
             HStack(spacing: 6) {
@@ -1957,8 +1957,8 @@ struct ToolApprovalRow: View {
             }
         }
         .padding(9)
-        .background(RoundedRectangle(cornerRadius: 9).fill(.orange.opacity(0.10)))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(.orange.opacity(0.28), lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: Design.Radius.pill).fill(.orange.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: Design.Radius.pill).stroke(.orange.opacity(0.28), lineWidth: 1))
     }
 
     /// The arguments as written, so what's being approved is visible.
@@ -2033,7 +2033,7 @@ private struct HUDVoiceRow: View {
                         .frame(width: 18 * scale, height: 18 * scale)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.visor)
                 .help("Delete this entry")
             }
         }
