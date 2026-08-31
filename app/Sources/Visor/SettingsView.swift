@@ -259,9 +259,29 @@ private struct AgentsPane: View {
                     Text("Type dictation into the app you're using").font(.caption)
                 }
                 .toggleStyle(.switch)
-            Text("When the composer isn't focused, the transcript is pasted into whatever app is in front instead of piling up in Visor. Needs Accessibility — without it the text is put on the clipboard for you to paste. Your previous clipboard contents are restored afterwards.")
+            Text("When the composer isn't focused, the transcript is typed into the app you were in when you started speaking. Your previous clipboard contents are restored afterwards.")
                 .font(.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            // Stated, not discovered. Without Accessibility this feature
+            // degrades to a clipboard copy, and a silent degradation is
+            // indistinguishable from the feature being broken.
+            if insertOn && !TextInsertion.isTrusted {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text("Accessibility is off, so dictation can only reach the clipboard.")
+                        .font(.caption2)
+                    Button("Open Settings") {
+                        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+                        else { return }
+                        NSWorkspace.shared.open(url)
+                    }
+                    .font(.caption2)
+                    .buttonStyle(.borderless)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
 
             HStack(spacing: 8) {
                 Text("Hold to talk").font(.caption).foregroundStyle(.secondary)

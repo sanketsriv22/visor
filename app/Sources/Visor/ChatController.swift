@@ -108,9 +108,14 @@ final class ChatController: ObservableObject {
                     : self.draft.trimmingCharacters(in: .whitespaces) + " " + text
                 return
             }
-            // Otherwise into whatever app is in front. It's in the voice log
-            // either way, so nothing is lost if this can't reach it.
-            _ = TextInsertion.insert(text)
+            // Otherwise into the app dictation started in. Whatever happens,
+            // the user is told where the words went — the outcome used to be
+            // discarded, so a transcript that couldn't be typed simply
+            // vanished from view and had to be recovered from the voice log.
+            Task { @MainActor [weak self] in
+                let outcome = await TextInsertion.insert(text)
+                if let notice = outcome.notice { self?.voice.report(notice) }
+            }
         }
     }
 

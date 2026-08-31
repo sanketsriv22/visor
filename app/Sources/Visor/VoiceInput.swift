@@ -38,6 +38,19 @@ final class VoiceInput: NSObject, ObservableObject {
     var currentConversation: (() -> UUID?)?
     /// Called with the transcript when one arrives.
     var onTranscript: ((String) -> Void)?
+
+    /// Say something in the dictation pill — where the transcript ended up
+    /// when it couldn't be typed, mostly. Dictation that silently goes nowhere
+    /// is the failure this exists to prevent.
+    func report(_ message: String) {
+        state = .failed(message)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            // Only clear our own notice — the user may have started speaking
+            // again, and blanking that state would strand the pill.
+            if self?.state == .failed(message) { self?.state = .idle }
+        }
+    }
     /// Optional tidy-up pass over the raw transcript.
     ///
     /// Whisper returns what was said, which is not the same as what you meant
@@ -109,6 +122,9 @@ final class VoiceInput: NSObject, ObservableObject {
     }
 
     private func beginRecording() {
+        // Where the words are going, decided now rather than when they arrive.
+        // Transcription is a round trip; focus can move in between.
+        TextInsertion.captureTarget()
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("visor-dictation-\(UUID().uuidString).m4a")
         // 16 kHz mono is what the model wants anyway; recording higher just
