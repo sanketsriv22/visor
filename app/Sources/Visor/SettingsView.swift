@@ -11,13 +11,14 @@ final class SettingsFocus: ObservableObject {
 }
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case agents, usage, workspace, mcp, memory
+    case agents, voice, usage, workspace, mcp, memory
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .agents:    return "Agents"
+        case .voice:     return "Voice"
         case .usage:     return "Usage"
         case .workspace: return "Workspace"
         case .mcp:       return "MCP"
@@ -28,6 +29,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .agents:    return "person.2"
+        case .voice:     return "waveform"
         case .usage:     return "chart.bar"
         case .workspace: return "folder"
         case .mcp:       return "app.connected.to.app.below.fill"
@@ -101,8 +103,8 @@ struct SettingsView: View {
     @ViewBuilder
     private var pane: some View {
         switch tab {
-        case .agents:    AgentsPane(ai: ai, catalog: catalog, focus: focus,
-                                    pushToTalk: pushToTalk)
+        case .agents:    AgentsPane(ai: ai, catalog: catalog, focus: focus)
+        case .voice:     VoicePane(chat: chat, catalog: catalog, pushToTalk: pushToTalk)
         case .usage:     UsagePane()
         case .workspace: WorkspacePane(ai: ai)
         case .mcp:       MCPPane()
@@ -117,14 +119,8 @@ private struct AgentsPane: View {
     @ObservedObject var ai: AIRunner
     @ObservedObject var catalog: ModelCatalog
     @ObservedObject var focus: SettingsFocus
-    @ObservedObject var pushToTalk: PushToTalk
 
     @State private var keyDraft = ""
-    @State private var voiceDraft = ""
-    @State private var cleanupOn = VoiceInput.cleanupEnabled
-    @StateObject private var trust = AccessibilityTrust()
-    @State private var insertOn = TextInsertion.insertIntoFocusedApp
-    @State private var cleanupModel = VoiceInput.cleanupModel
     @State private var newAgentName = ""
 
     var body: some View {
@@ -132,10 +128,6 @@ private struct AgentsPane: View {
             header
 
             openRouterKey
-
-            Divider()
-
-            voiceKey
 
             Divider()
 
@@ -207,112 +199,6 @@ private struct AgentsPane: View {
                 Text("\(catalog.models.count) models available")
                     .font(.caption2).foregroundStyle(.secondary)
             }
-        }
-    }
-
-    /// Dictation can't reuse the chat key: OpenRouter is a chat-completions
-    /// gateway and doesn't proxy audio transcription.
-    private var voiceKey: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text("Voice key").font(.headline)
-                if VoiceInput.hasKey {
-                    Label("set", systemImage: "checkmark.circle.fill")
-                        .font(.caption2).foregroundStyle(.green)
-                }
-            }
-            HStack {
-                SecureField(VoiceInput.hasKey
-                            ? "•••••• (set) — type to replace"
-                            : "paste an OpenAI key",
-                            text: $voiceDraft)
-                    .textFieldStyle(.roundedBorder)
-                Button("Save") {
-                    Keychain.set(voiceDraft.trimmingCharacters(in: .whitespacesAndNewlines),
-                                 account: VoiceInput.keyAccount)
-                    voiceDraft = ""
-                }
-                .disabled(voiceDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-            Toggle(isOn: Binding(
-                get: { VoiceInput.cleanupEnabled },
-                set: { VoiceInput.cleanupEnabled = $0; cleanupOn = $0 })) {
-                    Text("Clean up dictation before it lands").font(.caption)
-                }
-                .toggleStyle(.switch)
-            if cleanupOn {
-                HStack(spacing: 8) {
-                    Text("using").font(.caption).foregroundStyle(.secondary)
-                    ModelPickerButton(catalog: catalog, selection: VoiceInput.cleanupModel) { id in
-                        VoiceInput.cleanupModel = id
-                        cleanupModel = id
-                    }
-                }
-            }
-            Text("Speech-to-text returns what you said, not what you meant to write: no punctuation, \"um\"s left in, and the occasional wrong homophone. With this on, the raw transcript is passed through the model below to punctuate and clean it before it's inserted — a fraction of a cent per dictation, and about a second. Off, you get the transcript exactly as heard.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text("\(ShortcutSettings.hint(.dictate)) dictates into the composer using OpenAI's transcription API. This is a separate key because OpenRouter doesn't carry audio — leave it blank and dictation stays off.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Toggle(isOn: Binding(
-                get: { TextInsertion.insertIntoFocusedApp },
-                set: { TextInsertion.insertIntoFocusedApp = $0; insertOn = $0 })) {
-                    Text("Type dictation into the app you're using").font(.caption)
-                }
-                .toggleStyle(.switch)
-            Text("When the composer isn't focused, the transcript is inserted at the caret in the app you were in when you started speaking. Your clipboard is left alone — it's only used if the text can't be inserted at all.")
-                .font(.caption2).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            // Stated, not discovered. Without Accessibility this feature
-            // degrades to a clipboard copy, and a silent degradation is
-            // indistinguishable from the feature being broken.
-            if insertOn && !trust.granted {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                        Text("Accessibility is off, so dictation can only reach the clipboard.")
-                            .font(.caption2)
-                        Button("Open Settings") {
-                            guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
-                            else { return }
-                            NSWorkspace.shared.open(url)
-                        }
-                        .font(.caption2)
-                        .buttonStyle(.borderless)
-                    }
-                    // Said here because the alternative is someone switching it
-                    // on, seeing this warning stay, and reasonably concluding
-                    // the app is broken.
-                    Text("If it's already on there, quit and reopen Visor — macOS doesn't always hand a new grant to a process that's already running.")
-                        .font(.caption2).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            HStack(spacing: 8) {
-                Text("Hold to talk").font(.caption).foregroundStyle(.secondary)
-                Picker("", selection: Binding(
-                    get: { pushToTalk.trigger },
-                    set: { pushToTalk.setTrigger($0) })) {
-                        ForEach(PushToTalk.Trigger.allCases) { option in
-                            Text(option.title).tag(option)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 130)
-                if pushToTalk.trigger != .off && !pushToTalk.isTrusted {
-                    Button("Grant access…") { pushToTalk.requestTrust() }
-                        .font(.caption)
-                }
-            }
-            Text("Hold the key to record and release to transcribe; double-tap it to toggle. This is the only part of Visor that needs Accessibility — a bare modifier press produces no key equivalent, so it can't use the permission-free shortcut mechanism everything else does.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -708,7 +594,6 @@ private struct WorkspacePane: View {
 private struct MemoryPane: View {
     @ObservedObject var chat: ChatController
     @ObservedObject var catalog: ModelCatalog
-    @State private var voiceEntries: [VoiceEntry] = []
     // Mirrors of the graph's stored settings, purely so toggling one
     // re-renders this pane — the graph isn't the observed object here.
     @State private var graphOn = false
@@ -733,16 +618,11 @@ private struct MemoryPane: View {
             HStack(spacing: 24) {
                 stat("\(chat.store.summaries.count)", "chats")
                 stat("\(chat.store.summaries.reduce(0) { $0 + $1.messageCount })", "messages")
-                stat("\(voiceEntries.count)", "dictated")
             }
 
             Divider()
 
             graphSection
-
-            Divider()
-
-            voiceLogSection
 
             Divider()
 
@@ -763,6 +643,10 @@ private struct MemoryPane: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+        .onAppear {
+            graphOn = chat.graph.isEnabled
+            graphModel = chat.graph.extractionModel
         }
     }
 
@@ -801,76 +685,6 @@ private struct MemoryPane: View {
             }
         }
     }
-
-    /// Everything dictated, whether or not it ever reached a chat.
-    private var voiceLogSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Voice log").font(.headline)
-                Spacer()
-                Button("Reveal") {
-                    NSWorkspace.shared.activateFileViewerSelecting([VoiceLog.url])
-                }
-                .disabled(voiceEntries.isEmpty)
-                Button("Refresh") { voiceEntries = VoiceLog.recent(limit: 30) }
-                Button("Clear all") {
-                    VoiceLog.clear()
-                    voiceEntries = []
-                }
-                .disabled(voiceEntries.isEmpty)
-            }
-            if voiceEntries.isEmpty {
-                Text("Nothing dictated yet. ⌘⌃V, or hold your push-to-talk key.")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(voiceEntries) { entry in
-                            HStack(alignment: .top, spacing: 8) {
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(entry.text)
-                                        .font(.system(size: 11))
-                                        .textSelection(.enabled)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                    Text(Self.stamp.string(from: entry.date)
-                                         + (entry.duration.map { String(format: " · %.1fs", $0) } ?? ""))
-                                        .font(.caption2).foregroundStyle(.tertiary)
-                                }
-                                Spacer(minLength: 0)
-                                Button {
-                                    VoiceLog.delete(entry.id)
-                                    voiceEntries.removeAll { $0.id == entry.id }
-                                } label: {
-                                    Image(systemName: "trash")
-                                        .font(.system(size: 9))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .buttonStyle(.borderless)
-                                .help("Delete this entry")
-                            }
-                            Divider()
-                        }
-                    }
-                }
-                .frame(maxHeight: 150)
-            }
-            Text("Appended one line per utterance to voice-log.jsonl, so writing the ten-thousandth costs the same as the first.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .onAppear {
-            voiceEntries = VoiceLog.recent(limit: 30)
-            graphOn = chat.graph.isEnabled
-            graphModel = chat.graph.extractionModel
-        }
-    }
-
-    private static let stamp: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .short
-        f.timeStyle = .short
-        return f
-    }()
 
     private func stat(_ value: String, _ label: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -1130,4 +944,218 @@ private final class AccessibilityTrust: ObservableObject {
     }
 
     deinit { timer?.invalidate() }
+}
+
+
+// MARK: - Voice
+
+/// Everything to do with dictation, in one place.
+///
+/// It was spread across two panes: the transcription key under Agents, next to
+/// an unrelated OpenRouter key, and the log of what you'd said under Memory,
+/// which is about what agents remember rather than what you dictated. Neither
+/// is where you'd look. Voice is its own feature with its own key, its own
+/// permission, its own shortcut and its own history, so it gets its own tab.
+private struct VoicePane: View {
+    @ObservedObject var chat: ChatController
+    @ObservedObject var catalog: ModelCatalog
+    @ObservedObject var pushToTalk: PushToTalk
+
+    @State private var voiceDraft = ""
+    @State private var cleanupOn = VoiceInput.cleanupEnabled
+    @State private var cleanupModel = VoiceInput.cleanupModel
+    @State private var insertOn = TextInsertion.insertIntoFocusedApp
+    @State private var voiceEntries: [VoiceEntry] = []
+    @StateObject private var trust = AccessibilityTrust()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Voice").font(.title3).bold()
+                Text("Dictate anywhere on your Mac. The words land at the caret in whatever you were typing in, and every transcript is kept here whether or not it reached a chat.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            voiceKey
+
+            Divider()
+
+            voiceLogSection
+        }
+    }
+
+    /// Dictation can't reuse the chat key: OpenRouter is a chat-completions
+    /// gateway and doesn't proxy audio transcription.
+    private var voiceKey: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("Voice key").font(.headline)
+                if VoiceInput.hasKey {
+                    Label("set", systemImage: "checkmark.circle.fill")
+                        .font(.caption2).foregroundStyle(.green)
+                }
+            }
+            HStack {
+                SecureField(VoiceInput.hasKey
+                            ? "•••••• (set) — type to replace"
+                            : "paste an OpenAI key",
+                            text: $voiceDraft)
+                    .textFieldStyle(.roundedBorder)
+                Button("Save") {
+                    Keychain.set(voiceDraft.trimmingCharacters(in: .whitespacesAndNewlines),
+                                 account: VoiceInput.keyAccount)
+                    voiceDraft = ""
+                }
+                .disabled(voiceDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            Toggle(isOn: Binding(
+                get: { VoiceInput.cleanupEnabled },
+                set: { VoiceInput.cleanupEnabled = $0; cleanupOn = $0 })) {
+                    Text("Clean up dictation before it lands").font(.caption)
+                }
+                .toggleStyle(.switch)
+            if cleanupOn {
+                HStack(spacing: 8) {
+                    Text("using").font(.caption).foregroundStyle(.secondary)
+                    ModelPickerButton(catalog: catalog, selection: VoiceInput.cleanupModel) { id in
+                        VoiceInput.cleanupModel = id
+                        cleanupModel = id
+                    }
+                }
+            }
+            Text("Speech-to-text returns what you said, not what you meant to write: no punctuation, \"um\"s left in, and the occasional wrong homophone. With this on, the raw transcript is passed through the model below to punctuate and clean it before it's inserted — a fraction of a cent per dictation, and about a second. Off, you get the transcript exactly as heard.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("\(ShortcutSettings.hint(.dictate)) dictates into the composer using OpenAI's transcription API. This is a separate key because OpenRouter doesn't carry audio — leave it blank and dictation stays off.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle(isOn: Binding(
+                get: { TextInsertion.insertIntoFocusedApp },
+                set: { TextInsertion.insertIntoFocusedApp = $0; insertOn = $0 })) {
+                    Text("Type dictation into the app you're using").font(.caption)
+                }
+                .toggleStyle(.switch)
+            Text("When the composer isn't focused, the transcript is inserted at the caret in the app you were in when you started speaking. Your clipboard is left alone — it's only used if the text can't be inserted at all.")
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Stated, not discovered. Without Accessibility this feature
+            // degrades to a clipboard copy, and a silent degradation is
+            // indistinguishable from the feature being broken.
+            if insertOn && !trust.granted {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text("Accessibility is off, so dictation can only reach the clipboard.")
+                            .font(.caption2)
+                        Button("Open Settings") {
+                            guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+                            else { return }
+                            NSWorkspace.shared.open(url)
+                        }
+                        .font(.caption2)
+                        .buttonStyle(.borderless)
+                    }
+                    // Said here because the alternative is someone switching it
+                    // on, seeing this warning stay, and reasonably concluding
+                    // the app is broken.
+                    Text("If it's already on there, quit and reopen Visor — macOS doesn't always hand a new grant to a process that's already running.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            HStack(spacing: 8) {
+                Text("Hold to talk").font(.caption).foregroundStyle(.secondary)
+                Picker("", selection: Binding(
+                    get: { pushToTalk.trigger },
+                    set: { pushToTalk.setTrigger($0) })) {
+                        ForEach(PushToTalk.Trigger.allCases) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 130)
+                if pushToTalk.trigger != .off && !pushToTalk.isTrusted {
+                    Button("Grant access…") { pushToTalk.requestTrust() }
+                        .font(.caption)
+                }
+            }
+            Text("Hold the key to record and release to transcribe; double-tap it to toggle. This is the only part of Visor that needs Accessibility — a bare modifier press produces no key equivalent, so it can't use the permission-free shortcut mechanism everything else does.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Everything dictated, whether or not it ever reached a chat.
+    private var voiceLogSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Voice log").font(.headline)
+                Spacer()
+                Button("Reveal") {
+                    NSWorkspace.shared.activateFileViewerSelecting([VoiceLog.url])
+                }
+                .disabled(voiceEntries.isEmpty)
+                Button("Refresh") { voiceEntries = VoiceLog.recent(limit: 30) }
+                Button("Clear all") {
+                    VoiceLog.clear()
+                    voiceEntries = []
+                }
+                .disabled(voiceEntries.isEmpty)
+            }
+            if voiceEntries.isEmpty {
+                Text("Nothing dictated yet. ⌘⌃V, or hold your push-to-talk key.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(voiceEntries) { entry in
+                            HStack(alignment: .top, spacing: 8) {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(entry.text)
+                                        .font(.system(size: 11))
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Text(VoicePane.stamp.string(from: entry.date)
+                                         + (entry.duration.map { String(format: " · %.1fs", $0) } ?? ""))
+                                        .font(.caption2).foregroundStyle(.tertiary)
+                                }
+                                Spacer(minLength: 0)
+                                Button {
+                                    VoiceLog.delete(entry.id)
+                                    voiceEntries.removeAll { $0.id == entry.id }
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Delete this entry")
+                            }
+                            Divider()
+                        }
+                    }
+                }
+                .frame(maxHeight: 150)
+            }
+            Text("Appended one line per utterance to voice-log.jsonl, so writing the ten-thousandth costs the same as the first.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .onAppear { voiceEntries = VoiceLog.recent(limit: 30) }
+    }
+}
+
+extension VoicePane {
+    static let stamp: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .short
+        f.timeStyle = .short
+        return f
+    }()
 }
