@@ -1485,9 +1485,19 @@ private struct HUDComposer: View {
             .frame(height: 62)
 
             HStack(spacing: 8) {
-                InlineModelPicker(chat: chat)
-                EffortPicker(chat: chat)
-                FastToggle(chat: chat)
+                // Gated exactly as the notch composer is. Ungated, the HUD
+                // offered OpenRouter's whole catalogue to a Claude Code agent
+                // — hundreds of models it has no way to run, from providers
+                // that have nothing to do with the subscription it's using.
+                // Two composers for one conversation is two places to get this
+                // right, and this was the one that got missed.
+                if chat.agent?.isChat ?? false {
+                    InlineModelPicker(chat: chat)
+                    EffortPicker(chat: chat)
+                    FastToggle(chat: chat)
+                } else if chat.isCLIAgent {
+                    CLIModelPicker(chat: chat)
+                }
                 if chat.isStreaming {
                     DotMatrixIndicator(size: 11)
                     Text("working").font(.system(size: 9)).foregroundStyle(.white.opacity(0.4))

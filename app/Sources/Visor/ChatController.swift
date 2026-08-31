@@ -350,7 +350,16 @@ final class ChatController: ObservableObject {
         }
     }
 
+    /// Point a hosted agent at a different OpenRouter model.
+    ///
+    /// Refuses on a local CLI agent, which runs on its own tool's account and
+    /// its own tool's models. Nothing should be able to write `openai/gpt-…`
+    /// onto a Claude Code agent: the run guard would drop it, silently, and
+    /// the picker would keep showing a model that was never used. A control
+    /// being hidden isn't the same as a value being impossible — the HUD
+    /// composer proved that by offering the whole catalogue for a build.
     func useModel(_ id: String) {
+        guard agent?.isChat ?? false else { return }
         conversation.model = id
         if var agent {
             agent.model = id

@@ -454,7 +454,7 @@ private struct AgentRow: View {
             }
             HStack(spacing: 8) {
                 fieldLabel("Model")
-                TextField("optional — passed as --model, e.g. fable-5", text: Binding(
+                TextField("optional — passed as --model, e.g. opus or claude-opus-5", text: Binding(
                     get: { provider.model ?? "" },
                     set: { value in
                         var p = provider
