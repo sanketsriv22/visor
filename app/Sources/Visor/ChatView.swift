@@ -84,7 +84,7 @@ struct ChatCard: View {
                 // 106pt strip is a puzzle, not a toolbar — new chat and expand
                 // are the ones worth a permanent slot.
                 headerButton("square.and.pencil", "New chat") { chat.newChat() }
-                headerButton("arrow.up.left.and.arrow.down.right", "Expand to HUD — ⌃⌥⌘M",
+                headerButton("arrow.up.left.and.arrow.down.right", "Expand to HUD — ⌘⌃M",
                              action: onHUD)
                 overflowMenu.frame(width: 20)
                 Spacer(minLength: 0)
@@ -254,7 +254,7 @@ struct ChatCard: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.white.opacity(0.4))
             } else {
-                Text("Replies stream here. ⌃⌥⌘I switches back to your notes.")
+                Text("Replies stream here. ⌘⌃I switches back to your notes.")
                     .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.4))
                     .fixedSize(horizontal: false, vertical: true)
@@ -607,7 +607,7 @@ struct ModeSwitcher: View {
                         .foregroundStyle(.white.opacity(candidate == mode ? 0.9 : 0.36))
                 }
                 .buttonStyle(.plain)
-                .help("\(candidate.title) — ⌃⌥⌘I swaps from anywhere")
+                .help("\(candidate.title) — ⌘⌃I swaps from anywhere")
                 .keyboardShortcut(candidate == .notes ? "1" : "2", modifiers: .command)
             }
         }
@@ -1068,7 +1068,7 @@ struct HUDView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Back to the notch — Esc, or ⌃⌥⌘M")
+                .help("Back to the notch — Esc, or ⌘⌃M")
             }
 
             HUDTranscript(chat: chat)
@@ -1119,7 +1119,7 @@ struct HUDView: View {
                         }
                         Spacer(minLength: 0)
                         if index < 5 {
-                            Text("⌘⌥\(index + 1)")
+                            Text("⌘⌃\(index + 1)")
                                 .font(.system(size: 8 * scale, design: .monospaced))
                                 .foregroundStyle(.white.opacity(0.22))
                         }
@@ -1367,11 +1367,11 @@ struct DictationControl: View {
 
     private var helpText: String {
         switch voice.state {
-        case .recording:    return "Stop and transcribe — ⌃⌥⌘V"
+        case .recording:    return "Stop and transcribe — ⌘⌃V"
         case .transcribing: return "Transcribing…"
         case .denied:       return "Microphone access denied — enable it in System Settings > Privacy"
         case .failed(let why): return why
-        case .idle:         return "Dictate — ⌃⌥⌘V"
+        case .idle:         return "Dictate — ⌘⌃V"
         }
     }
 }

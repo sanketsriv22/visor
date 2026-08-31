@@ -119,20 +119,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Global shortcuts. RegisterEventHotKey fails when another app already
         // owns a combination, and that used to be swallowed silently — leaving
         // a shortcut that simply does nothing with no way to find out why.
-        register("⌃⌥⌘K", Shortcut.kKey, purpose: "Open or close the notch",
-                 modifiers: Shortcut.hyper) { [weak self] in
+        register("⌘⌃K", Shortcut.kKey, purpose: "Open or close the notch",
+                 modifiers: Shortcut.commandControl) { [weak self] in
             self?.controller?.toggle()
         }
-        register("⌃⌥⌘M", Shortcut.mKey, purpose: "Expand to the HUD",
-                 modifiers: Shortcut.hyper) { [weak self] in
+        register("⌘⌃M", Shortcut.mKey, purpose: "Expand to the HUD",
+                 modifiers: Shortcut.commandControl) { [weak self] in
             self?.controller?.toggleHUD()
         }
-        register("⌃⌥⌘I", Shortcut.iKey, purpose: "Swap notes and chat",
-                 modifiers: Shortcut.hyper) { [weak self] in
+        register("⌘⌃I", Shortcut.iKey, purpose: "Swap notes and chat",
+                 modifiers: Shortcut.commandControl) { [weak self] in
             self?.controller?.swapMode()
         }
-        register("⌃⌥⌘V", Shortcut.vKey, purpose: "Dictate",
-                 modifiers: Shortcut.hyper) { [weak self] in
+        register("⌘⌃V", Shortcut.vKey, purpose: "Dictate",
+                 modifiers: Shortcut.commandControl) { [weak self] in
             self?.controller?.toggleDictation()
         }
 
@@ -140,8 +140,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pushToTalk.onHoldEnd = { [weak self] in self?.controller?.endDictation() }
         pushToTalk.onToggle = { [weak self] in self?.controller?.toggleDictation() }
         for (i, key) in Shortcut.numberKeys.enumerated() {
-            register("⌘⌥\(i + 1)", key, purpose: "Agent \(i + 1)",
-                     modifiers: Shortcut.commandOption) { [weak self] in
+            register("⌘⌃\(i + 1)", key, purpose: "Agent \(i + 1)",
+                     modifiers: Shortcut.commandControl) { [weak self] in
                 self?.controller?.selectAgent(i)
             }
         }
@@ -428,7 +428,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Bind one global shortcut, reporting the combinations we couldn't get.
     private func register(_ label: String, _ keyCode: UInt32, purpose: String,
-                          modifiers: UInt32 = Shortcut.commandShift,
+                          modifiers: UInt32 = Shortcut.commandControl,
                           _ action: @escaping () -> Void) {
         let hotKey = HotKey(keyCode: keyCode, modifiers: modifiers, action: action)
         if let hotKey { hotKeys.append(hotKey) }
