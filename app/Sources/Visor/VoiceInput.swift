@@ -305,7 +305,7 @@ final class VoiceInput: NSObject, ObservableObject {
                 text: trimmed,
                 duration: startedAt.map { Date().timeIntervalSince($0) },
                 conversation: currentConversation?(),
-                transcribeSeconds: transcribeStarted.map { cleanupStarted.timeIntervalSince($0) },
+                transcribeSeconds: cleanupStarted.timeIntervalSince(transcribeStarted),
                 cleanupSeconds: Self.cleanupEnabled
                     ? Date().timeIntervalSince(cleanupStarted) : nil))
             startedAt = nil
