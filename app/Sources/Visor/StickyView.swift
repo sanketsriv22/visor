@@ -61,8 +61,24 @@ struct StickyRootView: View {
                 if !ui.mode.isFullScreen {
                     ModeSwitcher(mode: ui.mode, onSelect: onMode)
                         .frame(height: ui.notchSize.height)
-                        .offset(x: -((ui.notchSize.width + NotchController.notchClearance) / 2
-                                     + ModeSwitcher.width / 2))
+                        .offset(x: -switcherDistance)
+                        // Out of the notch, with the card.
+                        //
+                        // Being a sibling rather than the card's overlay is
+                        // what stops it drifting during a face swap, but it
+                        // also meant it stopped inheriting the card's
+                        // transition: on open the icons simply appeared, fully
+                        // formed, while the card was still growing out of the
+                        // notch behind them. The anchor is the notch's centre
+                        // expressed in the switcher's own width, so it scales
+                        // out of the same point the card does instead of
+                        // swelling in place off to one side.
+                        //
+                        // Transitions only run on insert and remove, so this
+                        // costs nothing during a swap — the view is never
+                        // replaced there, which was the original point.
+                        .transition(.scale(scale: 0.02, anchor: switcherAnchor)
+                            .combined(with: .opacity))
                         .zIndex(3)
                 }
             } else {
@@ -88,6 +104,22 @@ struct StickyRootView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(\.colorScheme, .dark)
+    }
+
+    /// How far left of centre the switcher sits — clear of the notch, hugging
+    /// its edge.
+    private var switcherDistance: CGFloat {
+        (ui.notchSize.width + NotchController.notchClearance) / 2 + ModeSwitcher.width / 2
+    }
+
+    /// That same point, as a UnitPoint in the switcher's coordinate space.
+    ///
+    /// UnitPoint is measured in multiples of the view's own size and is happy
+    /// outside 0…1, so a point two and a half widths to the right of a 50pt
+    /// control is expressible — and after the offset it lands exactly on the
+    /// centre of the notch.
+    private var switcherAnchor: UnitPoint {
+        UnitPoint(x: 0.5 + switcherDistance / ModeSwitcher.width, y: 0)
     }
 
     private var cardShape: UnevenRoundedRectangle {
