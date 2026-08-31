@@ -126,13 +126,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pushToTalk.onHoldStart = { [weak self] in self?.controller?.beginDictation() }
         pushToTalk.onHoldEnd = { [weak self] in self?.controller?.endDictation() }
         pushToTalk.onToggle = { [weak self] in self?.controller?.toggleDictation() }
-        for (i, key) in Shortcut.numberKeys.enumerated() {
-            register("⌘⌃\(i + 1)", key, purpose: "Agent \(i + 1)",
-                     modifiers: Shortcut.commandControl) { [weak self] in
-                self?.controller?.selectAgent(i)
-            }
-        }
-
         // The notch asks for Settings (e.g. from "no agents yet").
         NotificationCenter.default.addObserver(
             forName: .visorOpenSettings, object: nil, queue: .main

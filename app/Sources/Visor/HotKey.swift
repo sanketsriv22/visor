@@ -74,33 +74,3 @@ final class HotKey {
             1, &spec, nil, nil)
     }
 }
-
-/// Carbon virtual key codes and modifier masks Visor binds.
-enum Shortcut {
-    static let kKey = UInt32(kVK_ANSI_K)
-    static let mKey = UInt32(kVK_ANSI_M)
-    static let iKey = UInt32(kVK_ANSI_I)
-    static let vKey = UInt32(kVK_ANSI_V)
-    static let commandShift = UInt32(cmdKey | shiftKey)
-
-    /// Command-Control: what every Visor shortcut uses.
-    ///
-    /// Two modifiers rather than three, and uncontested for the keys we bind.
-    /// macOS does own some of this space — ⌘⌃F is Enter Full Screen, ⌘⌃Space
-    /// the emoji picker, ⌘⌃Q Lock Screen, ⌘⌃D Look Up — so K, M, I, V and the
-    /// number row were chosen around them.
-    ///
-    /// The alternatives were worse. ⌘⇧ is where macOS keeps the screenshot
-    /// shortcuts and where every text app keeps Paste and Match Style. ⌘⌥ is
-    /// Web Inspector, Dock hiding and Force Quit. And a global hotkey *wins*
-    /// over the app in front, so a collision never inconveniences Visor — it
-    /// breaks whatever you were actually doing.
-    static let commandControl = UInt32(cmdKey | controlKey)
-
-    /// Number-row 1…5, for picking an agent. Carbon key codes aren't
-    /// contiguous across the number row, so they're listed rather than derived.
-    static let numberKeys: [UInt32] = [
-        UInt32(kVK_ANSI_1), UInt32(kVK_ANSI_2), UInt32(kVK_ANSI_3),
-        UInt32(kVK_ANSI_4), UInt32(kVK_ANSI_5),
-    ]
-}
