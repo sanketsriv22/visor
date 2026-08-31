@@ -271,85 +271,48 @@ final class ChatController: ObservableObject {
     /// Whether the composer should offer a CLI model chip.
     var isCLIAgent: Bool { agent?.isNotchCLI ?? false }
 
-    /// What the CLI accepts for `--model`.
+    /// The command backing the running CLI agent, for looking up suggestions.
+    var cliCommand: String { agent?.command ?? "" }
+
+    /// Suggestion groups for this agent, filtered by a search term, with
+    /// whatever the user has pinned brought to the front.
     ///
-    /// Taken from the CLI's own binary rather than remembered: every id below
-    /// appears in the installed `claude` executable. Guessing them is how you
-    /// ship a picker whose entries fail at session start, and the failure
-    /// arrives a turn later, attributed to the model.
-    ///
-    /// Aliases and pinned versions are kept apart because they're different
-    /// decisions. An alias follows its line and moves under you when a new
-    /// model ships; a pinned id answers the same way next month. A picker that
-    /// only offered aliases — which is what shipped first — couldn't express
-    /// "this model", which is the entire reason to have one.
-    struct CLIModel: Identifiable, Hashable {
-        let id: String
-        let title: String
-        var note: String?
-    }
+    /// Pinning is stored on the agent, exactly as it is for a hosted one — the
+    /// mechanism was never model-specific, only the picker that used it was.
+    /// A future Codex or Gemini agent inherits it by existing.
+    func cliGroups(matching query: String) -> [CLICatalogue.Group] {
+        let term = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let all = CLICatalogue.groups(for: cliCommand)
 
-    enum CLIModelGroup: String, CaseIterable, Identifiable {
-        case aliases = "Tracks the latest"
-        case five = "Claude 5"
-        case four = "Claude 4"
-        case earlier = "Earlier"
-
-        var id: String { rawValue }
-
-        var models: [CLIModel] {
-            switch self {
-            case .aliases:
-                return [
-                    CLIModel(id: "default", title: "Default", note: "whatever the CLI is set to"),
-                    CLIModel(id: "best", title: "Best available"),
-                    CLIModel(id: "opus", title: "Opus"),
-                    CLIModel(id: "sonnet", title: "Sonnet"),
-                    CLIModel(id: "haiku", title: "Haiku"),
-                    CLIModel(id: "fable", title: "Fable"),
-                    CLIModel(id: "opus[1m]", title: "Opus", note: "1M context"),
-                    CLIModel(id: "sonnet[1m]", title: "Sonnet", note: "1M context"),
-                ]
-            case .five:
-                return [
-                    CLIModel(id: "claude-opus-5", title: "Opus 5"),
-                    CLIModel(id: "claude-sonnet-5", title: "Sonnet 5"),
-                    CLIModel(id: "claude-fable-5", title: "Fable 5"),
-                ]
-            case .four:
-                return [
-                    CLIModel(id: "claude-opus-4-8", title: "Opus 4.8"),
-                    CLIModel(id: "claude-opus-4-7", title: "Opus 4.7"),
-                    CLIModel(id: "claude-opus-4-6", title: "Opus 4.6"),
-                    CLIModel(id: "claude-opus-4-5", title: "Opus 4.5"),
-                    CLIModel(id: "claude-opus-4-1", title: "Opus 4.1"),
-                    CLIModel(id: "claude-opus-4", title: "Opus 4"),
-                    CLIModel(id: "claude-sonnet-4-6", title: "Sonnet 4.6"),
-                    CLIModel(id: "claude-sonnet-4-5", title: "Sonnet 4.5"),
-                    CLIModel(id: "claude-sonnet-4", title: "Sonnet 4"),
-                    CLIModel(id: "claude-haiku-4-5", title: "Haiku 4.5"),
-                ]
-            case .earlier:
-                return [
-                    CLIModel(id: "claude-3-7-sonnet", title: "Sonnet 3.7"),
-                    CLIModel(id: "claude-3-5-sonnet-20241022", title: "Sonnet 3.5"),
-                    CLIModel(id: "claude-3-5-haiku-20241022", title: "Haiku 3.5"),
-                ]
+        var groups: [CLICatalogue.Group] = []
+        if term.isEmpty {
+            let pinned = cliFavourites
+            if !pinned.isEmpty {
+                groups.append(CLICatalogue.Group(id: "Pinned", models: pinned))
             }
         }
-    }
-
-    static let allCLIModels: [CLIModel] = CLIModelGroup.allCases.flatMap(\.models)
-
-    /// Groups filtered by a search term, empty groups dropped.
-    static func cliModels(matching query: String) -> [(CLIModelGroup, [CLIModel])] {
-        let term = query.trimmingCharacters(in: .whitespaces).lowercased()
-        var out: [(CLIModelGroup, [CLIModel])] = []
-        for group in CLIModelGroup.allCases {
+        for group in all {
             let models = term.isEmpty ? group.models : group.models.filter {
                 $0.id.lowercased().contains(term) || $0.title.lowercased().contains(term)
             }
-            if !models.isEmpty { out.append((group, models)) }
+            if !models.isEmpty {
+                groups.append(CLICatalogue.Group(id: group.id, models: models))
+            }
+        }
+        return groups
+    }
+
+    /// Pinned models, as entries — including ones typed by hand, which have no
+    /// catalogue entry and are shown under their own id.
+    var cliFavourites: [CLICatalogue.Model] {
+        var out: [CLICatalogue.Model] = []
+        let known = CLICatalogue.groups(for: cliCommand).flatMap(\.models)
+        for id in agent?.favouriteModels ?? [] {
+            if let match = known.first(where: { $0.id == id }) {
+                out.append(match)
+            } else {
+                out.append(CLICatalogue.Model(id: id, title: id))
+            }
         }
         return out
     }
@@ -364,10 +327,7 @@ final class ChatController: ObservableObject {
     /// you chose; "claude-opus-4-8" is how it's spelled to the CLI, and a chip
     /// this narrow has room for one of them.
     var cliModelName: String {
-        let id = cliModelID
-        guard let known = Self.allCLIModels.first(where: { $0.id == id }) else { return id }
-        if let note = known.note, note == "1M context" { return "\(known.title) 1M" }
-        return known.title
+        CLICatalogue.title(for: cliModelID, command: cliCommand)
     }
 
     /// Point a CLI agent at a different model.

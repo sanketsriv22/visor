@@ -669,33 +669,48 @@ struct CLIModelPicker: View {
         .padding(.vertical, 9)
     }
 
-    private var groups: [(ChatController.CLIModelGroup, [ChatController.CLIModel])] {
-        ChatController.cliModels(matching: query)
+    private var groups: [CLICatalogue.Group] {
+        chat.cliGroups(matching: query)
     }
 
     private var list: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(groups, id: \.0) { group, models in
-                    Text(group.rawValue)
+                ForEach(groups) { group in
+                    Text(group.id)
                         .font(.system(size: 9, weight: .semibold))
                         .tracking(0.5)
                         .foregroundStyle(.white.opacity(0.35))
                         .padding(.horizontal, 12)
                         .padding(.top, 10)
                         .padding(.bottom, 3)
-                    ForEach(models) { model in
+                    ForEach(group.models) { model in
                         CLIModelRow(model: model,
-                                    selected: model.id == chat.cliModelID) {
-                            chat.useCLIModel(model.id)
-                            showing = false
-                        }
+                                    selected: model.id == chat.cliModelID,
+                                    pinned: chat.isFavourite(model.id),
+                                    choose: {
+                                        chat.useCLIModel(model.id)
+                                        showing = false
+                                    },
+                                    pin: { chat.toggleFavourite(model.id) })
                     }
                 }
                 // Any name the CLI knows is valid, and this list is a snapshot
                 // of one version of it. Typing something unlisted has to stay
                 // possible or the picker becomes a smaller CLI.
-                if groups.isEmpty && !query.trimmingCharacters(in: .whitespaces).isEmpty {
+                // An agent whose command we have no list for — a Codex or
+                // whatever comes next. The picker still works: pin what you
+                // use and type the rest. Better an honest empty list than a
+                // confident one full of another tool's model names.
+                if groups.isEmpty && query.isEmpty {
+                    Text("No suggestions for this agent yet — type a model name it accepts, then pin it.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.4))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                }
+                if noMatches {
                     Button(action: useTyped) {
                         HStack(spacing: 6) {
                             Image(systemName: "return").font(.system(size: 9))
@@ -725,6 +740,12 @@ struct CLIModelPicker: View {
             .padding(.vertical, 8)
     }
 
+    /// Nothing in the list matches, but there is something typed — every CLI
+    /// knows names this snapshot doesn't, so that has to stay usable.
+    private var noMatches: Bool {
+        groups.isEmpty && !query.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     private func useTyped() {
         let name = query.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
@@ -733,47 +754,66 @@ struct CLIModelPicker: View {
     }
 }
 
-/// One row: what you'd call it, and what it's actually called.
+/// One row: what you'd call it, what it's actually called, and whether you
+/// want it near the top next time.
 private struct CLIModelRow: View {
-    let model: ChatController.CLIModel
+    let model: CLICatalogue.Model
     let selected: Bool
+    let pinned: Bool
     let choose: () -> Void
+    let pin: () -> Void
 
     @State private var hovering = false
 
     var body: some View {
-        Button(action: choose) {
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .opacity(selected ? 1 : 0)
-                    .frame(width: 10)
-                Text(model.title)
-                    .font(.system(size: 12, weight: selected ? .medium : .regular))
-                if let note = model.note {
-                    Text(note)
-                        .font(.system(size: 9))
-                        .foregroundStyle(.white.opacity(0.35))
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 9, weight: .semibold))
+                .opacity(selected ? 1 : 0)
+                .frame(width: 10)
+
+            Button(action: choose) {
+                HStack(spacing: 8) {
+                    Text(model.title)
+                        .font(.system(size: 12, weight: selected ? .medium : .regular))
+                    if let note = model.note {
+                        Text(note)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.white.opacity(0.35))
+                    }
+                    Spacer(minLength: 8)
+                    // The id, quietly. It's what the CLI is told, so it should
+                    // be visible before you pick — but it isn't the thing
+                    // you're choosing between.
+                    Text(model.id)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.white.opacity(hovering ? 0.4 : 0.22))
+                        .lineLimit(1)
                 }
-                Spacer(minLength: 8)
-                // The id, quietly. It's what the CLI is told, so it should be
-                // visible before you pick — but it's not the thing you're
-                // choosing between.
-                Text(model.id)
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.white.opacity(hovering ? 0.4 : 0.22))
-                    .lineLimit(1)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 5)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(hovering ? Color.white.opacity(0.07) : .clear)
-                    .padding(.horizontal, 6))
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            // Its own button, outside the choosing one: pinning a model you
+            // aren't switching to is the normal case, and a nested tap target
+            // that also changes your model would be a trap.
+            Button(action: pin) {
+                Image(systemName: pinned ? "star.fill" : "star")
+                    .font(.system(size: 9))
+                    .foregroundStyle(pinned ? Color.yellow.opacity(0.8)
+                                            : .white.opacity(hovering ? 0.35 : 0))
+                    .frame(width: 14, height: 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(pinned ? "Unpin" : "Pin to the top")
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(hovering ? Color.white.opacity(0.07) : .clear)
+                .padding(.horizontal, 6))
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.1), value: hovering)
     }
