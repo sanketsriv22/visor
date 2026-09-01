@@ -170,8 +170,6 @@ final class NotchController {
     /// off the menu bar, and the HUD's is created at full size and never
     /// resized.
     private var hudPanel: NotchPanel?
-    /// The full-width strip along the top edge, when that mode is on.
-    private var edgePanel: NotchPanel?
     /// Pending show/hide of the two windows. Cancelled on every mode change:
     /// switching quickly used to leave a stale timer from the previous switch
     /// still due, which then ordered a window away mid-animation.
@@ -330,16 +328,8 @@ final class NotchController {
                 // can flash.
                 // Tracked in both states: collapsed it drives the window
                 // size, expanded it tells the note card's band to make room.
-                self.showEdgeVisualiser(listening)
-
-                // Two indicators for one microphone is one too many. With the
-                // border on it is doing the whole job, and a second animation
-                // playing inside the notch at the same time is noise competing
-                // with the thing it duplicates.
-                let inNotch = listening && !VoiceInput.edgeVisualiser
-
                 let needsResize = !self.ui.expanded
-                if inNotch && needsResize {
+                if listening && needsResize {
                     self.ui.listening = true
                     self.applyFrame(expanded: false)
                 }
@@ -349,8 +339,8 @@ final class NotchController {
                 // dictation flashed the whole card in chat mode and flickered
                 // the task count in notes mode. The pill scopes its own
                 // animation to this value instead.
-                self.ui.listening = inNotch
-                if !inNotch && needsResize {
+                self.ui.listening = listening
+                if !listening && needsResize {
                     // Long enough for the spring to settle. Shrinking the
                     // window while the extension is still retracting clips it
                     // mid-flight, which is what made closing feel abrupt where
@@ -656,55 +646,6 @@ final class NotchController {
 
     /// End a hold-to-talk recording and transcribe it.
     func endDictation() { chat.voice.finish() }
-
-    /// Raise or lower the full-width strip.
-    ///
-    /// Its own window, like the HUD, for the same reason: the notch panel is
-    /// sized to the notch, and stretching it across the screen to hold a
-    /// decoration would put a transparent full-width window over everything
-    /// permanently. Built on first use and kept, since it is shown and hidden
-    /// on every dictation.
-    private func showEdgeVisualiser(_ showing: Bool) {
-        guard VoiceInput.edgeVisualiser else {
-            edgePanel?.orderOut(nil)
-            return
-        }
-        guard showing else {
-            // Ordered out only after the fade, or the last frames are cut.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                guard let self, !self.ui.listening else { return }
-                self.edgePanel?.orderOut(nil)
-            }
-            return
-        }
-        guard let screen = targetScreen else { return }
-
-        if edgePanel == nil {
-            let panel = NotchPanel(
-                contentRect: .zero,
-                styleMask: [.borderless, .nonactivatingPanel],
-                backing: .buffered, defer: false)
-            panel.level = .statusBar
-            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary,
-                                        .stationary, .ignoresCycle]
-            panel.isOpaque = false
-            panel.backgroundColor = .clear
-            panel.hasShadow = false
-            panel.isMovable = false
-            panel.hidesOnDeactivate = false
-            // Decorative and nothing else: it must never take a click meant for
-            // whatever is underneath it.
-            panel.ignoresMouseEvents = true
-            panel.contentView = NSHostingView(
-                rootView: EdgeVisualiserHost(voice: chat.voice, ui: ui))
-            edgePanel = panel
-        }
-
-        // The whole screen, because the bars run all four edges. Transparent
-        // and click-through, so covering everything costs nothing.
-        edgePanel?.setFrame(screen.frame, display: false)
-        edgePanel?.orderFront(nil)
-    }
 
     /// Show the HUD's window, built at full size before it is ever displayed.
     private func showHUD() {

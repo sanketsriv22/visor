@@ -971,7 +971,6 @@ private struct VoicePane: View {
     @State private var cleanupModel = VoiceInput.cleanupModel
     @State private var insertOn = TextInsertion.insertIntoFocusedApp
     @State private var clipboardOn = TextInsertion.clipboardFallback
-    @State private var edgeOn = VoiceInput.edgeVisualiser
     @State private var voiceEntries: [VoiceEntry] = []
     @State private var promptDraft = VoiceInput.cleanupPrompt
     @StateObject private var benchmark = CleanupBenchmark()
@@ -1046,16 +1045,6 @@ private struct VoicePane: View {
 
             Text("\(ShortcutSettings.hint(.dictate)) dictates into the composer using OpenAI's transcription API. This is a separate key because OpenRouter doesn't carry audio — leave it blank and dictation stays off.")
                 .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Toggle(isOn: Binding(
-                get: { VoiceInput.edgeVisualiser },
-                set: { VoiceInput.edgeVisualiser = $0; edgeOn = $0 })) {
-                    Text("Light up the whole screen edge while dictating").font(.caption)
-                }
-                .toggleStyle(.switch)
-            Text("The notch runs the full width of the display and becomes a spectrum — real frequency bands, not one loudness reading dressed up, so a vowel and a consonant look different. Off by default: everything else about dictation is deliberately small, and this is deliberately not.")
-                .font(.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             Toggle(isOn: Binding(

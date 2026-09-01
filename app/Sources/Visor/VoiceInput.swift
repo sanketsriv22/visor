@@ -32,10 +32,6 @@ final class VoiceInput: NSObject, ObservableObject {
     /// The listening animation's simulation, ticked from the same sampler that
     /// reads the level so the two never drift apart.
     let arcade = VoiceArcade()
-    /// Frequency bands, for the full-width visualiser. Only running when that
-    /// mode is on — it opens a second tap on the microphone, which is not
-    /// something to do for a feature nobody switched on.
-    let spectrum = SpectrumAnalyser()
 
     /// The recent past of that level, oldest first.
     ///
@@ -184,16 +180,6 @@ final class VoiceInput: NSObject, ObservableObject {
         return !raw.contains(where: { ".!?".contains($0) })
     }
 
-    /// Whether dictation takes over the whole top edge of the screen.
-    ///
-    /// Off. The notch extension exists so dictation doesn't put a panel over
-    /// your work; this deliberately does the opposite, which makes it something
-    /// to switch on rather than something to be given.
-    static var edgeVisualiser: Bool {
-        get { UserDefaults.standard.bool(forKey: "visor.edgeVisualiser") }
-        set { UserDefaults.standard.set(newValue, forKey: "visor.edgeVisualiser") }
-    }
-
     static var hasKey: Bool {
         guard let k = Keychain.get(keyAccount)?.trimmingCharacters(in: .whitespacesAndNewlines)
         else { return false }
@@ -319,7 +305,6 @@ final class VoiceInput: NSObject, ObservableObject {
     // MARK: - Metering
 
     private func startMetering() {
-        if Self.edgeVisualiser { spectrum.start() }
         // Re-measured each time: the room is not the same room it was.
         noiseFloor = -40
         meterTimer?.invalidate()
@@ -329,7 +314,6 @@ final class VoiceInput: NSObject, ObservableObject {
     }
 
     private func stopMetering() {
-        spectrum.stop()
         meterTimer?.invalidate()
         meterTimer = nil
         level = 0
