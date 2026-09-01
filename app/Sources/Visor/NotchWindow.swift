@@ -344,8 +344,9 @@ final class NotchController {
                     // Long enough for the spring to settle. Shrinking the
                     // window while the extension is still retracting clips it
                     // mid-flight, which is what made closing feel abrupt where
-                    // opening didn't.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
+                    // opening didn't. Raised with the slower collapse curve —
+                    // this delay has to outlast the animation, not match it.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) { [weak self] in
                         guard let self, !self.ui.listening, !self.ui.expanded else { return }
                         self.applyFrame(expanded: false)
                     }

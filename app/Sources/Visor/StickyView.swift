@@ -95,18 +95,35 @@ struct StickyRootView: View {
                         ListeningPill(voice: chat.voice,
                                       height: ui.trueNotch.height,
                                       side: .leading)
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                            .transition(.scale(scale: 0.01, anchor: .trailing))
                     }
+                    // Above both, so a pill can pass beneath it rather than
+                    // across it on the way in or out.
                     NotchStrip(size: ui.notchSize)
+                        .zIndex(1)
                     if ui.listening {
                         ListeningPill(voice: chat.voice, height: ui.trueNotch.height)
-                            // Symmetric: it retracts back under the notch the
-                            // way it came out. A plain fade on removal is what
-                            // made closing feel abrupt next to opening.
-                            .transition(.move(edge: .leading).combined(with: .opacity))
+                            .transition(.scale(scale: 0.01, anchor: .leading))
                     }
                 }
-                .animation(.spring(response: 0.34, dampingFraction: 0.86), value: ui.listening)
+                // Scale, never opacity.
+                //
+                // A fade was what made the collapse look wrong: the pill is
+                // solid black over a transparent window, so fading it out shows
+                // the desktop through it for the length of the animation. It
+                // reads as the notch going see-through rather than closing.
+                // Scaling toward the notch keeps it opaque the whole way, which
+                // is also what actually happens — the extension retracts into
+                // the hardware it came out of.
+                //
+                // Slower going in than coming out. Things that open can be
+                // quick because you asked for them; things that close should
+                // take their time, or they read as vanishing rather than
+                // being put away.
+                .animation(ui.listening
+                           ? .spring(response: 0.34, dampingFraction: 0.86)
+                           : .spring(response: 0.5, dampingFraction: 0.95),
+                           value: ui.listening)
                 .frame(maxWidth: .infinity, alignment: .center)
             }
         }
