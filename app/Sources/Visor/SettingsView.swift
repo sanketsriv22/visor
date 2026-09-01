@@ -11,7 +11,7 @@ final class SettingsFocus: ObservableObject {
 }
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case agents, voice, hud, usage, workspace, mcp, memory
+    case agents, voice, hud, computerUse, usage, workspace, mcp, memory
 
     var id: String { rawValue }
 
@@ -20,6 +20,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .agents:    return "Agents"
         case .voice:     return "Voice"
         case .hud:       return "HUD"
+        case .computerUse: return "Computer Use"
         case .usage:     return "Usage"
         case .workspace: return "Workspace"
         case .mcp:       return "MCP"
@@ -32,6 +33,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .agents:    return "person.2"
         case .voice:     return "waveform"
         case .hud:       return "square.on.square"
+        case .computerUse: return "cursorarrow.rays"
         case .usage:     return "chart.bar"
         case .workspace: return "folder"
         case .mcp:       return "app.connected.to.app.below.fill"
@@ -108,6 +110,7 @@ struct SettingsView: View {
         case .agents:    AgentsPane(ai: ai, catalog: catalog, focus: focus)
         case .voice:     VoicePane(chat: chat, catalog: catalog, pushToTalk: pushToTalk)
         case .hud:       HUDPane()
+        case .computerUse: ComputerUsePane()
         case .usage:     UsagePane()
         case .workspace: WorkspacePane(ai: ai)
         case .mcp:       MCPPane()

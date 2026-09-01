@@ -87,6 +87,20 @@ struct BoardGeometry: Equatable {
         }
     }
 
+    /// Build from a rectangle measured in AppKit's coordinates.
+    ///
+    /// The calibration overlay is an ordinary window, so what the user drags is
+    /// AppKit-shaped: origin bottom-left of the primary screen, y upwards.
+    /// Everything downstream — capture, clicks — is CoreGraphics-shaped. This
+    /// is the inverse of `appKitRect` and the only other place that argument is
+    /// had.
+    init(appKitBoundingBox box: CGRect, flipped: Bool = false) {
+        let height = NSScreen.screens.first?.frame.height ?? box.maxY
+        let asCoreGraphics = CGRect(x: box.minX, y: height - box.maxY,
+                                    width: box.width, height: box.height)
+        self.init(boundingBox: asCoreGraphics, flipped: flipped)
+    }
+
     // ── the AppKit argument ───────────────────────────────────────────
 
     /// The same rectangle, in the coordinates `NSWindow.setFrame` wants.
