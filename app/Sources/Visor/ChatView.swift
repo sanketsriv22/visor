@@ -1605,7 +1605,7 @@ struct DotGrid: View {
     var columns: [[Double]]
     var cell: CGFloat = 2
 
-    private var spacing: CGFloat { cell * 0.85 }
+    private var spacing: CGFloat { cell * 0.6 }
 
     var body: some View {
         HStack(spacing: spacing) {
@@ -1640,7 +1640,7 @@ struct AudioLevelMeter: View {
     /// How old the first sample here is, in columns, counting back from the
     /// newest in the whole buffer. The right meter starts at 13, the left at 27.
     var oldestAge: Int
-    var rows = 6
+    var rows = 10
     var cell: CGFloat = 2
 
     var body: some View {
@@ -1694,7 +1694,7 @@ struct VoiceInvaders: View {
     @ObservedObject var arcade: VoiceArcade
     let side: ListeningPill.Side
 
-    private static let perSide = 14
+    private static let perSide = 20
 
     var body: some View {
         let offset = side == .trailing ? Self.perSide : 0
@@ -1728,15 +1728,15 @@ struct VoiceInvaders: View {
 struct NotchPong: View {
     let side: ListeningPill.Side
 
-    private static let total = 28
-    private static let perSide = 14
-    private static let rows = 6
+    private static let total = 40
+    private static let perSide = 20
+    private static let rows = 10
     /// A full round trip. Fast, because the ball may only get one crossing.
     private static let rally: Double = 1.1
     /// Vertical period, deliberately not a multiple of the horizontal one so
     /// the ball doesn't retrace the same path every rally.
     private static let bounce: Double = 0.73
-    private static let paddleHeight = 2
+    private static let paddleHeight = 3
 
     var body: some View {
         TimelineView(.animation) { context in

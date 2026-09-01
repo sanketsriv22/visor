@@ -115,7 +115,7 @@ final class NotchController {
     /// How far the notch grows to the right while dictating. Wide enough for
     /// the level meter and a little breathing room, narrow enough that it
     /// still reads as the notch rather than a panel.
-    static let listeningPillWidth: CGFloat = 66
+    static let listeningPillWidth: CGFloat = 96
     /// How far the extension reaches back under the notch strip.
     ///
     /// `auxiliaryTopLeftArea` / `auxiliaryTopRightArea` are the *usable*

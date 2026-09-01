@@ -17,8 +17,8 @@ import Foundation
 /// grid — the formation spans the gap.
 @MainActor
 final class VoiceArcade: ObservableObject {
-    static let columns = 28
-    static let rows = 6
+    static let columns = 40
+    static let rows = 10
 
     /// Brightness per column, per row. What both pills draw.
     @Published private(set) var grid: [[Double]] =
@@ -37,10 +37,10 @@ final class VoiceArcade: ObservableObject {
 
     /// Where the two cannons sit — the middle of each side, since the notch is
     /// between them and a single central cannon would be behind it.
-    private static let cannons = [6, 21]
+    private static let cannons = [9, 30]
     /// One column of invaders every three, so they read as a formation with
     /// gaps rather than a solid bar.
-    private static let spacing = 3
+    private static let spacing = 4
     private static let stepEvery: Double = 0.55
     private static let shotEvery: Double = 0.12
     private static let shotSpeed: Double = 14
@@ -84,7 +84,7 @@ final class VoiceArcade: ObservableObject {
         drift += driftDirection
         if abs(drift) >= 2 {
             driftDirection *= -1
-            formationRow = min(formationRow + 1, Self.rows - 3)
+            formationRow = min(formationRow + 1, Self.rows - 4)
         }
     }
 
