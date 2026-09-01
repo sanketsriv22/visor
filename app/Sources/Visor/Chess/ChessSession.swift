@@ -289,14 +289,16 @@ final class ChessSession: ObservableObject {
         return best?.pair
     }
 
-    /// Learn the two empty-square colours from the opening position.
+    /// Learn the two empty-square colours from the position we are starting
+    /// from, whatever it is.
     ///
-    /// Only valid at the start of a game, which is the only place a session
-    /// begins. The middle four ranks are bare, and they contain both colours,
-    /// so one frame is enough.
+    /// This used to assume the middle four ranks were bare, which is true of a
+    /// fresh game and of nothing else — and became wrong the moment a game
+    /// could be joined midway. Asking the position which squares are empty
+    /// works for both and is no harder.
     private func learnEmptySquares(from current: [Square: ChessWatcher.Signature]) {
         var sums: [Bool: (r: Int, g: Int, b: Int, n: Int)] = [:]
-        for (square, signature) in current where (2...5).contains(square.rank) {
+        for (square, signature) in current where position[square] == nil {
             let isLight = (square.file + square.rank) % 2 == 1
             var bucket = sums[isLight] ?? (0, 0, 0, 0)
             bucket.r += Int(signature.r); bucket.g += Int(signature.g)

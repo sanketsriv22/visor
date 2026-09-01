@@ -116,10 +116,32 @@ final class ChessController: ObservableObject {
                 // isn't the one on screen and put confident arrows on it, so
                 // this says no rather than guessing.
                 guard Self.looksLikeAFreshGame(found.occupancy) else {
-                    ChessDiagnostics.record(shot: shot, found: found,
-                                            verdict: "board found, but not a fresh game")
-                    self.fail("Found a board, but the game looks under way — "
-                            + "Visor can only start from move one for now.")
+                    // A game already under way. Occupancy says which squares
+                    // are busy and what colour is on them, but never *what* —
+                    // and that last part is the only thing worth asking a model
+                    // for, once, on a still image, with its answer checked
+                    // against the screen before anything is built on it.
+                    self.badge.show("Reading the position…", live: false)
+                    guard let board = shot.cropping(to: found.geometry.rect) else {
+                        self.fail("Couldn't cut the board out of the screenshot.")
+                        return
+                    }
+                    do {
+                        let reading = try await ChessVision.read(
+                            board: board, occupancy: found.occupancy,
+                            flipped: found.geometry.flipped)
+                        ChessDiagnostics.record(shot: shot, found: found,
+                                                verdict: "joined mid-game: \(reading.position.fen)")
+                        self.notice = nil
+                        self.begin(with: ChessCalibrator.Result(
+                            geometry: found.geometry,
+                            ourColour: found.geometry.flipped ? .black : .white),
+                                   position: reading.position)
+                    } catch {
+                        ChessDiagnostics.record(shot: shot, found: found,
+                                                verdict: "mid-game read failed: \(error.localizedDescription)")
+                        self.fail(error.localizedDescription)
+                    }
                     return
                 }
                 ChessDiagnostics.record(shot: shot, found: found, verdict: "started")
@@ -159,14 +181,16 @@ final class ChessController: ObservableObject {
         return strays.count <= 2
     }
 
-    private func begin(with result: ChessCalibrator.Result) {
+    private func begin(with result: ChessCalibrator.Result,
+                       position: ChessPosition = .start) {
         // The position is assumed to be a fresh game. Nothing here reads
         // pieces — only which squares changed — so there is no way to work out
         // a board that was already in progress, and starting mid-game would
         // silently track a position that isn't the one on screen.
         let session = ChessSession(mode: mode,
                                    geometry: result.geometry,
-                                   ourColour: result.ourColour)
+                                   ourColour: result.ourColour,
+                                   position: position)
         self.session = session
         Task {
             do {

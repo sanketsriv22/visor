@@ -13,6 +13,18 @@ enum ChessScreen {
         /// The display's top-left in global CoreGraphics screen points, so
         /// anything found in the image can be placed on the desktop.
         let origin: CGPoint
+        /// Image pixels per screen point — 2 on a retina display. Needed to cut
+        /// a region back out of the image once it has been located in points.
+        let scale: CGFloat
+
+        /// The part of the screenshot covering `rect`, which is in global
+        /// screen points.
+        func cropping(to rect: CGRect) -> CGImage? {
+            let local = CGRect(x: (rect.minX - origin.x) * scale,
+                               y: (rect.minY - origin.y) * scale,
+                               width: rect.width * scale, height: rect.height * scale)
+            return image.cropping(to: local)
+        }
     }
 
     enum CaptureError: LocalizedError {
@@ -66,12 +78,16 @@ enum ChessScreen {
             configuration.captureResolution = .best
             let image = try await SCScreenshotManager.captureImage(
                 contentFilter: filter, configuration: configuration)
-            return Shot(image: image, origin: origin)
+            let bounds = CGDisplayBounds(displayID)
+            return Shot(image: image, origin: origin,
+                        scale: bounds.width > 0 ? CGFloat(image.width) / bounds.width : 1)
         } else {
             guard let image = CGDisplayCreateImage(displayID) else {
                 throw CaptureError.failed
             }
-            return Shot(image: image, origin: origin)
+            let bounds = CGDisplayBounds(displayID)
+            return Shot(image: image, origin: origin,
+                        scale: bounds.width > 0 ? CGFloat(image.width) / bounds.width : 1)
         }
     }
 }

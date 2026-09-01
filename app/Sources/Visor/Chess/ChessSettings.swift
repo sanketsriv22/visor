@@ -47,7 +47,8 @@ struct ComputerUsePane: View {
             Text("Visor finds the board on screen, works out which colour you're "
                + "playing from where the pieces are, and reads the moves as they're "
                + "played — answering from a table it filled while your opponent was "
-               + "thinking. Start it at the beginning of a game.")
+               + "thinking. A game already under way is read once with your OpenRouter "
+               + "key; a fresh board needs no key at all.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
