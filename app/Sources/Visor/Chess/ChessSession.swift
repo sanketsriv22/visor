@@ -331,11 +331,15 @@ final class ChessSession: ObservableObject {
                  + abs(Int(now.b) - Int(was.b))
         }
 
+        let observed = observedOccupancy(current)
         var best: (pair: [Move], score: Int)?
         for one in first where delta.contains(one.from) && delta.contains(one.to) {
             let middle = position.applying(one)
             guard let second = await oracle.legalMoves(from: middle) else { continue }
             for two in second where delta.contains(two.from) && delta.contains(two.to) {
+                // Same rule as a single ply: the board after both has to be
+                // the board on screen, or this is a guess dressed as recovery.
+                if !observed.isEmpty, agreement(middle.applying(two), with: observed) < 60 { continue }
                 let score = upheaval(one.from) + upheaval(one.to)
                           + upheaval(two.from) + upheaval(two.to)
                 if score > (best?.score ?? -1) { best = ([one, two], score) }
@@ -472,8 +476,26 @@ final class ChessSession: ObservableObject {
               !legal.isEmpty
         else { return nil }
 
-        let matches = legal.filter { delta.contains($0.from) && delta.contains($0.to) }
+        var matches = legal.filter { delta.contains($0.from) && delta.contains($0.to) }
         guard !matches.isEmpty else { return nil }
+
+        // A move has happened only if the piece has left.
+        //
+        // Selecting a piece on chess.com highlights its square and draws a dot
+        // on every square it could go to — so for as long as you are thinking,
+        // the origin and every legal destination all count as "changed", and
+        // every legal move of that piece looks complete. This resolved one of
+        // them, applied a move that had not been made, and the real move then
+        // matched nothing: nine seconds of catching up and a re-read of the
+        // board, every time you paused with a piece selected. Visor's own
+        // clicks are ninety milliseconds apart, which is why playing mode
+        // never saw it. The tell is simple: after a real move the square it
+        // came from is empty, and something is standing where it went.
+        let observed = observedOccupancy(current)
+        if !observed.isEmpty {
+            matches = matches.filter { observed[$0.from] == false && observed[$0.to] == true }
+            guard !matches.isEmpty else { return nil }
+        }
 
         // Promotion variants share both squares, so no amount of looking at
         // pixels separates them. Queen: right often enough that the exceptions
