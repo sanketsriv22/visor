@@ -1653,6 +1653,56 @@ struct AudioLevelMeter: View {
     }
 }
 
+/// What the meter does while it's thinking.
+///
+/// The obvious thing was a spinner in each pill, which is what it did: the same
+/// indicator twice, either side of the notch, saying "working" and nothing
+/// else. Two copies of one idea is worse than one, and it threw away the
+/// vocabulary the recording state had just established.
+///
+/// So the dots stay and the content changes. A single pulse runs right to left
+/// through the same grid, behind the notch and out the other side — the same
+/// motion your voice made a moment ago, now with the machine's hand on it
+/// instead of yours. Recording and transcribing become one continuous idea
+/// rather than two unrelated animations.
+struct ScanningWave: View {
+    let side: ListeningPill.Side
+
+    /// Matches the level meter's buffer, so the pulse crosses the notch on the
+    /// same grid the voice did.
+    private static let total = 28
+    private static let perSide = 14
+    /// One full traverse per this many seconds. Slow enough to read as
+    /// deliberate rather than agitated.
+    private static let period: Double = 1.5
+
+    var body: some View {
+        // Driven by the clock rather than by state, so both sides compute the
+        // same position from the same instant and the halves stay joined.
+        TimelineView(.animation) { context in
+            AudioLevelMeter(samples: samples(at: context.date))
+        }
+    }
+
+    private func samples(at date: Date) -> [Float] {
+        let t = date.timeIntervalSinceReferenceDate.truncatingRemainder(
+            dividingBy: Self.period) / Self.period
+        // Right to left: the head starts past the right edge and runs off the
+        // left, which is the direction speech was travelling.
+        let head = Double(Self.total) * (1 - t)
+        let offset = side == .trailing ? Self.perSide : 0
+
+        return (0..<Self.perSide).map { index in
+            let position = Double(index + offset)
+            // Wrapped, so the pulse leaving one end is the pulse entering the
+            // other rather than a new one appearing.
+            let raw = abs(position - head)
+            let distance = min(raw, Double(Self.total) - raw)
+            return Float(exp(-pow(distance / 2.2, 2)))
+        }
+    }
+}
+
 /// Microphone toggle plus the live level, on the trailing edge of the chat
 /// header.
 ///
@@ -1765,6 +1815,8 @@ struct ListeningPill: View {
             AudioLevelMeter(samples: side == .trailing
                             ? Array(voice.levels.suffix(14))
                             : Array(voice.levels.prefix(voice.levels.count - 14).suffix(14)))
+        case .transcribing:
+            ScanningWave(side: side)
         default:
             statusContent
         }
