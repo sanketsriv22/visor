@@ -32,6 +32,22 @@ IDENTITY="${VISOR_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/d
 [ -n "$IDENTITY" ] || { echo "error: no Developer ID Application identity in the keychain" >&2; exit 1; }
 echo "signing as: $IDENTITY"
 
+# --- 0. Strip -------------------------------------------------------------
+# Local symbols are 12 MB per architecture — a third of each slice — and
+# nothing at runtime reads them. They exist for a debugger attached to this
+# exact binary, which is not a thing anyone does to a shipped app; a crash
+# report is symbolicated from the .dSYM, which the build keeps separately.
+#
+# Before signing, necessarily: stripping edits the binary, and editing a
+# signed binary invalidates the signature.
+BINARY="$APP/Contents/MacOS/Visor"
+if [ -f "$BINARY" ]; then
+  BEFORE=$(stat -f%z "$BINARY")
+  strip -x "$BINARY"
+  AFTER=$(stat -f%z "$BINARY")
+  echo "stripped: $((BEFORE / 1048576)) MB -> $((AFTER / 1048576)) MB"
+fi
+
 # --- 1. Sign inside-out ----------------------------------------------------
 # Nested code must be signed before whatever contains it: signing the outer
 # bundle seals a hash of its contents, so re-signing anything inside afterwards

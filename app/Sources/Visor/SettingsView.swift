@@ -11,7 +11,7 @@ final class SettingsFocus: ObservableObject {
 }
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case agents, voice, usage, workspace, mcp, memory
+    case agents, voice, hud, usage, workspace, mcp, memory
 
     var id: String { rawValue }
 
@@ -19,6 +19,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .agents:    return "Agents"
         case .voice:     return "Voice"
+        case .hud:       return "HUD"
         case .usage:     return "Usage"
         case .workspace: return "Workspace"
         case .mcp:       return "MCP"
@@ -30,6 +31,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .agents:    return "person.2"
         case .voice:     return "waveform"
+        case .hud:       return "square.on.square"
         case .usage:     return "chart.bar"
         case .workspace: return "folder"
         case .mcp:       return "app.connected.to.app.below.fill"
@@ -105,6 +107,7 @@ struct SettingsView: View {
         switch tab {
         case .agents:    AgentsPane(ai: ai, catalog: catalog, focus: focus)
         case .voice:     VoicePane(chat: chat, catalog: catalog, pushToTalk: pushToTalk)
+        case .hud:       HUDPane()
         case .usage:     UsagePane()
         case .workspace: WorkspacePane(ai: ai)
         case .mcp:       MCPPane()
@@ -1461,5 +1464,68 @@ private struct CLIAccountRow: View {
     private func fieldLabel(_ text: String) -> some View {
         Text(text).font(.caption).foregroundStyle(.secondary)
             .frame(width: 64, alignment: .leading)
+    }
+}
+
+
+// MARK: - HUD
+
+/// Appearance controls for the full-screen HUD.
+///
+/// They used to live in the HUD's own header, which sounds right and isn't:
+/// the scale slider resizes everything including itself, so the control slides
+/// out from under the pointer as you drag it. A setting that changes the thing
+/// you're adjusting it with has to be somewhere else, and the HUD is not a
+/// place to keep settings anyway — it's a workspace.
+private struct HUDPane: View {
+    @AppStorage("visor.hudOpacity") private var glass: Double = 0.8
+    @AppStorage("visor.hudScale") private var scale: Double = 1.0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("HUD").font(.title3).bold()
+                Text("The full-screen overlay — \(ShortcutSettings.hint(.hud)) from a chat. Changes here apply the next time it's on screen, and while it's open you'll see them as you drag.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    Text("Opacity").font(.caption).frame(width: 70, alignment: .leading)
+                    Slider(value: $glass, in: 0...1)
+                        .frame(width: 220)
+                    Text(String(format: "%.0f%%", glass * 100))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, alignment: .trailing)
+                }
+                // Zero is a real setting, not a broken one: an overlay you want
+                // to read your desktop through is a reasonable thing to want.
+                Text("All the way down is fully clear.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    Text("Text size").font(.caption).frame(width: 70, alignment: .leading)
+                    Slider(value: $scale, in: 0.85...1.8)
+                        .frame(width: 220)
+                    Text(String(format: "%.2f×", scale))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, alignment: .trailing)
+                }
+                Text("Scales everything in the HUD together, so the layout keeps its proportions.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button("Reset to defaults") { glass = 0.8; scale = 1.0 }
+                .font(.caption)
+
+            Spacer()
+        }
+        .padding(16)
     }
 }

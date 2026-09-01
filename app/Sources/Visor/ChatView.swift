@@ -1356,27 +1356,7 @@ struct HUDView: View {
 
                 // Transparency belongs in the HUD, not buried in Settings —
                 // the right value depends on what's behind it right now.
-                HStack(spacing: 5) {
-                    Image(systemName: "circle.lefthalf.filled")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.white.opacity(0.35))
-                    // Down to zero: fully clear is a legitimate setting for an
-                    // overlay you want to see through completely.
-                    Slider(value: $glass, in: 0...1)
-                        .controlSize(.mini)
-                        .frame(width: 80)
-                }
-                .help("How opaque the HUD is — all the way down is fully clear")
 
-                HStack(spacing: 5) {
-                    Image(systemName: "textformat.size")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.white.opacity(0.35))
-                    Slider(value: $scale, in: 0.85...1.8)
-                        .controlSize(.mini)
-                        .frame(width: 80)
-                }
-                .help("How big everything in the HUD is")
 
                 Button(action: onExit) {
                     Image(systemName: "arrow.down.right.and.arrow.up.left")
