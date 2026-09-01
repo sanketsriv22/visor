@@ -1591,39 +1591,70 @@ private struct HUDComposer: View {
 /// continuous curve is a wobbling line you can't read, where lit and unlit
 /// cells are legible at a glance and match the dot-matrix indicator's
 /// language.
+/// A voice, drawn as one.
+///
+/// This was a grid of dots that lit from the bottom up, which is a VU meter —
+/// a picture of a *number*, not of speech. And it read badly for a second
+/// reason: every column showed the same instant, so five columns moved in
+/// lockstep and said nothing five times.
+///
+/// Each bar is a moment instead. The newest sample enters at the right and the
+/// older ones shift left, so what you see is the last half-second of your voice
+/// travelling across the meter — the shape everyone already recognises. Bars
+/// grow from the centre outwards, the way a waveform does around its zero line,
+/// rather than up from a floor.
 struct AudioLevelMeter: View {
-    var level: Float          // 0…1
+    var level: Float
+    /// How many moments are on screen at once.
     var columns = 5
+    /// Height budget, kept in the old units so existing call sites still read
+    /// the same size.
     var rows = 4
     var cell: CGFloat = 2.5
 
+    /// The most recent samples, oldest first. Seeded flat so the meter has its
+    /// full width from the first frame instead of growing into place.
+    @State private var history: [Float] = []
+
+    private var fullHeight: CGFloat { CGFloat(rows) * cell * 2.2 }
+    private var minimum: CGFloat { cell }
+
     var body: some View {
-        HStack(spacing: cell / 2) {
-            ForEach(0..<columns, id: \.self) { column in
-                VStack(spacing: cell / 2) {
-                    ForEach(0..<rows, id: \.self) { row in
-                        // Rows fill from the bottom up.
-                        let threshold = Float(rows - row) / Float(rows)
-                        RoundedRectangle(cornerRadius: cell / 4)
-                            .fill(Color.white.opacity(lit(column: column, threshold: threshold)))
-                            .frame(width: cell, height: cell)
-                    }
-                }
+        HStack(alignment: .center, spacing: cell * 0.7) {
+            ForEach(Array(samples.enumerated()), id: \.offset) { index, sample in
+                Capsule()
+                    .fill(Color.white.opacity(opacity(at: index)))
+                    .frame(width: cell, height: height(for: sample))
             }
         }
-        .animation(.easeOut(duration: 0.08), value: level)
+        .frame(height: fullHeight)
+        .animation(.easeOut(duration: 0.09), value: history)
+        .onAppear { history = Array(repeating: 0, count: columns) }
+        .onChange(of: level) { latest in
+            var next = history.isEmpty ? Array(repeating: Float(0), count: columns) : history
+            next.removeFirst()
+            next.append(latest)
+            history = next
+        }
         .accessibilityLabel("Microphone level")
     }
 
-    /// Outer columns respond a little less than the centre, which reads as a
-    /// meter rather than five identical bars moving in lockstep.
-    private func lit(column: Int, threshold: Float) -> Double {
-        let centre = Float(columns - 1) / 2
-        let falloff = 1 - abs(Float(column) - centre) / (centre + 1) * 0.45
-        return level * falloff >= threshold ? 0.85 : 0.12
+    private var samples: [Float] {
+        history.isEmpty ? Array(repeating: 0, count: columns) : history
+    }
+
+    private func height(for sample: Float) -> CGFloat {
+        minimum + (fullHeight - minimum) * CGFloat(max(0, min(1, sample)))
+    }
+
+    /// The leading edge fades, so the wave reads as travelling rather than as a
+    /// row of bars that happen to differ.
+    private func opacity(at index: Int) -> Double {
+        guard columns > 1 else { return 0.85 }
+        let age = Double(index) / Double(columns - 1)
+        return 0.35 + 0.5 * age
     }
 }
-
 
 /// Microphone toggle plus the live level, on the trailing edge of the chat
 /// header.

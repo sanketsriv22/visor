@@ -44,9 +44,9 @@ final class CleanupBenchmark: ObservableObject {
     /// filler word, a homophone, and a sentence that could be misread as a
     /// question to answer rather than text to correct.
     static let sample = """
-        so i was thinking we should probably um move the meeting to tuesday \
-        instead because their going to be travelling on monday and then what \
-        do you think about pushing the launch back a week
+        so i was thinking we should probably um build a machine learning model \
+        sorry an artificial intelligence model and then move the meeting to \
+        tuesday no wait wednesday because their travelling on monday
         """
 
     private let client = OpenRouterClient()

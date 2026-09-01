@@ -94,10 +94,30 @@ final class VoiceInput: NSObject, ObservableObject {
     /// it, summarise it, or translate it, and any of those silently destroys
     /// what you said.
     static let defaultCleanupPrompt = """
-        Rewrite dictated speech as the speaker meant to write it. Fix \
-        punctuation, capitalisation, obvious mishearings, and filler words. \
-        Change nothing else: do not summarise, rephrase, answer, translate, \
-        or add. Reply with the corrected text only.
+        You clean up dictated speech into the text the speaker meant to write. \
+        Reply with that text only — never a reply, a summary, a translation, or \
+        a comment.
+
+        Fix punctuation, capitalisation, obvious mishearings, and filler words \
+        ("um", "uh", "like", "you know", false starts, stutters).
+
+        Apply spoken corrections. When someone corrects themselves, the \
+        correction wins and every trace of the correction goes away — both the \
+        wrong words and the phrase that flagged them. Corrections are marked by \
+        things like "sorry", "I mean", "I meant", "rather", "actually", "no \
+        wait", "scratch that", "let me rephrase". Replace exactly what was \
+        corrected and leave the rest of the sentence alone.
+
+        "build a machine learning model, sorry, an artificial intelligence \
+        model" becomes "Build an artificial intelligence model."
+        "meet on Tuesday — no wait, Wednesday" becomes "Meet on Wednesday."
+        "send it to Mark, I mean Mike" becomes "Send it to Mike."
+        "scratch that, let's start over: the plan is X" becomes "The plan is X."
+
+        Change nothing else. Do not reword, reorder, improve, shorten, or add \
+        anything the speaker did not say. If a sentence is already clean, \
+        return it unchanged. If you are unsure whether something is a \
+        correction, leave it as spoken.
         """
 
     static var cleanupPrompt: String {
@@ -226,7 +246,7 @@ final class VoiceInput: NSObject, ObservableObject {
 
     private func startMetering() {
         meterTimer?.invalidate()
-        meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 15, repeats: true) { [weak self] _ in
+        meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 24, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.sampleLevel() }
         }
     }
@@ -240,14 +260,26 @@ final class VoiceInput: NSObject, ObservableObject {
     private func sampleLevel() {
         guard let recorder, recorder.isRecording else { return }
         recorder.updateMeters()
-        // averagePower is dBFS: -160 (silence) to 0 (clipping). Speech mostly
-        // lives in the top 45 dB, so map that range across the meter instead of
-        // the full scale, where normal talking would barely move it.
-        let dB = recorder.averagePower(forChannel: 0)
-        let normalised = max(0, min(1, (dB + 45) / 45))
-        // Ease upward fast and fall slowly, so the meter reads as a voice
-        // rather than flickering per frame.
-        level = normalised > level ? normalised : level * 0.75 + normalised * 0.25
+        // dBFS: -160 is silence, 0 is clipping. The window matters more than it
+        // sounds. Normal speech into a laptop mic averages about -40 dB and
+        // peaks near -20; mapping from -45 put ordinary talking at 0.1-0.4 of
+        // the scale, which is why the meter never rose past its second row.
+        //
+        // Peak rather than average: average is pulled down by the gaps between
+        // syllables, so it under-reads exactly when someone is speaking
+        // normally. Peak is what you see when you watch a voice.
+        let dB = max(recorder.peakPower(forChannel: 0),
+                     recorder.averagePower(forChannel: 0))
+        let floor: Float = -50
+        let ceiling: Float = -12
+        let span = max(0, min(1, (dB - floor) / (ceiling - floor)))
+        // Loudness is logarithmic and the ear is not linear, so a linear
+        // mapping spends most of the meter on volumes nobody produces. The
+        // curve expands the quiet end, where speech actually lives.
+        let normalised = pow(span, 0.55)
+        // Rise instantly, fall slowly: a meter that decays reads as a voice,
+        // one that tracks exactly reads as a flicker.
+        level = normalised > level ? normalised : level * 0.78 + normalised * 0.22
     }
 
     // MARK: - Transcription
