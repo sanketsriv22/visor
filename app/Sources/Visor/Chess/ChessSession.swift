@@ -204,7 +204,11 @@ final class ChessSession: ObservableObject {
         // The position as the oracle primed it, before anything is applied.
         let before = position
 
-        if let move = await candidate(in: delta, current: current) {
+        let one = await candidate(in: delta, current: current)
+        ChessDiagnostics.trace("resolve: turn=\(position.turn == ourColour ? "ours" : "theirs") "
+                             + "delta=[\(delta.sorted { $0.index < $1.index }.map(\.name).joined(separator: ","))] "
+                             + "→ \(one?.uci ?? "nothing")")
+        if let move = one {
             await commit([move], from: before, current: current)
             return
         }
@@ -257,6 +261,8 @@ final class ChessSession: ObservableObject {
         baseline = current
         settling = []
         for move in moves { position.apply(move) }
+        ChessDiagnostics.trace("commit: applied \(moves.map(\.uci).joined(separator: "+")) "
+                             + "→ now \(position.turn == ourColour ? "our" : "their") turn")
 
         // Never suggest into a position the screen plainly disagrees with. An
         // illegal move offered confidently is worse than no move at all, and
