@@ -16,7 +16,10 @@ import AppKit
 /// isn't — a board, a video call or a second display all move where "out of the
 /// way" is. Where it gets dragged to is remembered.
 @MainActor
-final class ChessStatusBadge {
+final class ChessStatusBadge: NSObject {
+    // NSObject, because the answer buttons use target/action and the runtime
+    // delivers that with a selector — which a plain Swift object does not
+    // respond to. It compiles either way; only one of them works.
     private var panel: NSPanel?
     private let label = NSTextField(labelWithString: "")
     private let dot = CALayer()
@@ -26,6 +29,9 @@ final class ChessStatusBadge {
     /// most people will ever see — Settings is not open during a game.
     var onClick: (() -> Void)?
     private var resting = ""
+    /// Option buttons, while a question is being asked.
+    private var choices: [NSButton] = []
+    private var answer: CheckedContinuation<Int?, Never>?
 
     private static let originKey = "visor.chess.badgeOrigin"
 
@@ -35,6 +41,11 @@ final class ChessStatusBadge {
     /// isn't a place to explain anything, and the explanation is in Settings.
     func show(_ text: String, live: Bool = true, fadingAfter seconds: TimeInterval? = nil) {
         let panel = ensurePanel()
+        // A question that is still open is withdrawn by whatever comes next.
+        clearChoices()
+        answer?.resume(returning: nil)
+        answer = nil
+
         resting = text
         label.stringValue = text
 
@@ -100,6 +111,102 @@ final class ChessStatusBadge {
         let work = DispatchWorkItem { [weak self] in self?.hide() }
         hideWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+
+    /// Ask something with a couple of answers, in the island rather than in a
+    /// dialog. The island is where this feature lives; an alert box appearing
+    /// over the game is a different app's idea of how to ask.
+    ///
+    /// `suggested` is lit up so a press of the obvious one is a glance and a
+    /// click. Right-click, or clicking elsewhere on the island, answers nil.
+    func ask(_ question: String, options: [String], suggested: Int) async -> Int? {
+        let panel = ensurePanel()
+        answer?.resume(returning: nil)
+        answer = nil
+        clearChoices()
+
+        resting = question
+        label.stringValue = question
+        label.lineBreakMode = .byTruncatingTail
+        label.maximumNumberOfLines = 1
+        label.preferredMaxLayoutWidth = 260
+        let measured = label.sizeThatFits(NSSize(width: 260, height: 40))
+
+        // Buttons sized to their titles, then laid out after the question.
+        var buttons: [NSButton] = []
+        for (index, title) in options.enumerated() {
+            let button = NSButton(title: title, target: nil, action: nil)
+            button.isBordered = false
+            button.bezelStyle = .inline
+            button.font = .systemFont(ofSize: 11.5, weight: .semibold)
+            button.contentTintColor = .white
+            button.wantsLayer = true
+            button.layer?.cornerRadius = 9
+            button.layer?.cornerCurve = .continuous
+            let lit = index == suggested
+            button.layer?.backgroundColor = (lit ? NSColor.white.withAlphaComponent(0.22)
+                                                 : NSColor.white.withAlphaComponent(0.09)).cgColor
+            button.layer?.borderWidth = lit ? 1 : 0
+            button.layer?.borderColor = NSColor.white.withAlphaComponent(0.45).cgColor
+            button.tag = index
+            button.target = self
+            button.action = #selector(chose(_:))
+            button.sizeToFit()
+            button.frame.size = CGSize(width: button.frame.width + 18, height: 22)
+            buttons.append(button)
+        }
+
+        let height: CGFloat = 34
+        let gap: CGFloat = 6
+        let buttonsWidth = buttons.reduce(0) { $0 + $1.frame.width } + gap * CGFloat(max(0, buttons.count - 1))
+        let textWidth = min(260, measured.width)
+        let width = 30 + textWidth + 14 + buttonsWidth + 14
+
+        var frame = CGRect(origin: savedOrigin(width: width, height: height),
+                           size: CGSize(width: width, height: height))
+        if !panel.frame.isEmpty {
+            frame.origin = CGPoint(x: panel.frame.maxX - width, y: panel.frame.maxY - height)
+        }
+        if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }) {
+            frame.origin = defaultOrigin(width: width, height: height)
+        }
+        panel.setFrame(frame, display: true)
+        island?.layer?.cornerRadius = 16
+
+        dot.removeAllAnimations()
+        dot.frame = CGRect(x: 15, y: height / 2 - 4, width: 8, height: 8)
+        dot.backgroundColor = NSColor(srgbRed: 0.98, green: 0.71, blue: 0.20, alpha: 1).cgColor
+
+        label.frame = CGRect(x: 30, y: (height - measured.height) / 2,
+                             width: textWidth + 2, height: measured.height)
+
+        var x = 30 + textWidth + 14
+        for button in buttons {
+            button.frame.origin = CGPoint(x: x, y: (height - button.frame.height) / 2)
+            island?.addSubview(button)
+            x += button.frame.width + gap
+        }
+        choices = buttons
+
+        hideWork?.cancel()
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+
+        return await withCheckedContinuation { continuation in
+            answer = continuation
+        }
+    }
+
+    @objc private func chose(_ sender: NSButton) {
+        let index = sender.tag
+        clearChoices()
+        answer?.resume(returning: index)
+        answer = nil
+    }
+
+    private func clearChoices() {
+        for button in choices { button.removeFromSuperview() }
+        choices = []
     }
 
     func hide() {
@@ -168,12 +275,23 @@ final class ChessStatusBadge {
         island.layer?.borderWidth = 1
         island.layer?.borderColor = NSColor.white.withAlphaComponent(0.16).cgColor
         island.layer?.addSublayer(dot)
-        island.onClick = { [weak self] in self?.onClick?() }
+        island.onClick = { [weak self] in
+            guard let self else { return }
+            if let pending = self.answer {
+                // Clicking the island body — not a button — while it is asking
+                // is a way of saying "neither".
+                self.answer = nil
+                self.clearChoices()
+                pending.resume(returning: nil)
+                return
+            }
+            self.onClick?()
+        }
         island.onMoved = { origin in
             UserDefaults.standard.set(NSStringFromPoint(origin), forKey: Self.originKey)
         }
         island.onHover = { [weak self] inside in
-            guard let self else { return }
+            guard let self, self.answer == nil else { return }
             self.label.stringValue = inside ? "Stop watching" : self.resting
         }
 
@@ -238,5 +356,7 @@ final class ChessStatusBadge {
             guard let window else { return }
             if dragged { onMoved?(window.frame.origin) } else { onClick?() }
         }
+
+        override func rightMouseUp(with event: NSEvent) { onClick?() }
     }
 }

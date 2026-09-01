@@ -190,7 +190,7 @@ final class ChessController: ObservableObject {
                         let reading = try await ChessVision.read(
                             board: board, occupancy: found.occupancy,
                             flipped: found.geometry.flipped)
-                        guard let turn = self.askWhoseTurn(suggested: reading.position.turn) else {
+                        guard let turn = await self.askWhoseTurn(suggested: reading.position.turn) else {
                             self.notice = nil
                             self.badge.hide()
                             return
@@ -341,7 +341,7 @@ final class ChessController: ObservableObject {
         do {
             let reading = try await ChessVision.read(board: board, occupancy: found.occupancy,
                                                      flipped: found.geometry.flipped)
-            guard let turn = askWhoseTurn(suggested: reading.position.turn) else {
+            guard let turn = await askWhoseTurn(suggested: reading.position.turn) else {
                 stop()
                 return
             }
@@ -370,24 +370,16 @@ final class ChessController: ObservableObject {
     /// guesses, and the guess is right about as often as a coin — which meant
     /// joining a game as White and being told what Black should play. Nothing
     /// downstream can recover from that: every suggestion is for the wrong
-    /// side and every one of them is legal. So it is asked, once, with the
-    /// guess offered as the default. Nil means they changed their mind.
-    private func askWhoseTurn(suggested: PieceColor) -> PieceColor? {
-        let alert = NSAlert()
-        alert.messageText = "Who moves next?"
-        alert.informativeText = "Visor read the board, but a picture doesn't say whose turn "
-                              + "it is. Its guess is \(suggested == .white ? "White" : "Black")."
-        // The guess goes first, so Return accepts it.
-        let first: PieceColor = suggested
-        let second: PieceColor = suggested.opposite
-        alert.addButton(withTitle: first == .white ? "White" : "Black")
-        alert.addButton(withTitle: second == .white ? "White" : "Black")
-        alert.addButton(withTitle: "Cancel")
-        NSApp.activate(ignoringOtherApps: true)
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:  return first
-        case .alertSecondButtonReturn: return second
-        default:                       return nil
+    /// side and every one of them is legal. So it is asked, once, in the
+    /// island, with the guess lit as the default. Nil means they changed their
+    /// mind.
+    private func askWhoseTurn(suggested: PieceColor) async -> PieceColor? {
+        let picked = await badge.ask("Who moves next?", options: ["White", "Black"],
+                                     suggested: suggested == .white ? 0 : 1)
+        switch picked {
+        case 0:  return .white
+        case 1:  return .black
+        default: return nil
         }
     }
 
