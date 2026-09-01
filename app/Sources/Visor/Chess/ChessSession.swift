@@ -298,8 +298,12 @@ final class ChessSession: ObservableObject {
                 // Counted from when the opponent's move appeared rather than
                 // from now, so the band means total response time — otherwise
                 // the search would be added on top of it and the shortest
-                // setting could never be reached.
-                let target = latency.sample()
+                // setting could never be reached. Floored at 400ms regardless:
+                // the opponent's piece is still sliding when we first see the
+                // move, and a drag that starts during their animation gets
+                // half-registered. Clicking in the same second as the detect
+                // was most of why the second move never landed.
+                let target = max(0.4, latency.sample())
                 let spent = began.map { Date().timeIntervalSince($0) } ?? 0
                 if target > spent {
                     try? await Task.sleep(nanoseconds: UInt64((target - spent) * 1_000_000_000))
@@ -430,11 +434,17 @@ final class ChessSession: ObservableObject {
     /// change the watcher reports is the opponent's reply.
     private func confirmOwnMove(_ move: Move, attempt: Int) async {
         await actuator?.present([ScoredMove(move: move, score: .centipawns(0))], on: geometry)
-        try? await Task.sleep(nanoseconds: 900_000_000)
-        switch state { case .watching, .recovering: break; default: playingOwnMove = false; return }
 
-        let occ = observedOccupancy(latestFrame)
-        let landed = occ[move.from] == false && occ[move.to] == true
+        // Give it up to 1.8s to land, checking as it goes rather than once. A
+        // single check at 900ms caught the piece mid-animation and called it
+        // not landed, which triggered a retry that only made things worse.
+        var landed = false
+        for _ in 0..<6 {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            switch state { case .watching, .recovering: break; default: playingOwnMove = false; return }
+            let occ = observedOccupancy(latestFrame)
+            if occ[move.from] == false && occ[move.to] == true { landed = true; break }
+        }
         if landed {
             ChessDiagnostics.trace("play: \(move.uci) landed")
             baseline = latestFrame            // absorb our move; next change is theirs

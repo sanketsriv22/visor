@@ -90,10 +90,19 @@ final class ClickingActuator: MoveActuator {
         // turn this on.
         await activateApp(under: geometry.center(of: move.from))
 
-        try await click(geometry.center(of: move.from), source: source)
-        try await Task.sleep(nanoseconds: betweenClicks)
-        try await click(geometry.center(of: move.to), source: source)
-        ChessDiagnostics.trace("play: clicked \(move.uci)")
+        // Drag, not click-click.
+        //
+        // Click-click has hidden state: the first click *selects*, the second
+        // *moves*, and if the second is dropped — because the opponent's move is
+        // still animating, say — the piece is left selected, and every retry
+        // then toggles that selection instead of moving anything. Three tries,
+        // three toggles, no move. That is what "b1c3 not landed ×3" was, while
+        // a pawn push a second earlier worked. A drag has no such state: mouse
+        // down on the piece, carry it, mouse up on the square. Either the piece
+        // is where it was dropped or it isn't, and a retry is just another drag.
+        try await drag(from: geometry.center(of: move.from),
+                       to: geometry.center(of: move.to), source: source)
+        ChessDiagnostics.trace("play: dragged \(move.uci)")
 
         // The one place in this subsystem that knows which website it is
         // looking at. A promotion opens a picker over the promotion square with
@@ -166,6 +175,34 @@ final class ClickingActuator: MoveActuator {
             return
         }
         ChessDiagnostics.trace("activate: no window found under the board")
+    }
+
+    /// Pick the piece up, carry it across in a few steps, and put it down.
+    ///
+    /// The intermediate mouseDragged events matter: a board that follows the
+    /// pointer with the piece sprite wants to see it travel, and some ignore a
+    /// down-and-up with no movement between as a click. Six steps over ~80ms
+    /// reads as a deliberate drag to every board tried.
+    private func drag(from: CGPoint, to: CGPoint, source: CGEventSource) async throws {
+        func post(_ type: CGEventType, _ p: CGPoint) {
+            guard let e = CGEvent(mouseEventSource: source, mouseType: type,
+                                  mouseCursorPosition: p, mouseButton: .left) else { return }
+            e.setIntegerValueField(.mouseEventClickState, value: 1)
+            e.post(tap: .cghidEventTap)
+        }
+        post(.mouseMoved, from)
+        try await Task.sleep(nanoseconds: 30_000_000)
+        post(.leftMouseDown, from)
+        try await Task.sleep(nanoseconds: 40_000_000)
+        let steps = 6
+        for i in 1...steps {
+            let t = Double(i) / Double(steps)
+            post(.leftMouseDragged, CGPoint(x: from.x + (to.x - from.x) * t,
+                                            y: from.y + (to.y - from.y) * t))
+            try await Task.sleep(nanoseconds: 14_000_000)
+        }
+        try await Task.sleep(nanoseconds: 40_000_000)
+        post(.leftMouseUp, to)
     }
 
     private func click(_ point: CGPoint, source: CGEventSource) async throws {
