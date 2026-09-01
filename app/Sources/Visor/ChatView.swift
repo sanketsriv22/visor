@@ -1617,11 +1617,17 @@ struct AudioLevelMeter: View {
     @State private var history: [Float] = []
 
     var body: some View {
-        HStack(spacing: cell / 2) {
+        // Circles, and a gap as wide as the dot itself.
+        //
+        // They were rounded squares 1.25pt apart, which at this size is not a
+        // gap — three lit ones in a column merged into a bar, so the "matrix"
+        // read as a row of vertical lines. A dot has to be round and has to
+        // have air around it, or it stops being a dot.
+        HStack(spacing: cell) {
             ForEach(0..<columns, id: \.self) { column in
-                VStack(spacing: cell / 2) {
+                VStack(spacing: cell) {
                     ForEach(0..<rows, id: \.self) { row in
-                        RoundedRectangle(cornerRadius: cell / 4)
+                        Circle()
                             .fill(Color.white)
                             .opacity(opacity(column: column, row: row))
                             .frame(width: cell, height: cell)
@@ -1790,7 +1796,7 @@ struct ListeningPill: View {
             // "is it still working".
             DotMatrixIndicator(size: 22)
         case .recording:
-            AudioLevelMeter(level: voice.level, columns: 9, rows: 4, cell: 2.5)
+            AudioLevelMeter(level: voice.level, columns: 9, rows: 4, cell: 3)
         case .denied:
             Image(systemName: "mic.slash")
                 .font(.system(size: 10))

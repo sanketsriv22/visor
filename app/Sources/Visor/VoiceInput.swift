@@ -139,6 +139,35 @@ final class VoiceInput: NSObject, ObservableObject {
         }
     }
 
+    /// Whether this transcript is worth a second round trip.
+    ///
+    /// Cleanup was written for whisper-1, which returns words and little
+    /// punctuation. The current transcription models punctuate as they go, so
+    /// for a short clean sentence the pass costs about a second and changes
+    /// nothing — a third of the total wait, spent confirming there was nothing
+    /// to do.
+    ///
+    /// It still runs whenever there is something to fix: a spoken correction, a
+    /// filler word, or text that came back without any sentence punctuation.
+    /// The test is deliberately generous — missing a correction is much worse
+    /// than a wasted call — and long transcripts always go through, since the
+    /// chance of nothing needing attention across several sentences is slim.
+    static func needsCleanup(_ text: String) -> Bool {
+        let raw = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard raw.count >= 12 else { return false }
+        guard raw.count <= 240 else { return true }
+
+        let lower = " " + raw.lowercased() + " "
+        let markers = ["sorry", "i mean", "i meant", "rather", "actually",
+                       "no wait", "scratch that", "rephrase", "correction",
+                       " um ", " uh ", " erm ", " like like ", " you know ",
+                       " i i ", " the the ", " a a "]
+        if markers.contains(where: { lower.contains($0) }) { return true }
+
+        // No sentence punctuation at all is the whisper-1 signature.
+        return !raw.contains(where: { ".!?".contains($0) })
+    }
+
     static var hasKey: Bool {
         guard let k = Keychain.get(keyAccount)?.trimmingCharacters(in: .whitespacesAndNewlines)
         else { return false }
@@ -189,7 +218,26 @@ final class VoiceInput: NSObject, ObservableObject {
         }
     }
 
+    /// Opens the connection to the transcription service while you're still
+    /// talking.
+    ///
+    /// The measured cost of transcribing is almost all fixed: 96 seconds of
+    /// speech took 3.7s and 7 seconds took 2.8s, so it is setup, not audio. A
+    /// good part of that setup is DNS, TCP and a TLS handshake that only begins
+    /// once there is a file to send — while the user waits.
+    ///
+    /// It can happen during the recording instead. This request is thrown away;
+    /// the point is the connection it leaves in URLSession's pool, which the
+    /// real upload then reuses.
+    private func warmConnection() {
+        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/models")!)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 5
+        Task { _ = try? await URLSession.shared.data(for: request) }
+    }
+
     private func beginRecording() {
+        warmConnection()
         // Where the words are going, decided now rather than when they arrive.
         // Transcription is a round trip; focus can move in between.
         TextInsertion.captureTarget()
@@ -342,7 +390,9 @@ final class VoiceInput: NSObject, ObservableObject {
 
             var trimmed = raw
             let cleanupStarted = Date()
-            if Self.cleanupEnabled, let polish {
+            var cleaned = false
+            if Self.cleanupEnabled, Self.needsCleanup(raw), let polish {
+                cleaned = true
                 // Still .transcribing while this runs — from the outside it's
                 // one step, and the pill shouldn't flicker between two.
                 trimmed = await polish(raw)
@@ -355,8 +405,9 @@ final class VoiceInput: NSObject, ObservableObject {
                 duration: startedAt.map { Date().timeIntervalSince($0) },
                 conversation: currentConversation?(),
                 transcribeSeconds: cleanupStarted.timeIntervalSince(transcribeStarted),
-                cleanupSeconds: Self.cleanupEnabled
-                    ? Date().timeIntervalSince(cleanupStarted) : nil))
+                // nil rather than zero when the pass was skipped — the log
+                // should say it didn't happen, not that it was instant.
+                cleanupSeconds: cleaned ? Date().timeIntervalSince(cleanupStarted) : nil))
             startedAt = nil
             onTranscript?(trimmed)
         } catch {
