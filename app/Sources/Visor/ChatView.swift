@@ -1636,12 +1636,19 @@ struct AudioLevelMeter: View {
     /// zero line. Each has a band it fades across rather than a point it snaps
     /// at, so a rising voice sweeps the dots instead of stepping them.
     private func opacity(sample: Float, row: Int) -> Double {
+        let value = Double(max(0, min(1, sample)))
+        // Silence is silence. Without this the innermost row began lighting at
+        // the first flicker above zero, so the meter looked switched on before
+        // anyone had spoken.
+        guard value > 0.02 else { return 0.08 }
+
         let centre = Double(rows - 1) / 2
         let distance = abs(Double(row) - centre)
-        let reach = (distance + 0.5) / (centre + 1)
-        let band = 1.0 / Double(rows)
-        let value = Double(max(0, min(1, sample)))
-        let lit = (value - (reach - band)) / band
+        // Each row occupies an equal share of the scale from the middle out, and
+        // fades across its own share rather than snapping at its edge.
+        let share = 1.0 / (centre + 1)
+        let reach = (distance + 1) * share
+        let lit = (value - (reach - share)) / share
         return 0.08 + 0.85 * max(0, min(1, lit))
     }
 }

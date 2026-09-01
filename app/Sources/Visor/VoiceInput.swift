@@ -40,6 +40,8 @@ final class VoiceInput: NSObject, ObservableObject {
     private var meterTimer: Timer?
     private var fileURL: URL?
     private var startedAt: Date?
+    /// Running estimate of the room's own noise, in dBFS.
+    private var noiseFloor: Float = -40
     /// Set by the owner so a logged utterance records where it went.
     var currentConversation: (() -> UUID?)?
     /// Called with the transcript when one arrives.
@@ -299,6 +301,8 @@ final class VoiceInput: NSObject, ObservableObject {
     // MARK: - Metering
 
     private func startMetering() {
+        // Re-measured each time: the room is not the same room it was.
+        noiseFloor = -40
         meterTimer?.invalidate()
         meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 24, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.sampleLevel() }
@@ -325,13 +329,34 @@ final class VoiceInput: NSObject, ObservableObject {
         // normally. Peak is what you see when you watch a voice.
         let dB = max(recorder.peakPower(forChannel: 0),
                      recorder.averagePower(forChannel: 0))
-        let floor: Float = -50
+
+        // The floor is measured, not assumed.
+        //
+        // A fixed floor is what kept the middle rows lit in silence: a quiet
+        // room still reads around -50 dBFS, and mapping from -50 through a
+        // curve that expands the quiet end turned that into a third of the
+        // scale. The meter was faithfully displaying the sound of the room.
+        //
+        // This follows the quietest thing it has heard, dropping to it at once
+        // and creeping back up slowly, so it settles on the room's own noise
+        // wherever you are and doesn't mistake a pause for silence.
+        if dB < noiseFloor {
+            noiseFloor = dB
+        } else {
+            noiseFloor += 0.02
+        }
+
+        // Nothing registers until it is clearly above that floor, so an empty
+        // room reads as empty.
+        let floor = noiseFloor + 8
         let ceiling: Float = -12
+        guard ceiling > floor else { level = 0; levels.removeFirst(); levels.append(0); return }
         let span = max(0, min(1, (dB - floor) / (ceiling - floor)))
         // Loudness is logarithmic and the ear is not linear, so a linear
-        // mapping spends most of the meter on volumes nobody produces. The
-        // curve expands the quiet end, where speech actually lives.
-        let normalised = pow(span, 0.55)
+        // mapping spends most of the meter on volumes nobody produces. Gentler
+        // than it was: the old curve lifted near-silence to a third of full
+        // scale on its own.
+        let normalised = pow(span, 0.7)
         // Rise instantly, fall slowly: a meter that decays reads as a voice,
         // one that tracks exactly reads as a flicker.
         level = normalised > level ? normalised : level * 0.78 + normalised * 0.22
