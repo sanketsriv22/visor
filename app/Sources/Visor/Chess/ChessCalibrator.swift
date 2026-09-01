@@ -20,7 +20,19 @@ final class ChessCalibrator {
         let ourColour: PieceColor
     }
 
-    private var window: NSWindow?
+    /// A borderless `NSWindow` returns false from `canBecomeKey`, so it never
+    /// takes first responder and never sees a keystroke. The first version of
+    /// this offered "press W or B" on a window that could not receive either,
+    /// which left no way out of a full-screen overlay except killing the app.
+    /// The keys work now — and nothing depends on them, because a modal that
+    /// can only be dismissed from the keyboard is one bug away from being a
+    /// trap again.
+    private final class PickerWindow: NSWindow {
+        override var canBecomeKey: Bool { true }
+        override var canBecomeMain: Bool { true }
+    }
+
+    private var window: PickerWindow?
     private var completion: ((Result?) -> Void)?
 
     /// Put the picker up. Hands back nil if the user changes their mind.
@@ -35,9 +47,9 @@ final class ChessCalibrator {
             $0.frame.contains(NSEvent.mouseLocation)
         } ?? NSScreen.main ?? NSScreen.screens[0]
 
-        let window = NSWindow(contentRect: screen.frame,
-                              styleMask: [.borderless],
-                              backing: .buffered, defer: false)
+        let window = PickerWindow(contentRect: screen.frame,
+                                  styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
         window.level = .screenSaver
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         window.isOpaque = false
@@ -101,6 +113,19 @@ final class ChessCalibrator {
                           width: side, height: side)
         }
 
+        /// Where the choices are drawn, and therefore where they're clicked.
+        /// Recomputed from the selection rather than stored at draw time, so a
+        /// click can never be tested against a stale layout.
+        private func choiceRects(under board: CGRect) -> (white: CGRect, black: CGRect, cancel: CGRect) {
+            let w: CGFloat = 132, h: CGFloat = 34, gap: CGFloat = 10
+            let total = w * 3 + gap * 2
+            let x = board.midX - total / 2
+            let y = max(board.minY - h - 18, 18)
+            return (CGRect(x: x, y: y, width: w, height: h),
+                    CGRect(x: x + w + gap, y: y, width: w, height: h),
+                    CGRect(x: x + (w + gap) * 2, y: y, width: w, height: h))
+        }
+
         override func draw(_ dirtyRect: NSRect) {
             NSColor.black.withAlphaComponent(0.45).setFill()
             guard let board = squared else {
@@ -109,7 +134,6 @@ final class ChessCalibrator {
                 return
             }
 
-            // Dim everything but the board.
             let dim = NSBezierPath(rect: bounds)
             dim.append(NSBezierPath(rect: board))
             dim.windingRule = .evenOdd
@@ -134,10 +158,39 @@ final class ChessCalibrator {
             }
             grid.stroke()
 
-            caption(awaitingColour
-                        ? "Which colour are you playing?   W — white     B — black        ⎋ cancel"
-                        : "Let go when the grid lines up with the board's squares        ⎋ cancel",
-                    in: bounds)
+            if awaitingColour {
+                let choices = choiceRects(under: board)
+                button("I'm White", in: choices.white, filled: true)
+                button("I'm Black", in: choices.black, filled: true)
+                button("Cancel", in: choices.cancel, filled: false)
+                caption("Which colour are you playing?", in: bounds)
+            } else {
+                caption("Let go when the grid lines up with the squares    ·    esc to cancel",
+                        in: bounds)
+            }
+        }
+
+        private func button(_ title: String, in rect: CGRect, filled: Bool) {
+            (filled ? NSColor.white.withAlphaComponent(0.16)
+                    : NSColor.black.withAlphaComponent(0.5)).setFill()
+            let shape = NSBezierPath(roundedRect: rect, xRadius: Design.Radius.pill,
+                                     yRadius: Design.Radius.pill)
+            shape.fill()
+            NSColor.white.withAlphaComponent(filled ? 0.65 : 0.3).setStroke()
+            shape.lineWidth = 1
+            shape.stroke()
+
+            let style = NSMutableParagraphStyle()
+            style.alignment = .center
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+                .foregroundColor: NSColor.white.withAlphaComponent(filled ? 0.95 : 0.7),
+                .paragraphStyle: style,
+            ]
+            let size = (title as NSString).size(withAttributes: attributes)
+            (title as NSString).draw(at: CGPoint(x: rect.midX - size.width / 2,
+                                                 y: rect.midY - size.height / 2),
+                                     withAttributes: attributes)
         }
 
         private func caption(_ text: String, in rect: CGRect) {
@@ -162,14 +215,30 @@ final class ChessCalibrator {
         // ── the drag ──
 
         override func mouseDown(with event: NSEvent) {
-            guard !awaitingColour else { return }
-            anchor = convert(event.locationInWindow, from: nil)
+            let point = convert(event.locationInWindow, from: nil)
+
+            if awaitingColour, let board = squared {
+                let choices = choiceRects(under: board)
+                if choices.white.contains(point)  { onFinish?(board, .white); return }
+                if choices.black.contains(point)  { onFinish?(board, .black); return }
+                if choices.cancel.contains(point) { onFinish?(nil, .white); return }
+                // Clicking anywhere else re-opens the drag, so a badly framed
+                // box is redrawn rather than being a dead end.
+                awaitingColour = false
+                current = nil
+                needsDisplay = true
+                return
+            }
+
+            anchor = point
             current = nil
             needsDisplay = true
         }
 
+        override func rightMouseDown(with event: NSEvent) { onFinish?(nil, .white) }
+
         override func mouseDragged(with event: NSEvent) {
-            guard let anchor else { return }
+            guard let anchor, !awaitingColour else { return }
             let point = convert(event.locationInWindow, from: nil)
             current = CGRect(x: min(anchor.x, point.x), y: min(anchor.y, point.y),
                              width: abs(point.x - anchor.x), height: abs(point.y - anchor.y))
@@ -177,6 +246,7 @@ final class ChessCalibrator {
         }
 
         override func mouseUp(with event: NSEvent) {
+            guard !awaitingColour else { return }
             anchor = nil
             // A stray click isn't a board. Without this, tapping the overlay
             // hands back a zero-sized geometry and every square is the same
