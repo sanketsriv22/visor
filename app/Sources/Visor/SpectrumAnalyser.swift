@@ -20,6 +20,16 @@ import Foundation
 final class SpectrumAnalyser: ObservableObject {
     /// Band energies, 0…1, low frequencies first.
     @Published private(set) var bands: [Float]
+    /// Where the sound is coming from: -1 hard left, 0 centre, +1 hard right.
+    ///
+    /// A MacBook's microphones are an array, so the same voice reaches them at
+    /// different levels depending on which side of the machine you're on. That
+    /// difference is small — a few dB — so it's exaggerated on the way out, and
+    /// heavily smoothed: a pan that jitters is worse than no pan at all.
+    @Published private(set) var balance: Float = 0
+    /// Whether there are two channels to compare. With one, `balance` stays at
+    /// centre rather than inventing a direction.
+    @Published private(set) var stereo = false
 
     private let engine = AVAudioEngine()
     private var running = false
@@ -60,14 +70,30 @@ final class SpectrumAnalyser: ObservableObject {
         guard format.channelCount > 0, format.sampleRate > 0 else { return }
 
         input.removeTap(onBus: 0)
+        let channels = Int(format.channelCount)
+        Task { @MainActor in self.stereo = channels >= 2 }
+
         input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(Self.fftSize),
                          format: format) { [weak self] buffer, _ in
-            guard let self, let samples = buffer.floatChannelData?[0] else { return }
+            guard let self, let data = buffer.floatChannelData else { return }
             let count = Int(buffer.frameLength)
-            let magnitudes = Self.analyse(samples: samples, count: count,
+            let magnitudes = Self.analyse(samples: data[0], count: count,
                                           window: self.window, setup: self.fft)
             guard let magnitudes else { return }
-            Task { @MainActor in self.absorb(magnitudes) }
+
+            // Which side is louder, as a ratio rather than a difference, so it
+            // means the same thing whether you're whispering or shouting.
+            var pan: Float = 0
+            if channels >= 2 {
+                let left = Self.energy(data[0], count: count)
+                let right = Self.energy(data[1], count: count)
+                let total = left + right
+                if total > 1e-6 { pan = (right - left) / total }
+            }
+            Task { @MainActor in
+                self.absorb(magnitudes)
+                self.absorb(pan: pan)
+            }
         }
 
         do {
@@ -86,6 +112,7 @@ final class SpectrumAnalyser: ObservableObject {
         engine.stop()
         running = false
         bands = Array(repeating: 0, count: Self.bandCount)
+        balance = 0
         // Re-learned next time: the room is not the same room it was.
         floors = Array(repeating: -30, count: Self.bandCount)
     }
@@ -156,6 +183,21 @@ final class SpectrumAnalyser: ObservableObject {
                 ? value
                 : bands[band] * 0.72 + value * 0.28
         }
+    }
+
+    private nonisolated static func energy(_ samples: UnsafePointer<Float>,
+                                           count: Int) -> Float {
+        var total: Float = 0
+        vDSP_measqv(samples, 1, &total, vDSP_Length(count))
+        return total
+    }
+
+    /// Exaggerated and smoothed. The raw difference between two microphones a
+    /// few inches apart is a couple of dB; left alone it would never move the
+    /// picture, and unsmoothed it would twitch on every syllable.
+    private func absorb(pan: Float) {
+        let widened = max(-1, min(1, pan * 3.5))
+        balance = balance * 0.88 + widened * 0.12
     }
 
     private static func edge(_ band: Int, of count: Int, bins: Int) -> Int {
