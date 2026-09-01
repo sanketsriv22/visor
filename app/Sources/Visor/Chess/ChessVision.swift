@@ -119,13 +119,42 @@ enum ChessVision {
             if (seen == nil) != (read == nil) { disagreements += 1 }
             else if let seen, let read, seen != read.color { disagreements += 1 }
         }
-        // A couple of squares can legitimately differ — a piece mid-animation,
-        // a square under the cursor, a highlight over an empty one. Six is not
-        // a near miss, it's a different board.
-        guard disagreements <= 5 else { throw ReadError.disagreesWithScreen(disagreements) }
+        // One square of slack, for a piece caught mid-animation. No more.
+        //
+        // This was five, on the reasoning that a few squares could legitimately
+        // differ. That was the wrong way to think about it: a disagreement here
+        // is not noise, it is a square whose contents the reading got wrong,
+        // and every one of them becomes a piece that Visor believes is
+        // somewhere it isn't. It produced a knight being sent onto a pawn the
+        // tracked position thought wasn't there — an illegal move offered with
+        // complete confidence, which is the worst thing this can do. The engine
+        // is never wrong about legality; it can only be wrong about the
+        // position, and this is where the position comes from.
+        guard disagreements <= 1 else { throw ReadError.disagreesWithScreen(disagreements) }
+
+        // And it has to be a position at all. Stockfish's behaviour on an
+        // impossible one is undefined, which is another way to get a confident
+        // illegal move.
+        guard isPlausible(position) else {
+            throw ReadError.badResponse("the position it read isn't a legal one")
+        }
 
         position.castling = inferredCastling(in: position)
         return Reading(position: position, flipped: flipped)
+    }
+
+    /// Cheap impossibilities. Not a full legality check — that needs an engine
+    /// — but enough to catch a reading that has gone properly wrong.
+    private static func isPlausible(_ position: ChessPosition) -> Bool {
+        var kings: [PieceColor: Int] = [:]
+        for index in 0..<64 {
+            guard let square = Square(index: index), let piece = position[square] else { continue }
+            if piece.kind == .king { kings[piece.color, default: 0] += 1 }
+            // A pawn cannot be on the rank it promotes on, or the one it starts
+            // behind.
+            if piece.kind == .pawn, square.rank == 0 || square.rank == 7 { return false }
+        }
+        return kings[.white] == 1 && kings[.black] == 1
     }
 
     private static func parse(_ text: String) throws -> (String, PieceColor) {

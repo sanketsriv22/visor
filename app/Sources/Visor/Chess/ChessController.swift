@@ -81,6 +81,7 @@ final class ChessController: ObservableObject {
     private let calibrator = ChessCalibrator()
     private let badge = ChessStatusBadge()
     private var watchingState: AnyCancellable?
+    private var resyncing = false
     private static let modeKey = "visor.chess.mode"
 
     private init() {
@@ -271,6 +272,7 @@ final class ChessController: ObservableObject {
                             self.badge.show("\(what.capitalized) · \(colour)")
                         case .recovering:
                             self.badge.show("Catching up…", live: false)
+                            self.scheduleResync()
                         case .lost(let why):
                             self.badge.show(why, live: false, fadingAfter: 8)
                         case .idle:
@@ -292,6 +294,61 @@ final class ChessController: ObservableObject {
     private func fail(_ reason: String) {
         notice = reason
         badge.show(reason, live: false, fadingAfter: 5)
+    }
+
+    /// Read the board again and carry on from what is actually there.
+    ///
+    /// The session can tell when its position has stopped matching the screen,
+    /// but not what the right one is — it only ever sees which squares changed,
+    /// never what is on them. Re-reading is the only way back, and it is much
+    /// better than the alternative of telling someone to abandon a game they
+    /// are in the middle of.
+    private func scheduleResync() {
+        guard !resyncing else { return }
+        resyncing = true
+        Task { [weak self] in
+            // Long enough for ordinary catching-up to work on its own; a
+            // covered board or one missed move does not need this.
+            try? await Task.sleep(nanoseconds: 9_000_000_000)
+            guard let self else { return }
+            defer { self.resyncing = false }
+            guard let session = self.session, case .recovering = session.state else { return }
+            await self.resync(over: session.geometry)
+        }
+    }
+
+    private func resync(over geometry: BoardGeometry) async {
+        guard OpenRouterClient.key != nil else {
+            self.notice = "Lost the position, and re-reading the board needs an OpenRouter key."
+            return
+        }
+        badge.show("Re-reading the board…", live: false)
+
+        guard let shot = try? await ChessScreen.capture(),
+              let found = ChessBoardFinder.find(in: shot.image, displayOrigin: shot.origin),
+              let board = shot.cropping(to: found.geometry.rect)
+        else {
+            fail("Couldn't find the board to re-read it.")
+            return
+        }
+        do {
+            let reading = try await ChessVision.read(board: board, occupancy: found.occupancy,
+                                                     flipped: found.geometry.flipped)
+            ChessDiagnostics.record(shot: shot, found: found,
+                                    verdict: "resynced to \(reading.position.fen)")
+            // A fresh session rather than a position swap: the watcher has to
+            // relearn its baseline and what an empty square looks like, and
+            // half-updating a running one is how you get a third kind of drift.
+            stop()
+            begin(with: ChessCalibrator.Result(
+                geometry: found.geometry,
+                ourColour: found.geometry.flipped ? .black : .white),
+                  position: reading.position)
+        } catch {
+            ChessDiagnostics.record(shot: shot, found: found,
+                                    verdict: "resync failed: \(error.localizedDescription)")
+            fail("Couldn't re-read the board — \(error.localizedDescription)")
+        }
     }
 
     /// Where the screenshots and reasoning from the last few attempts went.

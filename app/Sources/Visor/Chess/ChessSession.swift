@@ -49,8 +49,9 @@ final class ChessSession: ObservableObject {
     @Published private(set) var tableHitRate: Double?
 
     private let mode: ChessMode
-    private let geometry: BoardGeometry
-    private let ourColour: PieceColor
+    /// Readable so a resync can rebuild a session over the same board.
+    let geometry: BoardGeometry
+    let ourColour: PieceColor
     private let latency: LatencyBand
 
     private var oracle: ChessOracle?
@@ -77,6 +78,11 @@ final class ChessSession: ObservableObject {
     /// pixels" — a guess — into "which of these legal moves produces the board
     /// I am looking at".
     private var emptyLook: [Bool: ChessWatcher.Signature] = [:]
+
+    /// When the tracked position was last checked against the screen, and how
+    /// many checks in a row have disagreed.
+    private var lastVerified = Date.distantPast
+    private var mismatches = 0
 
     /// How many times the current move has been clicked at the board without
     /// the board changing.
@@ -167,6 +173,9 @@ final class ChessSession: ObservableObject {
         guard !delta.isEmpty else {
             settling = []
             changeBegan = nil
+            // Nothing is moving, which is the moment to ask whether what we
+            // think is on the board is what is on the board.
+            verifyStillInSync(current)
             return
         }
 
@@ -249,6 +258,17 @@ final class ChessSession: ObservableObject {
         playAttempts = 0
         for move in moves { position.apply(move) }
 
+        // Never suggest into a position the screen disagrees with. An illegal
+        // move offered confidently is worse than no move at all, and this is
+        // the last place to catch one.
+        let observed = observedOccupancy(current)
+        if !observed.isEmpty, agreement(position, with: observed) < 60 {
+            suggestions = []
+            actuator?.clear()
+            state = .recovering("The board stopped matching what Visor is tracking")
+            return
+        }
+
         if position.turn == ourColour {
             // Only a single ply the oracle primed for can come out of the
             // table; a two-ply recovery lands on a position nobody predicted.
@@ -315,6 +335,35 @@ final class ChessSession: ObservableObject {
             }
         }
         return best?.pair
+    }
+
+    /// Is the position we are tracking still the position on screen?
+    ///
+    /// Nothing used to ask. `agreement` existed and was only ever used to pick
+    /// between candidate moves, so a position that had drifted — from a
+    /// misread board at the start, or one wrong resolution in the middle —
+    /// stayed wrong forever and every suggestion after it was built on a
+    /// fiction. That is how a knight came to be sent onto a pawn: the engine
+    /// was right about the position it was given and the position was wrong.
+    ///
+    /// Checked while the board is still, once a second, and only believed after
+    /// three in a row — a piece mid-animation or a square under the cursor
+    /// should not be able to stop a game.
+    private func verifyStillInSync(_ current: [Square: ChessWatcher.Signature]) {
+        guard case .watching = state, !emptyLook.isEmpty else { return }
+        guard Date().timeIntervalSince(lastVerified) > 1 else { return }
+        lastVerified = Date()
+
+        let observed = observedOccupancy(current)
+        guard !observed.isEmpty else { return }
+        guard agreement(position, with: observed) < 61 else { mismatches = 0; return }
+
+        mismatches += 1
+        guard mismatches >= 3 else { return }
+        mismatches = 0
+        suggestions = []
+        actuator?.clear()
+        state = .recovering("The board stopped matching what Visor is tracking")
     }
 
     /// Check the click actually moved a piece, and click again if it didn't.
