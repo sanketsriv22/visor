@@ -95,26 +95,32 @@ struct StickyRootView: View {
                         ListeningPill(voice: chat.voice,
                                       height: ui.trueNotch.height,
                                       side: .leading)
-                            .transition(.scale(scale: 0.01, anchor: .trailing))
+                            .transition(.offset(x: Self.pillTravel))
                     }
-                    // Above both, so a pill can pass beneath it rather than
-                    // across it on the way in or out.
+                    // Above both, so the pills are genuinely hidden underneath
+                    // it at rest and emerge from beneath it — which is the only
+                    // way this reads as the notch widening rather than as two
+                    // panels appearing either side of it.
                     NotchStrip(size: ui.notchSize)
                         .zIndex(1)
                     if ui.listening {
                         ListeningPill(voice: chat.voice, height: ui.trueNotch.height)
-                            .transition(.scale(scale: 0.01, anchor: .leading))
+                            .transition(.offset(x: -Self.pillTravel))
                     }
                 }
-                // Scale, never opacity.
+                // Movement, never opacity or scale.
                 //
-                // A fade was what made the collapse look wrong: the pill is
-                // solid black over a transparent window, so fading it out shows
-                // the desktop through it for the length of the animation. It
-                // reads as the notch going see-through rather than closing.
-                // Scaling toward the notch keeps it opaque the whole way, which
-                // is also what actually happens — the extension retracts into
-                // the hardware it came out of.
+                // A fade was the first mistake: the pill is solid black over a
+                // transparent window, so fading it out showed the desktop
+                // through it — the notch appeared to go see-through rather than
+                // to close. Scaling was the second: growing from a sliver at
+                // the notch's edge unfolds *beside* the notch, which is why it
+                // looked like a panel arriving rather than the notch widening.
+                //
+                // It slides. At rest each pill sits one full width inwards,
+                // underneath the strip that is drawn above it, and travels out
+                // from there — so it is genuinely emerging from behind the
+                // notch, opaque the whole way, and retracting back under it.
                 //
                 // Slower going in than coming out. Things that open can be
                 // quick because you asked for them; things that close should
@@ -133,6 +139,12 @@ struct StickyRootView: View {
 
     /// How far left of centre the switcher sits — clear of the notch, hugging
     /// its edge.
+    /// How far a pill travels: its own width plus the overlap that keeps it
+    /// tucked under the strip, so at rest none of it protrudes.
+    static var pillTravel: CGFloat {
+        NotchController.listeningPillWidth + NotchController.listeningPillOverlap
+    }
+
     private var switcherDistance: CGFloat {
         (ui.notchSize.width + NotchController.notchClearance) / 2 + ModeSwitcher.width / 2
     }

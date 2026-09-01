@@ -1591,68 +1591,73 @@ private struct HUDComposer: View {
 /// continuous curve is a wobbling line you can't read, where lit and unlit
 /// cells are legible at a glance and match the dot-matrix indicator's
 /// language.
-/// A voice, drawn as one.
+/// A dot matrix that shows a voice travelling across it.
 ///
-/// This was a grid of dots that lit from the bottom up, which is a VU meter —
-/// a picture of a *number*, not of speech. And it read badly for a second
-/// reason: every column showed the same instant, so five columns moved in
-/// lockstep and said nothing five times.
+/// Two things this deliberately does not do, both learned the hard way.
 ///
-/// Each bar is a moment instead. The newest sample enters at the right and the
-/// older ones shift left, so what you see is the last half-second of your voice
-/// travelling across the meter — the shape everyone already recognises. Bars
-/// grow from the centre outwards, the way a waveform does around its zero line,
-/// rather than up from a floor.
+/// It never animates layout. An earlier version resized a row of bars on every
+/// sample, twenty-four times a second — SwiftUI re-laid-out the stack each time
+/// and the result juddered. The grid here is fixed: every dot occupies the same
+/// point forever and only its opacity changes, which is a property animation
+/// and costs nothing.
+///
+/// And every column is a different moment. Before, all five showed the same
+/// instant, so they rose and fell in lockstep and said one thing five times.
+/// The newest sample enters at the right and the older ones shift left, so what
+/// you see is the last half-second of your voice moving across the meter. Dots
+/// light from the middle outwards, the way a waveform sits around its zero
+/// line, rather than filling up from the floor like a VU meter.
 struct AudioLevelMeter: View {
     var level: Float
-    /// How many moments are on screen at once.
     var columns = 5
-    /// Height budget, kept in the old units so existing call sites still read
-    /// the same size.
     var rows = 4
     var cell: CGFloat = 2.5
 
-    /// The most recent samples, oldest first. Seeded flat so the meter has its
-    /// full width from the first frame instead of growing into place.
+    /// One sample per column, oldest first.
     @State private var history: [Float] = []
 
-    private var fullHeight: CGFloat { CGFloat(rows) * cell * 2.2 }
-    private var minimum: CGFloat { cell }
-
     var body: some View {
-        HStack(alignment: .center, spacing: cell * 0.7) {
-            ForEach(Array(samples.enumerated()), id: \.offset) { index, sample in
-                Capsule()
-                    .fill(Color.white.opacity(opacity(at: index)))
-                    .frame(width: cell, height: height(for: sample))
+        HStack(spacing: cell / 2) {
+            ForEach(0..<columns, id: \.self) { column in
+                VStack(spacing: cell / 2) {
+                    ForEach(0..<rows, id: \.self) { row in
+                        RoundedRectangle(cornerRadius: cell / 4)
+                            .fill(Color.white)
+                            .opacity(opacity(column: column, row: row))
+                            .frame(width: cell, height: cell)
+                            // Per dot, so the animation is opacity alone. A
+                            // single animation over the whole array made
+                            // SwiftUI diff twenty dots at once every frame.
+                            .animation(.easeOut(duration: 0.12),
+                                       value: sample(column))
+                    }
+                }
             }
         }
-        .frame(height: fullHeight)
-        .animation(.easeOut(duration: 0.09), value: history)
         .onAppear { history = Array(repeating: 0, count: columns) }
         .onChange(of: level) { latest in
-            var next = history.isEmpty ? Array(repeating: Float(0), count: columns) : history
-            next.removeFirst()
-            next.append(latest)
-            history = next
+            guard history.count == columns else {
+                history = Array(repeating: latest, count: columns)
+                return
+            }
+            history.removeFirst()
+            history.append(latest)
         }
         .accessibilityLabel("Microphone level")
     }
 
-    private var samples: [Float] {
-        history.isEmpty ? Array(repeating: 0, count: columns) : history
+    private func sample(_ column: Int) -> Float {
+        history.indices.contains(column) ? history[column] : 0
     }
 
-    private func height(for sample: Float) -> CGFloat {
-        minimum + (fullHeight - minimum) * CGFloat(max(0, min(1, sample)))
-    }
-
-    /// The leading edge fades, so the wave reads as travelling rather than as a
-    /// row of bars that happen to differ.
-    private func opacity(at index: Int) -> Double {
-        guard columns > 1 else { return 0.85 }
-        let age = Double(index) / Double(columns - 1)
-        return 0.35 + 0.5 * age
+    /// How far this row sits from the centre, as a fraction — so a dot lights
+    /// once the sample reaches out that far.
+    private func opacity(column: Int, row: Int) -> Double {
+        let centre = Double(rows - 1) / 2
+        let distance = abs(Double(row) - centre)
+        // Normalised so the outermost row needs a full-scale sample.
+        let threshold = (distance + 0.5) / (centre + 1)
+        return Double(sample(column)) >= threshold ? 0.9 : 0.1
     }
 }
 
