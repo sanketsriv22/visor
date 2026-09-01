@@ -82,6 +82,9 @@ final class ChessSession: ObservableObject {
     /// the opponent's, and must not be resolved as such.
     private var playingOwnMove = false
 
+    /// Whether this episode's whole-board storm has been captured already.
+    private var dumpedStorm = false
+
     /// One resolve at a time.
     ///
     /// `resolve` awaits the engine, and frames keep arriving at 120Hz while it
@@ -204,10 +207,15 @@ final class ChessSession: ObservableObject {
         // The position as the oracle primed it, before anything is applied.
         let before = position
 
-        let one = await candidate(in: delta, current: current)
-        ChessDiagnostics.trace("resolve: turn=\(position.turn == ourColour ? "ours" : "theirs") "
-                             + "delta=[\(delta.sorted { $0.index < $1.index }.map(\.name).joined(separator: ","))] "
-                             + "→ \(one?.uci ?? "nothing")")
+        // A whole-board change isn't a move and doesn't need a candidate; skip
+        // straight to the storm handling below rather than searching and
+        // logging twenty times a second.
+        let one = delta.count > 20 ? nil : await candidate(in: delta, current: current)
+        if delta.count <= 20 {
+            ChessDiagnostics.trace("resolve: turn=\(position.turn == ourColour ? "ours" : "theirs") "
+                                 + "delta=[\(delta.sorted { $0.index < $1.index }.map(\.name).joined(separator: ","))] "
+                                 + "→ \(one?.uci ?? "nothing")")
+        }
         if let move = one {
             await commit([move], from: before, current: current)
             return
@@ -233,6 +241,21 @@ final class ChessSession: ObservableObject {
         // game lost every time you checked your email.
         if delta.count > 20 {
             changeBegan = nil
+            // First time this episode: keep the frame, and both readings.
+            if !dumpedStorm {
+                dumpedStorm = true
+                ChessDiagnostics.trace("storm: \(delta.count) of 64 squares differ from baseline — capturing frame")
+                let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+                watcher?.dumpNextFrameTo = ChessDiagnostics.directory.appendingPathComponent("storm-\(stamp).png")
+                var out = "storm: baseline mean/occ | current mean/occ, a1..h1 then a2..\n"
+                for index in 0..<64 {
+                    guard let sq = Square(index: index), let b = baseline[sq], let c = current[sq] else { continue }
+                    out += String(format: "  %@  %3d,%3d,%3d %@ | %3d,%3d,%3d %@\n", sq.name,
+                                  Int(b.r), Int(b.g), Int(b.b), b.occupied ? "X" : ".",
+                                  Int(c.r), Int(c.g), Int(c.b), c.occupied ? "X" : ".")
+                }
+                ChessDiagnostics.trace(out)
+            }
             return
         }
 
@@ -260,6 +283,7 @@ final class ChessSession: ObservableObject {
         if case .recovering = state { state = .watching }
         baseline = current
         settling = []
+        dumpedStorm = false
         for move in moves { position.apply(move) }
         ChessDiagnostics.trace("commit: applied \(moves.map(\.uci).joined(separator: "+")) "
                              + "→ now \(position.turn == ourColour ? "our" : "their") turn")

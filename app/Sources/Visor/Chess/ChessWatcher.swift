@@ -1,6 +1,7 @@
 import AppKit
 import ScreenCaptureKit
 import CoreVideo
+import CoreImage
 
 /// Watches the board and says which squares changed.
 ///
@@ -63,6 +64,11 @@ final class ChessWatcher: NSObject, SCStreamOutput, @unchecked Sendable {
 
     private let geometry: BoardGeometry
     private let onChange: @Sendable ([Square], [Square: Signature]) -> Void
+    /// When set, the next frame is written here as a PNG and the flag cleared.
+    /// Set from the session when the board reads as entirely changed, because
+    /// "all 64 squares differ" is not something a chess game does and the only
+    /// way to learn what the watcher is actually looking at is to look at it.
+    var dumpNextFrameTo: URL?
     private var stream: SCStream?
     private var previous: [Square: Signature] = [:]
     private let queue = DispatchQueue(label: "visor.chess.capture", qos: .userInteractive)
@@ -156,6 +162,15 @@ final class ChessWatcher: NSObject, SCStreamOutput, @unchecked Sendable {
            let raw = attachments.first?[.status] as? Int,
            let status = SCFrameStatus(rawValue: raw), status != .complete {
             return
+        }
+
+        if let url = dumpNextFrameTo {
+            dumpNextFrameTo = nil
+            let ci = CIImage(cvPixelBuffer: pixels)
+            if let cg = CIContext().createCGImage(ci, from: ci.extent) {
+                let rep = NSBitmapImageRep(cgImage: cg)
+                try? rep.representation(using: .png, properties: [:])?.write(to: url)
+            }
         }
 
         CVPixelBufferLockBaseAddress(pixels, .readOnly)
