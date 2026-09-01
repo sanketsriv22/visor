@@ -1,91 +1,151 @@
 import Foundation
 
-/// The listening animation: your voice, on fire.
+/// The listening animation, simulated rather than drawn.
 ///
-/// Five attempts came before this and four failed the same way. A scrolling
-/// waveform draws a history, so one sound lingers for as long as the buffer
-/// takes to cross. A chomper draws the present but is only a character pushed
-/// along by a number. Space Invaders had a state worth watching and needed a
-/// legible scene to show it, which forty columns of dots is still not.
+/// The chomper worked and was still only a character being pushed along by a
+/// number. Nothing it did depended on what you had said a moment ago, so there
+/// was no reason to keep watching it.
 ///
-/// So: not a game. The fire effect that every demo and half the shareware of
-/// the early nineties opened with — the one thing of that era that was never a
-/// picture *of* something, just a process, alive at any size and readable at a
-/// glance because there is nothing to read.
+/// This has a state that your voice changes: invaders descend on their own, and
+/// speaking is what shoots them. Go quiet and they gain on you; talk and they
+/// clear. So the picture is a short account of the last few seconds rather than
+/// a reading of the current instant — which is the thing a meter could never do
+/// and the reason the arcade is worth borrowing from at all.
 ///
-/// It suits a voice better than a meter does. Each row is the average of three
-/// below it, cooled slightly and nudged sideways at random, so heat rises,
-/// spreads and gutters on its own. The voice sets what is burning at the
-/// bottom: speak and the flames climb the notch, stop and they sink and go out.
-/// The height is the level, but the *movement* is the fire's own, which is why
-/// it looks alive during a pause instead of dead.
+/// Ticked from the audio sampler at 50 Hz, so the simulation runs on the same
+/// clock as the level that drives it, and both halves of the notch read one
+/// grid — the formation spans the gap.
 @MainActor
 final class VoiceArcade: ObservableObject {
     static let columns = 40
     static let rows = 10
 
-    /// Brightness per column, per row, top row first — what both pills draw.
+    /// Brightness per column, per row. What both pills draw.
     @Published private(set) var grid: [[Double]] =
         Array(repeating: Array(repeating: 0, count: VoiceArcade.rows),
               count: VoiceArcade.columns)
 
-    /// Heat, indexed [column][row] with row 0 at the top, so the fire climbs
-    /// towards index 0 the way it climbs the screen.
-    private var heat: [[Double]] =
-        Array(repeating: Array(repeating: 0, count: VoiceArcade.rows),
-              count: VoiceArcade.columns)
+    /// Alive invaders, as grid columns, per formation row.
+    private var alive: Set<Int> = []
+    private var formationRow = 0
+    private var drift = 0
+    private var driftDirection = 1
+    private var shots: [(column: Int, y: Double)] = []
+    private var sinceStep: Double = 0
+    private var sinceShot: Double = 0
+    private var clearedFor: Double = 0
 
-    /// How much of the heat below survives the trip up one row. Under 1 or the
-    /// fire never stops rising; too far under and it never leaves the floor.
-    private static let cooling = 0.82
-    /// Even in silence the embers keep moving. A grate that goes completely
-    /// black looks broken rather than quiet.
-    private static let embers = 0.16
+    /// Where the two cannons sit — the middle of each side, since the notch is
+    /// between them and a single central cannon would be behind it.
+    private static let cannons = [9, 30]
+    /// One column of invaders every three, so they read as a formation with
+    /// gaps rather than a solid bar.
+    private static let spacing = 4
+    private static let stepEvery: Double = 0.55
+    private static let shotEvery: Double = 0.12
+    private static let shotSpeed: Double = 14
+
+    init() { spawn() }
+
+    private func spawn() {
+        alive = Set(stride(from: 1, to: Self.columns, by: Self.spacing))
+        formationRow = 0
+        drift = 0
+        driftDirection = 1
+        shots = []
+    }
 
     func reset() {
-        heat = Array(repeating: Array(repeating: 0, count: Self.rows),
-                     count: Self.columns)
+        spawn()
+        clearedFor = 0
         render()
     }
 
     /// One frame. `level` is the current 0…1 voice level.
     func tick(delta: Double, level: Float) {
-        stoke(level: level)
-        rise()
+        advanceFormation(delta)
+        fire(delta, level: level)
+        advanceShots(delta)
         render()
     }
 
-    /// The bottom row is the fuel, and the voice is what feeds it. Random per
-    /// column so the flame front is ragged rather than a rising bar.
-    private func stoke(level: Float) {
-        let strength = Self.embers + Double(max(0, min(1, level))) * (1 - Self.embers)
-        for column in 0..<Self.columns {
-            heat[column][Self.rows - 1] = strength * Double.random(in: 0.55...1)
+    private func advanceFormation(_ delta: Double) {
+        guard !alive.isEmpty else {
+            // Beaten. A moment of empty sky, then they come back — this runs
+            // for as long as someone is talking, so it cannot end.
+            clearedFor += delta
+            if clearedFor > 0.6 { spawn(); clearedFor = 0 }
+            return
+        }
+        sinceStep += delta
+        guard sinceStep >= Self.stepEvery else { return }
+        sinceStep = 0
+        // Side to side, and down a row at each turn: the march everyone knows.
+        drift += driftDirection
+        if abs(drift) >= 2 {
+            driftDirection *= -1
+            formationRow = min(formationRow + 1, Self.rows - 4)
         }
     }
 
-    /// Each cell takes from the three below it and loses a little on the way,
-    /// which is the whole algorithm. The sideways sampling is what makes flames
-    /// lean and travel rather than stand in columns.
-    private func rise() {
-        for row in 0..<(Self.rows - 1) {
-            for column in 0..<Self.columns {
-                let below = row + 1
-                let left = heat[max(0, column - 1)][below]
-                let centre = heat[column][below]
-                let right = heat[min(Self.columns - 1, column + 1)][below]
-                // A random drift so the fire wanders instead of rising
-                // symmetrically — the difference between flames and a graph.
-                let drift = Double.random(in: -0.12...0.12)
-                let value = (left + centre + right) / 3 * Self.cooling + drift
-                heat[column][row] = max(0, min(1, value))
-            }
+    private func fire(_ delta: Double, level: Float) {
+        sinceShot += delta
+        // The threshold is what makes silence feel like losing ground: below it
+        // nothing is fired and the formation keeps coming.
+        guard level > 0.12, sinceShot >= Self.shotEvery / Double(max(0.2, level))
+        else { return }
+        sinceShot = 0
+        for cannon in Self.cannons {
+            shots.append((column: cannon, y: Double(Self.rows - 2)))
         }
+    }
+
+    private func advanceShots(_ delta: Double) {
+        guard !shots.isEmpty else { return }
+        var surviving: [(column: Int, y: Double)] = []
+        for var shot in shots {
+            shot.y -= Self.shotSpeed * delta
+            guard shot.y > -1 else { continue }
+            // A hit is a shot reaching the formation's row in a live column.
+            let row = Int(shot.y.rounded())
+            if row <= formationRow + 1, row >= formationRow {
+                let target = shot.column - drift
+                if alive.contains(target) {
+                    alive.remove(target)
+                    continue
+                }
+            }
+            surviving.append(shot)
+        }
+        shots = surviving
     }
 
     private func render() {
-        // A touch of contrast, so the cool tops fade out rather than lingering
-        // as a haze of half-lit dots.
-        grid = heat.map { column in column.map { $0 * $0 } }
+        var next = Array(repeating: Array(repeating: 0.0, count: Self.rows),
+                         count: Self.columns)
+
+        for column in alive {
+            let x = column + drift
+            guard x >= 0, x < Self.columns else { continue }
+            // Two rows tall, which is the least a thing can be and still look
+            // like a creature rather than a dot.
+            next[x][formationRow] = 1
+            if formationRow + 1 < Self.rows { next[x][formationRow + 1] = 0.55 }
+        }
+
+        for shot in shots {
+            let row = Int(shot.y.rounded())
+            guard row >= 0, row < Self.rows,
+                  shot.column >= 0, shot.column < Self.columns else { continue }
+            next[shot.column][row] = max(next[shot.column][row], 0.9)
+        }
+
+        for cannon in Self.cannons where cannon < Self.columns {
+            next[cannon][Self.rows - 1] = 1
+            if cannon > 0 { next[cannon - 1][Self.rows - 1] = 0.4 }
+            if cannon + 1 < Self.columns { next[cannon + 1][Self.rows - 1] = 0.4 }
+        }
+
+        grid = next
     }
 }

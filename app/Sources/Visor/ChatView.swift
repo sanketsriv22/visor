@@ -1690,11 +1690,16 @@ struct AudioLevelMeter: View {
     }
 }
 
-/// What the notch does while it's listening.
+/// What the notch does while it's listening: invaders, shot down by talking.
 ///
-/// The formation spans the notch: both pills read one grid, so the fire
-/// continues behind the gap rather than two separate fires burning either side
-/// of it.
+/// The fire effect that briefly replaced this was a process rather than a
+/// picture, which solved legibility by having nothing to read — and read as
+/// noise for exactly the same reason. A game you can lose is worth more than
+/// an effect you can only watch.
+///
+/// The formation spans the notch: both pills read one grid, so the row
+/// continues behind the gap rather than two separate games being played either
+/// side of it.
 struct VoiceInvaders: View {
     @ObservedObject var arcade: VoiceArcade
     let side: ListeningPill.Side
@@ -1708,7 +1713,7 @@ struct VoiceInvaders: View {
             return arcade.grid.indices.contains(column)
                 ? arcade.grid[column]
                 : Array(repeating: 0, count: VoiceArcade.rows)
-        }, warm: true, animated: false)
+        })
     }
 }
 
