@@ -216,8 +216,31 @@ enum TextInsertion {
               settable.boolValue
         else { return false }
 
-        return AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString,
-                                            text as CFTypeRef) == .success
+        guard AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString,
+                                           text as CFTypeRef) == .success
+        else { return false }
+
+        // Success is not the same as inserted.
+        //
+        // Chromium and Safari both report the selected-text attribute as
+        // settable for a web text field, accept the write, return success —
+        // and put nothing in the field. So dictation "worked" in every browser
+        // and nothing appeared, while a terminal, which honestly says the
+        // attribute isn't settable, fell through to typed keystrokes and was
+        // fine. The only way to know the words are in the field is to look:
+        // if the element will show its value, the value has to contain what
+        // was just written, or this didn't happen and the keystroke route gets
+        // its turn. Apps that won't show a value at all are taken at their
+        // word — there is nothing better to go on, and they were working.
+        var after: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString,
+                                            &after) == .success,
+              let value = after as? String
+        else { return true }
+        // A prefix rather than the whole thing: fields trim trailing
+        // whitespace, and that is not a failure to insert.
+        let probe = String(text.prefix(24)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return probe.isEmpty || value.contains(probe)
     }
 
     /// Type the text as characters.

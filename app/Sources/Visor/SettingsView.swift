@@ -975,6 +975,8 @@ private struct VoicePane: View {
     @State private var insertOn = TextInsertion.insertIntoFocusedApp
     @State private var clipboardOn = TextInsertion.clipboardFallback
     @State private var voiceEntries: [VoiceEntry] = []
+    /// Which row just got copied, so its button can say so for a moment.
+    @State private var copiedEntry: UUID?
     @State private var promptDraft = VoiceInput.cleanupPrompt
     @StateObject private var benchmark = CleanupBenchmark()
     @StateObject private var trust = AccessibilityTrust()
@@ -1315,6 +1317,27 @@ private struct VoicePane: View {
                                         .font(.caption2).foregroundStyle(.tertiary)
                                 }
                                 Spacer(minLength: 0)
+                                // Selectable text is not the same as copyable
+                                // text: dragging across a small row in a scroll
+                                // view mostly scrolls it. One click.
+                                Button {
+                                    let board = NSPasteboard.general
+                                    board.clearContents()
+                                    board.setString(entry.text, forType: .string)
+                                    copiedEntry = entry.id
+                                    Task { @MainActor in
+                                        try? await Task.sleep(nanoseconds: 1_200_000_000)
+                                        if copiedEntry == entry.id { copiedEntry = nil }
+                                    }
+                                } label: {
+                                    Image(systemName: copiedEntry == entry.id
+                                                        ? "checkmark" : "doc.on.doc")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(copiedEntry == entry.id
+                                                            ? Color.accentColor : .secondary)
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Copy this transcript")
                                 Button {
                                     VoiceLog.delete(entry.id)
                                     voiceEntries.removeAll { $0.id == entry.id }
