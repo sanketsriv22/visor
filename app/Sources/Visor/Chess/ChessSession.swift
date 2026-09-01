@@ -514,7 +514,6 @@ final class ChessSession: ObservableObject {
         // wrong pick was unrecoverable: the tracked position diverged, every
         // later move failed to match, and the session sat waiting. Comparing
         // against the screen is the difference between a guess and a check.
-        let observed = observedOccupancy(current)
         func upheaval(_ square: Square) -> Int {
             guard let now = current[square], let was = baseline[square] else { return 0 }
             return abs(Int(now.r) - Int(was.r)) + abs(Int(now.g) - Int(was.g))
