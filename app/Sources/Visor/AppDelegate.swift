@@ -411,6 +411,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for action in ShortcutSettings.Action.allCases {
             let chord = settings.chord(for: action)
             let handler: () -> Void = { [weak self] in
+                // Chess doesn't go through the notch, so it's answered before
+                // the controller is required — otherwise the shortcut would do
+                // nothing whenever the notch happens not to exist yet.
+                if action == .watchBoard {
+                    ChessController.shared.watchABoard()
+                    return
+                }
                 guard let controller = self?.controller else { return }
                 switch action {
                 case .toggle:   controller.toggle()
@@ -422,6 +429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 case .agent3:   controller.selectAgent(2)
                 case .agent4:   controller.selectAgent(3)
                 case .agent5:   controller.selectAgent(4)
+                case .watchBoard: break          // handled above
                 }
             }
             let hotKey = HotKey(keyCode: chord.keyCode, modifiers: chord.modifiers,

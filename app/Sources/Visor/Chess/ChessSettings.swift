@@ -44,8 +44,10 @@ struct ComputerUsePane: View {
                 }
             }
 
-            Text("Point Visor at a board and it reads the moves as they're played, "
-               + "answering from a table it filled while your opponent was thinking.")
+            Text("Visor finds the board on screen, works out which colour you're "
+               + "playing from where the pieces are, and reads the moves as they're "
+               + "played — answering from a table it filled while your opponent was "
+               + "thinking. Start it at the beginning of a game.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -157,7 +159,8 @@ struct ComputerUsePane: View {
                 Text("Can't start yet — \(blocker.lowercased()). See above.")
                     .font(.caption2).foregroundStyle(.orange)
             } else {
-                Text("You'll drag a box around the board, then press W or B for your colour.")
+                Text("⌘⌃U does this from anywhere. If no board is found you'll be "
+                   + "asked to draw a box around it.")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
         }

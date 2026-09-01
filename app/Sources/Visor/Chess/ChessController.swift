@@ -83,20 +83,64 @@ final class ChessController: ObservableObject {
 
     // ── running ───────────────────────────────────────────────────────
 
-    /// Pick a board, then start watching it.
+    /// Find a board and start watching it.
+    ///
+    /// Looks for one first. The drag picker only appears when that fails,
+    /// which is the right way round: being asked to draw a box around
+    /// something already on screen is a chore, and it was only ever there
+    /// because nothing was looking.
     func watchABoard() {
         guard !isWatching else { return }
         if let blocker {
             notice = blocker
             return
         }
-        notice = nil
+        notice = "Looking for a board…"
 
-        calibrator.run { [weak self] result in
-            guard let self else { return }
-            guard let result else { return }               // cancelled
-            self.begin(with: result)
+        Task {
+            let shot = try? await ChessScreen.capture()
+            guard let shot else {
+                self.notice = "Couldn't take a picture of the screen."
+                return
+            }
+
+            if let found = ChessBoardFinder.find(in: shot.image, displayOrigin: shot.origin) {
+                // A position that isn't the starting one can be *seen* but not
+                // *read* — occupancy says a square is busy, never what is
+                // standing on it. Starting anyway would track a position that
+                // isn't the one on screen and put confident arrows on it, so
+                // this says no rather than guessing.
+                guard Self.looksLikeAFreshGame(found.occupancy) else {
+                    self.notice = "Found a board, but the game is already under way — "
+                                + "Visor can only start from move one for now."
+                    return
+                }
+                self.notice = nil
+                self.begin(with: ChessCalibrator.Result(
+                    geometry: found.geometry,
+                    ourColour: found.geometry.flipped ? .black : .white))
+                return
+            }
+
+            self.notice = "Couldn't find a board on that screen — draw a box around it."
+            self.calibrator.run { [weak self] result in
+                guard let self, let result else { self?.notice = nil; return }
+                self.notice = nil
+                self.begin(with: result)
+            }
         }
+    }
+
+    /// Thirty-two pieces, all of them on the outer two ranks at each end.
+    ///
+    /// Deliberately not exact: a piece can be mid-animation, and a square under
+    /// the cursor can be tinted enough to be missed. Thirty of thirty-two, all
+    /// at home, is a fresh game; anything else isn't, and the difference
+    /// matters more than the precision does.
+    private static func looksLikeAFreshGame(_ occupancy: [Square: PieceColor?]) -> Bool {
+        let occupied = occupancy.compactMap { $0.value == nil ? nil : $0.key }
+        guard occupied.count >= 30 else { return false }
+        return occupied.allSatisfy { $0.rank <= 1 || $0.rank >= 6 }
     }
 
     private func begin(with result: ChessCalibrator.Result) {
