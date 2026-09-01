@@ -29,13 +29,9 @@ final class VoiceInput: NSObject, ObservableObject {
     @Published private(set) var state: State = .idle
     /// Smoothed 0…1 input level, for the meter.
     @Published private(set) var level: Float = 0
-    /// How far the chomper has travelled, in columns. Advanced by the voice
-    /// itself: silence barely moves it, speech drives it along.
-    ///
-    /// Accumulated here rather than in the view because it integrates — the
-    /// distance covered depends on every level since it started, which is state
-    /// a view redrawn from a clock cannot hold.
-    @Published private(set) var chompPhase: Double = 0
+    /// The listening animation's simulation, ticked from the same sampler that
+    /// reads the level so the two never drift apart.
+    let arcade = VoiceArcade()
 
     /// The recent past of that level, oldest first.
     ///
@@ -322,7 +318,7 @@ final class VoiceInput: NSObject, ObservableObject {
         meterTimer = nil
         level = 0
         levels = Array(repeating: 0, count: levels.count)
-        chompPhase = 0
+        arcade.reset()
     }
 
     private func sampleLevel() {
@@ -377,10 +373,7 @@ final class VoiceInput: NSObject, ObservableObject {
         levels.removeFirst()
         levels.append(level)
 
-        // A floor so it always drifts, and a slope so a loud voice sends it
-        // running. Wrapped well past the grid so it re-enters from the right.
-        chompPhase += 0.06 + Double(level) * 0.5
-        if chompPhase > 40 { chompPhase -= 40 }
+        arcade.tick(delta: 1.0 / 50, level: level)
     }
 
     // MARK: - Transcription
