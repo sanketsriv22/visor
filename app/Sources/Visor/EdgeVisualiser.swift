@@ -1,12 +1,15 @@
 import SwiftUI
 
-/// A band of light around the whole screen that moves with your voice.
+/// A dot matrix around the whole screen that moves with your voice.
 ///
-/// Earlier versions were a row of coloured spikes, which read as a hi-fi
-/// display bolted to the edge of the desktop. This is a single continuous band
-/// instead: it sits at the notch's own height all the way round, so at rest the
-/// screen looks framed rather than decorated, and swells from there. The notch
-/// stops being a hole in the display and becomes the thickest part of a border.
+/// Coloured spikes read as a hi-fi display bolted to the desktop's edge; a
+/// continuous glow read as a smear. Dots are what the rest of Visor speaks, and
+/// they hold their shape at any height because each one is either on or off.
+///
+/// It sits at the notch's own height all the way round, so at rest the screen
+/// looks framed rather than decorated, and grows to two and a half times that.
+/// The notch stops being a hole in the display and becomes the thickest part of
+/// a border.
 ///
 /// It also leans. A MacBook's microphones are an array, so speaking into the
 /// left of the machine genuinely reaches the left one louder — the band answers
@@ -27,9 +30,10 @@ struct EdgeVisualiser: View {
     /// How far a full-strength crest reaches, as a multiple of the resting
     /// depth.
     private static let swell: CGFloat = 2.5
-    /// Points sampled around the perimeter. Enough that the strokes overlap
-    /// into one band rather than reading as teeth.
-    private static let resolution = 320
+    /// Grid pitch, along the perimeter and inward from it. The same in both
+    /// directions, or the dots stop being a matrix and become dashes.
+    private static let pitch: CGFloat = 9
+    private static let dot: CGFloat = 3.2
 
     var body: some View {
         TimelineView(.animation) { context in
@@ -48,47 +52,58 @@ struct EdgeVisualiser: View {
         guard !bands.isEmpty, size.width > 1 else { return }
 
         let half = (size.width - notchWidth) / 2 + size.height + size.width / 2
-        let step = half / CGFloat(Self.resolution)
+        let columns = max(1, Int(half / Self.pitch))
+        let step = half / CGFloat(columns)
+        let rows = max(2, Int(baseDepth * Self.swell / Self.pitch))
+        let baseRows = max(1, Int(baseDepth / Self.pitch))
         let time = now.timeIntervalSinceReferenceDate
-        // Where the voice is, across the screen: 0 is the left edge, 1 the right.
         let source = spectrum.stereo ? (Double(spectrum.balance) + 1) / 2 : 0.5
 
+        // One path per row rather than one per dot.
+        //
+        // Five thousand individual fills is a frame budget spent on function
+        // calls; five thousand ellipses collected into eleven paths is eleven
+        // fills. Grouping by row works because a row is exactly the set of dots
+        // that share a colour — depth is what the gradient runs on.
+        var paths = Array(repeating: Path(), count: rows)
+
         for mirrored in [false, true] {
-            for index in 0..<Self.resolution {
+            for index in 0..<columns {
                 let distance = (CGFloat(index) + 0.5) * step
                 let (point, normal) = place(distance: distance, size: size,
                                             mirrored: mirrored)
-                let along = Double(index) / Double(Self.resolution)
+                let along = Double(index) / Double(columns)
+                let lift = height(along: along, point: point, size: size,
+                                  bands: bands, time: time, source: source)
+                // Resting depth plus whatever the voice adds.
+                let lit = min(rows, baseRows + Int((CGFloat(rows - baseRows)
+                                                    * CGFloat(lift)).rounded()))
 
-                let depth = baseDepth * (1 + (Self.swell - 1)
-                    * CGFloat(height(along: along, point: point, size: size,
-                                     bands: bands, time: time, source: source)))
-
-                var path = Path()
-                path.move(to: point)
-                path.addLine(to: CGPoint(x: point.x + normal.x * depth,
-                                         y: point.y + normal.y * depth))
-
-                // Purple at the screen's edge, falling away to nothing inward,
-                // so the band has an outer edge and no inner one — a glow
-                // rather than a stripe with a border.
-                context.stroke(path,
-                               with: .linearGradient(
-                                Gradient(stops: [
-                                    .init(color: Color(red: 0.42, green: 0.13,
-                                                       blue: 0.68, opacity: 0.95),
-                                          location: 0),
-                                    .init(color: Color(red: 0.28, green: 0.06,
-                                                       blue: 0.52, opacity: 0.55),
-                                          location: 0.45),
-                                    .init(color: .black.opacity(0), location: 1),
-                                ]),
-                                startPoint: point,
-                                endPoint: CGPoint(x: point.x + normal.x * depth,
-                                                  y: point.y + normal.y * depth)),
-                               style: StrokeStyle(lineWidth: step * 2.2, lineCap: .round))
+                for row in 0..<lit {
+                    let depth = (CGFloat(row) + 0.5) * Self.pitch
+                    let centre = CGPoint(x: point.x + normal.x * depth,
+                                         y: point.y + normal.y * depth)
+                    paths[row].addEllipse(in: CGRect(
+                        x: centre.x - Self.dot / 2, y: centre.y - Self.dot / 2,
+                        width: Self.dot, height: Self.dot))
+                }
             }
         }
+
+        for (row, path) in paths.enumerated() where !path.isEmpty {
+            context.fill(path, with: .color(colour(row: row, of: rows)))
+        }
+    }
+
+    /// Purple at the screen's edge, fading to nothing inward — an outer edge
+    /// and no inner one, which is the difference between a border and a stripe.
+    private func colour(row: Int, of rows: Int) -> Color {
+        let depth = Double(row) / Double(max(1, rows - 1))
+        let fade = pow(1 - depth, 1.6)
+        return Color(red: 0.45 - 0.14 * depth,
+                     green: 0.14 - 0.08 * depth,
+                     blue: 0.74 - 0.20 * depth,
+                     opacity: 0.12 + 0.85 * fade)
     }
 
     /// How high the band stands at this point: 0 at rest, 1 at a full crest.
@@ -101,8 +116,11 @@ struct EdgeVisualiser: View {
     private func height(along: Double, point: CGPoint, size: CGSize,
                         bands: [Float], time: TimeInterval, source: Double) -> Double {
         let band = bands[min(bands.count - 1, Int(along * Double(bands.count)))]
-        let drift = 0.5 + 0.5 * sin(along * 9 - time * 2.4)
-        let energy = Double(band) * (0.65 + 0.35 * drift)
+        // A light travelling ripple, not a disguise. It used to carry a third
+        // of the height, which kept the border moving when nothing was being
+        // said and made it look the same whatever you said.
+        let drift = 0.5 + 0.5 * sin(along * 11 - time * 3.2)
+        let energy = Double(band) * (0.85 + 0.15 * drift)
 
         // Distance from the voice, measured across the screen. Everything moves
         // a little; the near side moves most.

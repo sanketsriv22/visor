@@ -177,11 +177,12 @@ final class SpectrumAnalyser: ObservableObject {
             let above = dB - (floors[band] + 6)
             let value = max(0, min(1, above / 34))
 
-            // Rise fast, fall slowly — the decay is what makes bars look like
-            // they are dancing rather than flickering.
+            // Rise instantly, fall quickly. Heavier smoothing made every
+            // syllable linger into the next one, so the border read as a slow
+            // swell rather than as speech.
             bands[band] = value > bands[band]
                 ? value
-                : bands[band] * 0.72 + value * 0.28
+                : bands[band] * 0.45 + value * 0.55
         }
     }
 
@@ -197,7 +198,9 @@ final class SpectrumAnalyser: ObservableObject {
     /// picture, and unsmoothed it would twitch on every syllable.
     private func absorb(pan: Float) {
         let widened = max(-1, min(1, pan * 3.5))
-        balance = balance * 0.88 + widened * 0.12
+        // Still smoothed, but less: direction should follow you turning your
+        // head, not arrive several seconds later.
+        balance = balance * 0.8 + widened * 0.2
     }
 
     private static func edge(_ band: Int, of count: Int, bins: Int) -> Int {
