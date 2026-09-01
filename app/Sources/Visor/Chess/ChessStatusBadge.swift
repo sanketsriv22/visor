@@ -1,44 +1,66 @@
 import AppKit
 
-/// A small pill saying Visor is watching, and what just happened.
+/// A black pill in the top-right corner saying computer use is on.
 ///
 /// Computer use needed a sign of life outside Settings. Pressing ⌘⌃U and
-/// having the screen do nothing whatsoever is indistinguishable from a
-/// shortcut that isn't bound — which is exactly how it was reported.
+/// having the screen do nothing at all is indistinguishable from a shortcut
+/// that isn't bound, which is how it was first reported.
 ///
 /// Not the notch's listening pill, though that was the obvious thing to reach
-/// for. That pill is dictation's: it's driven by microphone level and it is
-/// literally a game of invaders shot down by talking. Borrowing it would put a
-/// voice indicator on screen for something that isn't listening. This is the
-/// same idea, sized for a different thing, and it sits near the board because
-/// that is where the eyes already are.
+/// for. That one belongs to dictation: it is driven by microphone level and it
+/// is a game of invaders shot down by talking. Putting it up for something that
+/// isn't listening would be a lie about what Visor is doing — which, for a
+/// feature whose whole proposition is that it watches your screen, is the one
+/// thing it cannot afford to be.
+///
+/// So: its own island, in the corner, out of the way of the board. Solid black
+/// rather than a blur, because it has to read the same over a white chess
+/// board, a dark editor and a photo, and a translucent panel reads differently
+/// over each.
 @MainActor
 final class ChessStatusBadge {
     private var panel: NSPanel?
     private let label = NSTextField(labelWithString: "")
+    private let dot = CALayer()
     private var hideWork: DispatchWorkItem?
 
-    /// Show `text`. `near` anchors it above a board; without one it sits at the
-    /// top of the screen with the pointer in it.
-    func show(_ text: String, near board: BoardGeometry? = nil, fadingAfter seconds: TimeInterval? = nil) {
+    /// Show `text`. `live` gives it the steady green dot; a transient notice
+    /// gets an amber one and fades.
+    func show(_ text: String, live: Bool = true, fadingAfter seconds: TimeInterval? = nil) {
         let panel = ensurePanel()
         label.stringValue = text
         label.sizeToFit()
 
-        let width = max(160, label.frame.width + 34)
-        let height: CGFloat = 30
-        let anchor: CGRect
-        if let board {
-            let r = board.appKitRect
-            anchor = CGRect(x: r.midX - width / 2, y: r.maxY + 12, width: width, height: height)
-        } else {
-            let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
-                ?? NSScreen.main ?? NSScreen.screens[0]
-            anchor = CGRect(x: screen.frame.midX - width / 2,
-                            y: screen.frame.maxY - height - 60, width: width, height: height)
+        let height: CGFloat = 34
+        let width = min(420, max(180, label.frame.width + 62))
+        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
+            ?? NSScreen.main ?? NSScreen.screens[0]
+        // Clear of the menu bar, and clear of the notch on the machines that
+        // have one — this sits in the corner, not across the top.
+        let frame = CGRect(x: screen.visibleFrame.maxX - width - 16,
+                           y: screen.visibleFrame.maxY - height - 10,
+                           width: width, height: height)
+        panel.setFrame(frame, display: true)
+
+        dot.frame = CGRect(x: 16, y: height / 2 - 4, width: 8, height: 8)
+        dot.cornerRadius = 4
+        dot.backgroundColor = (live
+            ? NSColor(srgbRed: 0.20, green: 0.84, blue: 0.42, alpha: 1)
+            : NSColor(srgbRed: 0.98, green: 0.71, blue: 0.20, alpha: 1)).cgColor
+        dot.removeAllAnimations()
+        if live {
+            // Alive rather than merely present. Slow enough not to nag.
+            let pulse = CABasicAnimation(keyPath: "opacity")
+            pulse.fromValue = 1.0
+            pulse.toValue = 0.35
+            pulse.duration = 1.1
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            dot.add(pulse, forKey: "pulse")
         }
-        panel.setFrame(anchor, display: true)
-        label.frame = CGRect(x: 17, y: 0, width: width - 34, height: height)
+
+        label.frame = CGRect(x: 32, y: 0, width: width - 46, height: height)
+        panel.alphaValue = 1
         panel.orderFrontRegardless()
 
         hideWork?.cancel()
@@ -51,11 +73,19 @@ final class ChessStatusBadge {
     func hide() {
         hideWork?.cancel()
         hideWork = nil
-        panel?.orderOut(nil)
+        guard let panel else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            panel.animator().alphaValue = 0
+        } completionHandler: { [weak panel] in
+            panel?.orderOut(nil)
+        }
     }
 
     func close() {
-        hide()
+        hideWork?.cancel()
+        hideWork = nil
+        panel?.orderOut(nil)
         panel?.close()
         panel = nil
     }
@@ -70,26 +100,27 @@ final class ChessStatusBadge {
                                     .stationary, .ignoresCycle]
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = false
+        panel.hasShadow = true
         // It reports; it is never in the way.
         panel.ignoresMouseEvents = true
 
-        let backing = NSVisualEffectView()
-        backing.material = .hudWindow
-        backing.blendingMode = .behindWindow
-        backing.state = .active
-        backing.wantsLayer = true
-        backing.layer?.cornerRadius = Design.Radius.pill + 6
-        backing.layer?.masksToBounds = true
+        let view = NSView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.88).cgColor
+        view.layer?.cornerRadius = 17
+        view.layer?.borderWidth = 1
+        view.layer?.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
+        view.layer?.addSublayer(dot)
 
         label.font = .systemFont(ofSize: 12, weight: .medium)
-        label.textColor = .white
-        label.alignment = .center
+        label.textColor = NSColor.white.withAlphaComponent(0.92)
+        label.alignment = .left
         label.backgroundColor = .clear
         label.isBordered = false
-        backing.addSubview(label)
+        label.lineBreakMode = .byTruncatingTail
+        view.addSubview(label)
 
-        panel.contentView = backing
+        panel.contentView = view
         self.panel = panel
         return panel
     }

@@ -61,8 +61,18 @@ final class ChessSession: ObservableObject {
     private var baseline: [Square: ChessWatcher.Signature] = [:]
     /// Last frame's delta, to notice when it has stopped growing.
     private var settling: Set<Square> = []
-    /// When the current change first appeared, for the latency figure.
+    /// When the current change first appeared — the latency figure, and the
+    /// clock on how long we've been unable to explain what we're looking at.
     private var changeBegan: Date?
+    /// One resolve at a time.
+    ///
+    /// `resolve` awaits the engine, and frames keep arriving at 120Hz while it
+    /// does. Without this, every frame after the board settled spawned another
+    /// resolve against the same delta: the first applied the move and moved the
+    /// baseline, and the rest applied it *again* from their stale copies. Two
+    /// plies for one move, and from then on nothing matched and the session sat
+    /// waiting for a move that had already been played.
+    private var resolving = false
 
     init(mode: ChessMode, geometry: BoardGeometry, ourColour: PieceColor,
          position: ChessPosition = .start) {
@@ -120,69 +130,132 @@ final class ChessSession: ObservableObject {
     // ── the loop ──────────────────────────────────────────────────────
 
     private func saw(changed: [Square], current: [Square: ChessWatcher.Signature]) {
-        guard state == .watching else { return }
+        guard state == .watching, !resolving else { return }
         if baseline.isEmpty { baseline = current; return }
 
         let delta = Set(current.compactMap { square, signature -> Square? in
             guard let was = baseline[square], signature.differs(from: was) else { return nil }
             return square
         })
-        guard !delta.isEmpty else { settling = []; return }
-
-        if changeBegan == nil { changeBegan = Date() }
-
-        // Wait for the picture to hold still for one frame. During a piece's
-        // slide the delta grows as the sprite crosses squares it isn't going to
-        // land on, and resolving against a half-finished animation finds a move
-        // that looks legal and isn't the one played. One frame at 120Hz costs
-        // eight milliseconds of a five-hundred millisecond budget.
-        guard delta == settling else {
-            settling = delta
+        guard !delta.isEmpty else {
+            settling = []
+            changeBegan = nil
             return
         }
 
+        let began = changeBegan ?? Date()
+        changeBegan = began
+        let held = delta == settling
+        settling = delta
+
+        // Normally: wait for the picture to hold still for one frame, because
+        // during a slide the delta grows as the sprite crosses squares it isn't
+        // going to land on. But "identical two frames running" is not
+        // guaranteed — a cursor sitting on the board keeps a hover tint
+        // flickering under it — so a quarter second of not settling is taken as
+        // settled rather than waiting forever for a stillness that isn't coming.
+        guard held || Date().timeIntervalSince(began) > 0.25 else { return }
+
+        resolving = true
         Task { await resolve(delta: delta, current: current) }
     }
 
     private func resolve(delta: Set<Square>, current: [Square: ChessWatcher.Signature]) async {
+        defer { resolving = false }
         guard let oracle else { return }
 
-        guard let move = await candidate(in: delta, current: current) else {
-            // A wide delta that resolves to no legal move isn't a move at all —
-            // it's a scrolled page, a resized window, or a new game. Narrow ones
-            // are just noise and are left to settle.
-            if delta.count > 6 {
-                fail("The board stopped matching the game — start again once it's settled")
-            }
+        // The position as the oracle primed it, before anything is applied.
+        let before = position
+
+        if let move = await candidate(in: delta, current: current) {
+            await commit([move], from: before, current: current)
             return
         }
 
-        // The position as the oracle primed it: opponent to move, before this
-        // move was played. Both `prime(after:)` and `replies(to:from:)` are
-        // keyed on it, so it has to be captured before `apply`.
-        let before = position
+        // Nothing single-ply fits. The usual reason is that a move was missed —
+        // the board was covered, or a window came forward over it — and what is
+        // being looked at now is two plies on rather than one. Recovering that
+        // matters more than it sounds: the baseline only advances on a
+        // successful resolve, so one missed move otherwise ratchets, the delta
+        // grows against every later move, and the session never recovers on its
+        // own.
+        if delta.count >= 3, let pair = await twoPly(in: delta, current: current) {
+            await commit(pair, from: before, current: current)
+            return
+        }
 
+        // Most of the board changing at once is not a move — it's a window
+        // that came forward over it, a scroll, or a switch to another space.
+        // Waiting is the right response: the board comes back, and if moves
+        // were played while it was hidden the two-ply recovery above picks
+        // them up. Counting this against the stall clock would declare the
+        // game lost every time you checked your email.
+        if delta.count > 20 {
+            changeBegan = nil
+            return
+        }
+
+        // Still nothing. Say so rather than sitting quietly: a session that has
+        // lost the thread looks exactly like one waiting for a slow opponent,
+        // and there is no way to tell them apart from outside.
+        if let began = changeBegan, Date().timeIntervalSince(began) > 4 {
+            fail("Lost track of the game — stop and start again from a fresh board")
+        }
+    }
+
+    /// Apply what was seen, then decide what happens next.
+    private func commit(_ moves: [Move], from before: ChessPosition,
+                        current: [Square: ChessWatcher.Signature]) async {
+        guard let oracle else { return }
         baseline = current
         settling = []
-        position.apply(move)
+        for move in moves { position.apply(move) }
 
         if position.turn == ourColour {
-            let replies = await oracle.replies(to: move, from: before)
+            // Only a single ply the oracle primed for can come out of the
+            // table; a two-ply recovery lands on a position nobody predicted.
+            let replies = moves.count == 1
+                ? await oracle.replies(to: moves[0], from: before)
+                : await oracle.analyse(position)
             suggestions = replies
             if let began = changeBegan { lastLatency = Date().timeIntervalSince(began) }
             changeBegan = nil
             tableHitRate = await oracle.hitRate
             await actuator?.present(replies, on: geometry)
         } else {
-            // Our own move just landed on screen — in `playing` mode because we
-            // clicked it, in `advising` mode because the user did. Either way
-            // the opponent's clock has started, and their clock is our compute
-            // window.
             suggestions = []
             actuator?.clear()
             changeBegan = nil
             await oracle.prime(after: position)
         }
+    }
+
+    /// Two plies at once, for when one was missed.
+    ///
+    /// Costs a legal-move query per candidate first move, which is why it is
+    /// only reached once the single-ply answer has failed. Recovery is allowed
+    /// to be slow; it is not allowed to be absent.
+    private func twoPly(in delta: Set<Square>,
+                        current: [Square: ChessWatcher.Signature]) async -> [Move]? {
+        guard let oracle, let first = await oracle.legalMoves(from: position) else { return nil }
+
+        func upheaval(_ square: Square) -> Int {
+            guard let now = current[square], let was = baseline[square] else { return 0 }
+            return abs(Int(now.r) - Int(was.r)) + abs(Int(now.g) - Int(was.g))
+                 + abs(Int(now.b) - Int(was.b))
+        }
+
+        var best: (pair: [Move], score: Int)?
+        for one in first where delta.contains(one.from) && delta.contains(one.to) {
+            let middle = position.applying(one)
+            guard let second = await oracle.legalMoves(from: middle) else { continue }
+            for two in second where delta.contains(two.from) && delta.contains(two.to) {
+                let score = upheaval(one.from) + upheaval(one.to)
+                          + upheaval(two.from) + upheaval(two.to)
+                if score > (best?.score ?? -1) { best = ([one, two], score) }
+            }
+        }
+        return best?.pair
     }
 
     /// Which legal move the changed squares describe.

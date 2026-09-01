@@ -97,7 +97,7 @@ final class ChessController: ObservableObject {
             return
         }
         notice = "Looking for a board…"
-        badge.show("Looking for a board…")
+        badge.show("Looking for a board…", live: false)
 
         Task {
             let shot = try? await ChessScreen.capture()
@@ -130,7 +130,7 @@ final class ChessController: ObservableObject {
 
             ChessDiagnostics.record(shot: shot, found: nil, verdict: "no board found")
             self.notice = "Couldn't find a board on that screen — draw a box around it."
-            self.badge.show("No board found — draw a box around it", fadingAfter: 4)
+            self.badge.show("No board found — draw a box around it", live: false, fadingAfter: 4)
             self.calibrator.run { [weak self] result in
                 guard let self, let result else { self?.notice = nil; self?.badge.hide(); return }
                 self.notice = nil
@@ -171,7 +171,7 @@ final class ChessController: ObservableObject {
                 try await session.start()
                 let colour = result.ourColour == .white ? "White" : "Black"
                 let what = self.mode == .advising ? "showing best moves" : "playing"
-                self.badge.show("Visor · \(what) as \(colour)", near: result.geometry)
+                self.badge.show("Visor · \(what) as \(colour)")
             } catch {
                 self.fail(error.localizedDescription)
                 self.session = nil
@@ -183,7 +183,7 @@ final class ChessController: ObservableObject {
     /// because Settings is usually not the window being looked at.
     private func fail(_ reason: String) {
         notice = reason
-        badge.show(reason, fadingAfter: 5)
+        badge.show(reason, live: false, fadingAfter: 5)
     }
 
     /// Where the screenshots and reasoning from the last few attempts went.
