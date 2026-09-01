@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The Computer Use tab.
@@ -106,6 +107,21 @@ struct ComputerUsePane: View {
                 action: chess.hasScreenRecording ? nil
                     : ("Open Settings", { chess.openScreenRecordingSettings() }))
 
+            // The grant is real but `CGPreflightScreenCaptureAccess` keeps
+            // answering with what was true at launch, so a user who has just
+            // ticked the box sees this row still unmet and concludes it didn't
+            // work. Say what's actually happening and make the fix one click.
+            if !chess.hasScreenRecording {
+                HStack(alignment: .firstTextBaseline, spacing: Design.Space.normal) {
+                    Text("Already ticked it? macOS only hands screen access to a fresh launch.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    PaneButton(title: "Quit Visor") { NSApp.terminate(nil) }
+                }
+                .padding(.leading, 20)
+            }
+
             if chess.needsAccessibility {
                 RequirementRow(
                     met: chess.hasAccessibility,
@@ -118,21 +134,57 @@ struct ComputerUsePane: View {
     }
 
     private var controls: some View {
-        HStack(spacing: Design.Space.normal) {
-            if chess.isWatching {
-                Button("Stop watching") { chess.stop() }
-                    .buttonStyle(.visor())
-            } else {
-                Button("Watch a board…") { chess.watchABoard() }
-                    .buttonStyle(.visor(active: true))
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: Design.Space.normal) {
+                if chess.isWatching {
+                    PaneButton(title: "Stop watching") { chess.stop() }
+                } else {
+                    PaneButton(title: "Watch a board…", prominent: chess.isReady) {
+                        chess.watchABoard()
+                    }
                     .disabled(!chess.isReady)
+                }
+                Spacer(minLength: 0)
             }
-            Text(chess.isWatching
-                    ? "Drag-select happens once per game."
-                    : "You'll drag a box around the board, then press W or B for your colour.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+
+            // A disabled button that says nothing is the same as a broken one.
+            // Whatever is stopping it gets said here, permanently, rather than
+            // only after a click that can't happen.
+            if chess.isWatching {
+                Text("Drag-select happens once per game.")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            } else if let blocker = chess.blocker {
+                Text("Can't start yet — \(blocker.lowercased()). See above.")
+                    .font(.caption2).foregroundStyle(.orange)
+            } else {
+                Text("You'll drag a box around the board, then press W or B for your colour.")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
         }
+    }
+}
+
+/// A button that looks like a button.
+///
+/// `VisorControl` draws hover and press state *behind* whatever label it is
+/// handed and adds no padding of its own, so a bare `Button("Text")` gets a
+/// background clamped to the glyphs and reads as a mis-rendered label. Every
+/// other button in the app gives its label its own padding and content shape —
+/// this is that, named once, because this pane needs four of them.
+private struct PaneButton: View {
+    let title: String
+    var prominent = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12))
+                .padding(.horizontal, 11)
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.visor(active: prominent))
     }
 }
 
@@ -159,7 +211,7 @@ private struct RequirementRow: View {
             }
             Spacer(minLength: 0)
             if let (label, run) = action {
-                Button(label, action: run).buttonStyle(.visor())
+                PaneButton(title: label, action: run)
             }
         }
     }
