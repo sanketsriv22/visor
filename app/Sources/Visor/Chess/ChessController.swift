@@ -314,9 +314,11 @@ final class ChessController: ObservableObject {
         guard !resyncing else { return }
         resyncing = true
         Task { [weak self] in
-            // Long enough for ordinary catching-up to work on its own; a
-            // covered board or one missed move does not need this.
-            try? await Task.sleep(nanoseconds: 9_000_000_000)
+            // A short grace for ordinary catching-up — a covered board or a
+            // single missed move fixes itself and needs no re-read. Nine
+            // seconds of it felt like a hang; under two does not, and a genuine
+            // desync still re-reads promptly.
+            try? await Task.sleep(nanoseconds: 1_800_000_000)
             guard let self else { return }
             defer { self.resyncing = false }
             guard let session = self.session, case .recovering = session.state else { return }

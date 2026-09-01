@@ -299,6 +299,21 @@ final class ChessSession: ObservableObject {
                 // position that no longer exists.
                 guard state == .watching, position.turn == ourColour else { return }
             }
+            // Never click a piece that isn't there.
+            //
+            // If the move we mean to play starts from a square the screen says
+            // is empty, the tracked position is wrong, and clicking would send
+            // the cursor to an empty square and select nothing — the phantom
+            // move that looked like "it moved a piece that wasn't on the
+            // board". Re-read instead of playing into a fiction.
+            if mode == .playing, let best = replies.first,
+               observedOccupancy(current)[best.move.from] == false {
+                ChessDiagnostics.trace("play: \(best.move.uci) from an empty square — re-reading")
+                suggestions = []
+                actuator?.clear()
+                state = .recovering("The board doesn't match — re-reading")
+                return
+            }
             await actuator?.present(replies, on: geometry)
             if mode == .playing { confirmPlayed(replies) }
         } else {
@@ -442,55 +457,53 @@ final class ChessSession: ObservableObject {
               !legal.isEmpty
         else { return nil }
 
-        var matches = legal.filter { delta.contains($0.from) && delta.contains($0.to) }
-        guard !matches.isEmpty else { return nil }
-
-        // A move has happened only if the piece has left.
-        //
-        // Selecting a piece on chess.com highlights its square and draws a dot
-        // on every square it could go to — so for as long as you are thinking,
-        // the origin and every legal destination all count as "changed", and
-        // every legal move of that piece looks complete. This resolved one of
-        // them, applied a move that had not been made, and the real move then
-        // matched nothing: nine seconds of catching up and a re-read of the
-        // board, every time you paused with a piece selected. Visor's own
-        // clicks are ninety milliseconds apart, which is why playing mode
-        // never saw it. The tell is simple: after a real move the square it
-        // came from is empty, and something is standing where it went.
         let observed = observedOccupancy(current)
-        if !observed.isEmpty {
-            matches = matches.filter { observed[$0.from] == false && observed[$0.to] == true }
-            guard !matches.isEmpty else { return nil }
-        }
 
-        // Promotion variants share both squares, so no amount of looking at
-        // pixels separates them. Queen: right often enough that the exceptions
-        // are a curiosity.
-        let endpoints = Set(matches.map { [$0.from, $0.to] })
-        if matches.count > 1, endpoints.count == 1 {
-            return matches.first { $0.promotion == .queen } ?? matches[0]
-        }
-        if matches.count == 1 { return matches[0] }
-
-        // Rank by whether the move produces the board actually on screen.
+        // Reconcile the whole board, not the two squares that changed.
         //
-        // This replaced ranking by how much the two squares changed, which is
-        // only a proxy and picks wrong whenever two legal moves both have their
-        // ends inside the delta — which a last-move highlight makes common. One
-        // wrong pick was unrecoverable: the tracked position diverged, every
-        // later move failed to match, and the session sat waiting. Comparing
-        // against the screen is the difference between a guess and a check.
-        func upheaval(_ square: Square) -> Int {
-            guard let now = current[square], let was = baseline[square] else { return 0 }
-            return abs(Int(now.r) - Int(was.r)) + abs(Int(now.g) - Int(was.g))
-                 + abs(Int(now.b) - Int(was.b))
+        // The old rule — a legal move with both its squares inside the delta —
+        // is a weak filter. Several legal moves can satisfy it, a highlight or
+        // a legal-move dot pads the delta, and picking wrong desynced the
+        // tracked position past recovery. Occupancy is reliable now, so the
+        // real test is available: the move that happened is the one that makes
+        // the tracked board's occupancy equal the board on screen. A move that
+        // leaves even one square disagreeing is not the move that was played.
+        //
+        // This also rejects a move outright when the tracked position is
+        // already wrong — nothing reconciles a fiction with reality — which is
+        // the signal to re-read rather than drift further.
+        guard !observed.isEmpty else {
+            // No occupancy to check against (shouldn't happen once watching):
+            // fall back to the endpoint filter.
+            let ends = legal.filter { delta.contains($0.from) && delta.contains($0.to) }
+            return ends.count == 1 ? ends[0] : nil
         }
-        return matches.max { a, b in
-            let sa = agreement(position.applying(a), with: observed)
-            let sb = agreement(position.applying(b), with: observed)
-            if sa != sb { return sa < sb }
-            return upheaval(a.from) + upheaval(a.to) < upheaval(b.from) + upheaval(b.to)
+
+        func reconciled(_ move: Move) -> Int {
+            // How many of the 64 squares agree on occupancy after this move.
+            let after = position.applying(move)
+            var score = 0
+            for index in 0..<64 {
+                guard let sq = Square(index: index), let seen = observed[sq] else { continue }
+                if (after[sq] != nil) == seen { score += 1 }
+            }
+            return score
         }
+
+        // Only moves that put the whole board right, give or take one square
+        // for a piece caught mid-slide.
+        let scored = legal.map { ($0, reconciled($0)) }.filter { $0.1 >= 63 }
+        guard !scored.isEmpty else { return nil }
+        if scored.count == 1 { return scored[0].0 }
+
+        // More than one move reconciles — usually two pieces that could reach
+        // the same square, or promotion variants. The one whose *from* is in
+        // the delta is the piece that actually left; failing that, prefer a
+        // queen promotion, then the fuller reconciliation.
+        let moved = scored.filter { delta.contains($0.0.from) && delta.contains($0.0.to) }
+        let pool = moved.isEmpty ? scored : moved
+        if let queen = pool.first(where: { $0.0.promotion == .queen }) { return queen.0 }
+        return pool.max { $0.1 < $1.1 }?.0
     }
 
     private func fail(_ reason: String) {

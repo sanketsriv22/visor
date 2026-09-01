@@ -199,9 +199,20 @@ final class ChessWatcher: NSObject, SCStreamOutput, @unchecked Sendable {
             // The middle, and the four corners. The middle is the piece if
             // there is one; the corners are the square itself, which a piece
             // does not cover and a highlight covers along with everything else.
+            //
+            // The middle is sampled wide — a 3×3 spanning most of the square,
+            // not a tight cross — so that chess.com's legal-move dot, a small
+            // grey circle it draws in the dead centre of empty destination
+            // squares, is one sample in nine rather than all of them. A dot
+            // averaged that thin stays under the occupancy threshold; a piece,
+            // which fills the whole middle, does not.
             var cr = 0, cg = 0, cb = 0, cN = 0
-            for (fx, fy) in [(0.42, 0.42), (0.5, 0.5), (0.58, 0.58), (0.5, 0.42), (0.5, 0.58)] {
-                if let p = sample(fx, fy) { cr += p.r; cg += p.g; cb += p.b; cN += 1 }
+            for gy in 0..<3 {
+                for gx in 0..<3 {
+                    let fx = 0.30 + Double(gx) * 0.20
+                    let fy = 0.30 + Double(gy) * 0.20
+                    if let p = sample(fx, fy) { cr += p.r; cg += p.g; cb += p.b; cN += 1 }
+                }
             }
             var er = 0, eg = 0, eb = 0, eN = 0
             for (fx, fy) in [(0.14, 0.14), (0.86, 0.14), (0.14, 0.86), (0.86, 0.86)] {
