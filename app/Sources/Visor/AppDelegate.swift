@@ -83,12 +83,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             exit(0)
         }
 
-        // Configure Firebase (anonymous auth + Firestore) for live note sharing.
-        // No-op when no GoogleService-Info.plist is bundled, so dev builds run fine.
-        #if canImport(FirebaseCore)
-        FirebaseBootstrap.start()
-        #endif
-
         // Before anything reads a key, so the one remaining prompt happens
         // once at launch rather than the first time a send needs it.
         Keychain.migrateToOpenAccess()

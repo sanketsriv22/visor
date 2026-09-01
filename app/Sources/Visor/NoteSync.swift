@@ -13,7 +13,7 @@ struct BeamRef: Equatable {
 }
 
 /// The seam between `NotesStore` and the real-time sync backend. The store never
-/// imports Firebase or Automerge directly — it talks to this protocol — so the
+/// imports the sync stack directly — it talks to this protocol — so the
 /// app compiles and runs even when the sharing stack isn't available (no SDK
 /// resolved yet, or no `GoogleService-Info.plist` bundled). In that case
 /// `NoteSyncFactory.make()` returns nil and every share action degrades to the
@@ -60,13 +60,13 @@ protocol NoteSyncing: AnyObject {
 /// Builds the live sync engine when the backend is available, else nil.
 ///
 /// The concrete implementation lives in `SharedNoteSync` behind a `canImport`
-/// guard, and `makeBackend()` is provided there. When the Firebase/Automerge
+/// guard, and `makeBackend()` is provided there. When the Automerge
 /// products aren't linked, the fallback below wins and sharing stays offline.
 enum NoteSyncFactory {
     static func make() -> NoteSyncing? { makeBackend() }
 }
 
-#if !(canImport(FirebaseFirestore) && canImport(FirebaseDatabase) && canImport(Automerge))
+#if !canImport(Automerge)
 extension NoteSyncFactory {
     /// No sharing backend linked — sharing degrades to the offline copy path.
     static func makeBackend() -> NoteSyncing? { nil }

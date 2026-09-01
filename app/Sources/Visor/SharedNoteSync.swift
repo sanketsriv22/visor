@@ -1,66 +1,45 @@
-#if canImport(FirebaseFirestore) && canImport(FirebaseDatabase) && canImport(Automerge)
-import Automerge
-import FirebaseCore
-import FirebaseDatabase
-import FirebaseFirestore
+#if canImport(Automerge)
 import Foundation
+import Automerge
 
 extension NoteSyncFactory {
-    /// Live sharing needs a configured Firebase app.
-    ///
-    /// `SharedNoteSync` calls `Firestore.firestore()` in a stored-property
-    /// initialiser, and with no bundled GoogleService-Info.plist that raises an
-    /// uncaught Objective-C exception (FIRIllegalStateException). Because this
-    /// is built during launch, that exception aborted
-    /// applicationDidFinishLaunching partway through: no menu-bar icon, no
-    /// global shortcut, no notch panel — while the process stayed alive, so it
-    /// looked like the app had launched and done nothing.
-    ///
-    /// Returning nil is the path this function already documents for "sharing
-    /// unavailable"; it just wasn't taken. Checking FirebaseApp directly rather
-    /// than our own flag means it's correct even if bootstrap never ran.
-    static func makeBackend() -> NoteSyncing? {
-        guard FirebaseApp.app() != nil else {
-            NSLog("[Visor] Firebase not configured — live note sharing unavailable.")
-            return nil
-        }
-        return SharedNoteSync()
-    }
+    /// Live sharing needs somewhere to sync to. There is no configuration file
+    /// and no SDK to initialise any more — just a database URL — so this is
+    /// always available when the CRDT is linked.
+    static func makeBackend() -> NoteSyncing? { SharedNoteSync() }
 }
 
-/// Live sync for one shared note at a time, using a two-tier transport.
+/// Live sync for one shared note at a time, over the database's HTTP API.
 ///
-/// **Live ops → Realtime Database.** Per-keystroke Automerge deltas stream
-/// through RTDB at `beams/{id}/ops` (each entry: `{c: clientId, d: base64 delta}`).
-/// RTDB is metered by bandwidth, not by a per-write daily cap like Firestore, so
-/// high-frequency tiny deltas are cheap — that's what makes near-per-character
-/// updates affordable on the free tier. Every device merges deltas into its own
-/// `CRDTNote`; there is no server-side merge.
+/// **Live ops.** Per-keystroke Automerge deltas stream through
+/// `beams/{id}/ops` (each entry: `{c: clientId, d: base64 delta}`). Every device
+/// merges deltas into its own `CRDTNote`; there is no server-side merge.
+/// Updates arrive as server-sent events on a held-open HTTPS response, which is
+/// what a database SDK's socket was doing underneath anyway.
 ///
-/// **Durable snapshot → Firestore.** `sharedNotes/{id}` holds a compacted
-/// Automerge `snapshot`, refreshed only occasionally (every `snapshotEveryPushes`
-/// pushes and on detach). New joiners bootstrap from it, then replay the recent
-/// RTDB ops on top. Firestore writes are thus rare (just snapshots), staying well
-/// under the 20K/day free cap.
+/// **Durable snapshot.** `beams/{id}/snapshot` holds a compacted Automerge
+/// document, refreshed occasionally and on detach. New joiners bootstrap from
+/// it and replay the recent ops on top. This lived in Firestore before — a
+/// second database, and a second SDK, for one rarely-written value.
 ///
 /// **Why a CRDT and not last-write-wins.** Two people typing at once produce
 /// concurrent deltas; Automerge merges them per-character instead of one save
-/// clobbering the other.
+/// clobbering the other. This is the one piece that has to be in the binary:
+/// it is the merge itself, and it runs on every keystroke.
 ///
-/// **Identity model (capability links).** No Firebase Auth (see `FirebaseBootstrap`
-/// for why). The beam link carries an unguessable `id`+`token`; possessing the
-/// link is the capability. Rules allow access by id but deny enumeration.
+/// **Identity model (capability links).** No auth. The beam link carries an
+/// unguessable `id`; possessing the link is the capability, and the database
+/// rules allow access by id while denying enumeration.
 ///
 /// One engine instance is attached to at most one note; switching notes calls
-/// `detach()` then re-binds. All callbacks land on the main thread, which is also
-/// where `NotesStore` lives, so no extra synchronization is needed.
+/// `detach()` then re-binds. All callbacks land on the main thread, which is
+/// also where `NotesStore` lives, so no extra synchronization is needed.
 final class SharedNoteSync: NoteSyncing {
     var onRemoteMarkdown: ((String) -> Void)?
     var onPresenceCount: ((Int) -> Void)?
 
-    private let db = Firestore.firestore()
-    private let rtdb = Database.database(url: SharedNoteSync.rtdbURL)
-    /// Distinguishes our own ops coming back through the listener (already applied
+    private let db = RealtimeDB(base: URL(string: SharedNoteSync.databaseURL)!)
+    /// Distinguishes our own ops coming back through the stream (already applied
     /// locally) from genuinely remote ones.
     private let clientId = UUID().uuidString
 
@@ -68,34 +47,35 @@ final class SharedNoteSync: NoteSyncing {
     private var crdt: CRDTNote?
     /// Version vector at our last push, so the next delta carries only new edits.
     private var lastPushedHeads: Set<ChangeHash> = []
-    /// RTDB op keys we've already merged, to stay idempotent across re-deliveries.
+    /// Op keys we've already merged, to stay idempotent across re-deliveries.
     private var appliedOpKeys: Set<String> = []
 
-    private var metaListener: ListenerRegistration?
-    private var opsRef: DatabaseReference?
-    private var opsHandle: DatabaseHandle?
-    private var presenceRef: DatabaseReference?      // our own presence node
-    private var presenceListRef: DatabaseReference?  // the note's presence list
-    private var presenceHandle: DatabaseHandle?
+    private var opsTask: Task<Void, Never>?
+    private var presenceTask: Task<Void, Never>?
+    private var heartbeatTask: Task<Void, Never>?
     private var pushTask: DispatchWorkItem?
-    /// Local pushes since we last rolled up the Firestore snapshot. Live edits ride
-    /// on RTDB ops, so the snapshot only needs occasional refresh — keeping
-    /// Firestore writes rare. New joiners replay at most this many recent ops.
+    /// Local pushes since the last snapshot roll-up.
     private var pushesSinceSnapshot = 0
 
-    /// Default RTDB instance for this Firebase project. Hardcoded because the
-    /// bundled GoogleService-Info.plist predates the database and lacks its URL;
-    /// it isn't a secret (it ships in the app regardless).
-    private static let rtdbURL = "https://kitalabs-default-rtdb.firebaseio.com"
-    private static let collection = "sharedNotes"
-    /// Small debounce so a burst of keystrokes coalesces into one op (imperceptible
-    /// ~80ms) without firing a separate RTDB write per character.
+    /// Not a secret: it shipped inside the app either way, and access is
+    /// governed by the unguessable note id rather than by hiding this.
+    private static let databaseURL = "https://kitalabs-default-rtdb.firebaseio.com"
+    /// Small debounce so a burst of keystrokes coalesces into one op
+    /// (imperceptible ~80ms) without firing a separate write per character.
     private static let pushDebounce = 0.08
-    /// Roll up the Firestore snapshot at most once per this many local pushes.
+    /// Roll up the snapshot at most once per this many local pushes.
     private static let snapshotEveryPushes = 40
-    /// Cap how many recent ops a fresh listener replays (the rest are folded into
+    /// Cap how many recent ops a fresh stream replays (the rest are folded into
     /// the snapshot it bootstrapped from).
-    private static let opReplayLimit: UInt = 500
+    private static let opReplayLimit = 500
+    /// How often we say we're still here, and how long that claim is believed.
+    ///
+    /// The SDK removed a presence node the instant a socket dropped. Without
+    /// that, someone who crashes is counted until their last heartbeat goes
+    /// stale — so the window is short enough that a ghost is brief and long
+    /// enough that a slow network isn't mistaken for a departure.
+    private static let heartbeat: TimeInterval = 20
+    private static let presenceTTL: TimeInterval = 60
 
     /// URL-safe lowercase slug of a note title, for a readable doc id. Falls back
     /// to "note" when the title has no usable characters.
@@ -149,24 +129,26 @@ final class SharedNoteSync: NoteSyncing {
         try? crdt.snapshot().write(to: snapshotURL(ref.id), options: .atomic)
     }
 
+    // MARK: - Paths
+
+    private func opsPath(_ id: String) -> String { "beams/\(id)/ops" }
+    private func snapshotPath(_ id: String) -> String { "beams/\(id)/snapshot" }
+    private func presencePath(_ id: String) -> String { "beams/\(id)/presence" }
+
     // MARK: - NoteSyncing
 
     func share(markdown: String, nameHint: String, completion: @escaping (BeamRef?) -> Void) {
-        guard FirebaseBootstrap.configured else { completion(nil); return }
-        // Readable-but-unguessable doc id: "note-name-slug" + short random suffix.
+        // Readable-but-unguessable id: "note-name-slug" + short random suffix.
         let id = Self.slug(nameHint) + "-" + Self.randomSuffix()
-        let docRef = db.collection(Self.collection).document(id)
         let ref = BeamRef(id: id)
         let note = CRDTNote(markdown: markdown)
-        let payload: [String: Any] = [
-            "snapshot": note.snapshot(),
-            "createdAt": FieldValue.serverTimestamp(),
-            "updatedAt": FieldValue.serverTimestamp(),
-        ]
-        docRef.setData(payload) { [weak self] error in
-            guard let self else { completion(nil); return }
-            if let error {
-                NSLog("[Visor] share failed: \(error.localizedDescription)")
+        Task { @MainActor in
+            let wrote = await db.put(snapshotPath(id), [
+                "d": note.snapshot().base64EncodedString(),
+                "updatedAt": RealtimeDB.serverTimestamp,
+            ])
+            guard wrote else {
+                NSLog("[Visor] share failed: could not write the note")
                 completion(nil)
                 return
             }
@@ -177,16 +159,14 @@ final class SharedNoteSync: NoteSyncing {
     }
 
     func join(ref: BeamRef, completion: @escaping (String?) -> Void) {
-        guard FirebaseBootstrap.configured else { completion(nil); return }
-        // Capability model: knowing the id (in the link) is what grants access —
-        // the rules allow `get` by id, so we just read the note's snapshot. No
-        // membership write, no auth.
-        db.collection(Self.collection).document(ref.id).getDocument { [weak self] snapshot, error in
-            guard let self else { completion(nil); return }
-            guard let data = snapshot?.data(),
-                  let snap = data["snapshot"] as? Data,
-                  let note = try? CRDTNote(snapshot: snap) else {
-                if let error { NSLog("[Visor] join failed: \(error.localizedDescription)") }
+        // Capability model: knowing the id (in the link) is what grants access,
+        // so this is a plain read. No membership write, no auth.
+        Task { @MainActor in
+            guard let object = await db.get(snapshotPath(ref.id)) as? [String: Any],
+                  let b64 = object["d"] as? String,
+                  let data = Data(base64Encoded: b64),
+                  let note = try? CRDTNote(snapshot: data) else {
+                NSLog("[Visor] join failed: no note at that link")
                 completion(nil)
                 return
             }
@@ -198,9 +178,9 @@ final class SharedNoteSync: NoteSyncing {
 
     func attach(ref: BeamRef, localMarkdown: String) {
         // Re-attach to an already-joined note. Seed only from a local snapshot
-        // that shares history with the remote doc; if we somehow have none, leave
-        // the CRDT nil and let the metadata listener seed it from the remote
-        // snapshot (localMarkdown is shown meanwhile by the caller).
+        // that shares history with the remote doc; with none, leave the CRDT nil
+        // and let the remote snapshot seed it (the caller shows localMarkdown
+        // meanwhile).
         crdt = loadLocalSnapshot(ref.id)
         bind(ref: ref)
     }
@@ -215,13 +195,18 @@ final class SharedNoteSync: NoteSyncing {
 
     func detach() {
         // Flush a pending debounced push synchronously so the final edit isn't
-        // lost (and is included in the rolled-up snapshot below). Re-running an
-        // already-fired push is a no-op — its delta-since-heads is empty.
+        // lost. Re-running an already-fired push is a no-op — its delta-since-
+        // heads is empty.
         if let pending = pushTask { pending.perform() }
         pushTask?.cancel(); pushTask = nil
+        let id = ref?.id
         detachListeners()
-        rollUpSnapshot()        // leave the note fully compacted for the next joiner
+        rollUpSnapshot()        // leave the note compacted for the next joiner
         persistLocalSnapshot()
+        if let id {
+            let client = clientId
+            Task { await db.delete("beams/\(id)/presence/\(client)") }
+        }
         crdt = nil
         ref = nil
         lastPushedHeads = []
@@ -231,7 +216,6 @@ final class SharedNoteSync: NoteSyncing {
 
     // MARK: - Internals
 
-    /// Wire up listeners for `ref` and record our starting version vector.
     private func bind(ref: BeamRef) {
         detachListeners()
         self.ref = ref
@@ -239,81 +223,115 @@ final class SharedNoteSync: NoteSyncing {
         lastPushedHeads = crdt?.heads() ?? []
         persistLocalSnapshot()
 
-        let docRef = db.collection(Self.collection).document(ref.id)
-
-        // Firestore snapshot: seeds the CRDT the first time when we have no local
-        // copy yet (e.g. a join without a prior on-disk snapshot). Once seeded, we
-        // start the live ops observer (so we don't drop ops that arrive pre-seed).
-        metaListener = docRef.addSnapshotListener { [weak self] snapshot, _ in
-            guard let self, self.crdt == nil,
-                  let snap = snapshot?.data()?["snapshot"] as? Data,
-                  let note = try? CRDTNote(snapshot: snap) else { return }
-            self.crdt = note
-            self.lastPushedHeads = note.heads()
-            self.persistLocalSnapshot()
-            self.onRemoteMarkdown?(note.markdown)
-            self.startOpsObserver()
+        if crdt == nil {
+            // Nothing local to start from: fetch the snapshot, then start the op
+            // stream, so no op arrives before there's a document to merge it in.
+            Task { @MainActor in
+                if let object = await db.get(snapshotPath(ref.id)) as? [String: Any],
+                   let b64 = object["d"] as? String,
+                   let data = Data(base64Encoded: b64),
+                   let note = try? CRDTNote(snapshot: data) {
+                    self.crdt = note
+                    self.lastPushedHeads = note.heads()
+                    self.persistLocalSnapshot()
+                    self.onRemoteMarkdown?(note.markdown)
+                }
+                self.startOps(ref)
+            }
+        } else {
+            startOps(ref)
         }
-
-        // If we already hold the CRDT (share/join/attach seeded it), start the live
-        // ops stream immediately.
-        if crdt != nil { startOpsObserver() }
-
-        startPresence()
+        startPresence(ref)
     }
 
-    /// Announce our presence on the note and report the live viewer count. Uses
-    /// RTDB `onDisconnect` so a crash/quit auto-removes us — no stale "ghosts".
-    private func startPresence() {
-        guard presenceHandle == nil, let ref = self.ref else { return }
-        let base = rtdb.reference().child("beams").child(ref.id).child("presence")
-        let mine = base.child(clientId)
-        presenceRef = mine
-        presenceListRef = base
-        mine.onDisconnectRemoveValue()
-        mine.setValue(ServerValue.timestamp())
-        presenceHandle = base.observe(.value) { [weak self] snap in
-            self?.onPresenceCount?(Int(snap.childrenCount))
+    /// Merge every remote delta as it arrives.
+    ///
+    /// Idempotent: re-delivered ops and the initial replay are filtered by key,
+    /// and applying an already-known Automerge change is a no-op anyway.
+    private func startOps(_ ref: BeamRef) {
+        guard opsTask == nil else { return }
+        let stream = db.stream(opsPath(ref.id), query: [
+            URLQueryItem(name: "orderBy", value: "\"$key\""),
+            URLQueryItem(name: "limitToLast", value: String(Self.opReplayLimit)),
+        ])
+        opsTask = Task { @MainActor [weak self] in
+            for await event in stream {
+                guard let self else { return }
+                // The opening event is the whole node; everything after is one
+                // child. Both shapes reduce to a list of (key, op).
+                if event.path == "/" {
+                    let all = (event.value as? [String: Any]) ?? [:]
+                    for (key, value) in all.sorted(by: { $0.key < $1.key }) {
+                        self.apply(key: key, op: value)
+                    }
+                } else {
+                    self.apply(key: String(event.path.dropFirst()), op: event.value)
+                }
+            }
         }
     }
 
-    /// Subscribe to the RTDB live op stream and merge each remote delta as it
-    /// arrives. Idempotent: re-delivered ops and the initial replay are filtered by
-    /// key, and applying an already-known Automerge change is a no-op anyway.
-    private func startOpsObserver() {
-        guard opsHandle == nil, let ref = self.ref else { return }
-        let opsRef = rtdb.reference().child("beams").child(ref.id).child("ops")
-        self.opsRef = opsRef
-        opsHandle = opsRef.queryLimited(toLast: Self.opReplayLimit).observe(.childAdded) { [weak self] snap in
-            guard let self else { return }
-            guard !self.appliedOpKeys.contains(snap.key) else { return }
-            self.appliedOpKeys.insert(snap.key)
-            guard let v = snap.value as? [String: Any],
-                  (v["c"] as? String) != self.clientId,                 // skip our own echo
-                  let b64 = v["d"] as? String,
-                  let delta = Data(base64Encoded: b64),
-                  let crdt = self.crdt else { return }
-            if crdt.applyDelta(delta) {
-                self.lastPushedHeads = crdt.heads()
-                self.persistLocalSnapshot()
-                self.onRemoteMarkdown?(crdt.markdown)
+    private func apply(key: String, op: Any?) {
+        guard !key.isEmpty, !appliedOpKeys.contains(key) else { return }
+        appliedOpKeys.insert(key)
+        guard let value = op as? [String: Any],
+              (value["c"] as? String) != clientId,          // skip our own echo
+              let b64 = value["d"] as? String,
+              let delta = Data(base64Encoded: b64),
+              let crdt else { return }
+        if crdt.applyDelta(delta) {
+            lastPushedHeads = crdt.heads()
+            persistLocalSnapshot()
+            onRemoteMarkdown?(crdt.markdown)
+        }
+    }
+
+    /// Say we're here, keep saying it, and count everyone else doing the same.
+    private func startPresence(_ ref: BeamRef) {
+        guard presenceTask == nil else { return }
+        let path = presencePath(ref.id)
+        let mine = "\(path)/\(clientId)"
+
+        heartbeatTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.db.put(mine, ["t": Date().timeIntervalSince1970 * 1000])
+                try? await Task.sleep(nanoseconds: UInt64(Self.heartbeat * 1_000_000_000))
+            }
+        }
+
+        let stream = db.stream(path)
+        presenceTask = Task { @MainActor [weak self] in
+            var seen: [String: Double] = [:]
+            for await event in stream {
+                guard let self else { return }
+                if event.path == "/" {
+                    seen = [:]
+                    for (key, value) in (event.value as? [String: Any]) ?? [:] {
+                        seen[key] = ((value as? [String: Any])?["t"] as? Double) ?? 0
+                    }
+                } else {
+                    let key = String(event.path.dropFirst()).split(separator: "/").first.map(String.init) ?? ""
+                    guard !key.isEmpty else { continue }
+                    if let value = event.value {
+                        seen[key] = ((value as? [String: Any])?["t"] as? Double) ?? 0
+                    } else {
+                        seen.removeValue(forKey: key)
+                    }
+                }
+                // Anyone whose last heartbeat has gone stale is treated as gone.
+                // Without the SDK's onDisconnect this is what stops a crashed
+                // client being counted forever.
+                let cutoff = (Date().timeIntervalSince1970 - Self.presenceTTL) * 1000
+                self.onPresenceCount?(seen.values.filter { $0 >= cutoff }.count)
             }
         }
     }
 
     private func detachListeners() {
-        metaListener?.remove(); metaListener = nil
-        if let opsRef, let opsHandle { opsRef.removeObserver(withHandle: opsHandle) }
-        opsRef = nil; opsHandle = nil
-        // Presence: stop announcing ourselves and stop counting.
-        if let presenceRef {
-            presenceRef.cancelDisconnectOperations()
-            presenceRef.removeValue()
-        }
-        if let presenceListRef, let presenceHandle {
-            presenceListRef.removeObserver(withHandle: presenceHandle)
-        }
-        presenceRef = nil; presenceListRef = nil; presenceHandle = nil
+        opsTask?.cancel(); opsTask = nil
+        presenceTask?.cancel(); presenceTask = nil
+        heartbeatTask?.cancel(); heartbeatTask = nil
         onPresenceCount?(0)
     }
 
@@ -325,30 +343,31 @@ final class SharedNoteSync: NoteSyncing {
         lastPushedHeads = crdt.heads()
         persistLocalSnapshot()
 
-        // Live op → RTDB. This is what drives every other participant's update;
-        // RTDB is bandwidth-metered, so streaming small deltas is cheap. `c` tags
-        // our own writes so the observer skips the echo; `d` is the base64 delta
-        // (RTDB has no native bytes type). `t` is a server timestamp for ordering.
-        let opsRef = self.opsRef ?? rtdb.reference().child("beams").child(ref.id).child("ops")
-        opsRef.childByAutoId().setValue([
+        // `c` tags our own writes so the stream skips the echo; `d` is the
+        // base64 delta (the database has no native bytes type); `t` orders them.
+        let payload: [String: Any] = [
             "c": clientId,
             "d": delta.base64EncodedString(),
-            "t": ServerValue.timestamp(),
-        ])
+            "t": RealtimeDB.serverTimestamp,
+        ]
+        let path = opsPath(ref.id)
+        Task { await db.post(path, payload) }
 
-        // Refresh the Firestore snapshot only occasionally — it just bootstraps new
-        // joiners (live edits ride on RTDB), so this keeps Firestore writes rare.
         pushesSinceSnapshot += 1
         if pushesSinceSnapshot >= Self.snapshotEveryPushes { rollUpSnapshot() }
     }
 
-    /// Write the compacted snapshot to the note doc (the only thing that lets a
-    /// new joiner skip replaying the change log). Resets the push counter.
+    /// Write the compacted snapshot, the only thing that lets a new joiner skip
+    /// replaying the change log.
     private func rollUpSnapshot() {
         guard let ref, let crdt, pushesSinceSnapshot > 0 else { return }
         pushesSinceSnapshot = 0
-        db.collection(Self.collection).document(ref.id)
-            .updateData(["snapshot": crdt.snapshot(), "updatedAt": FieldValue.serverTimestamp()])
+        let payload: [String: Any] = [
+            "d": crdt.snapshot().base64EncodedString(),
+            "updatedAt": RealtimeDB.serverTimestamp,
+        ]
+        let path = snapshotPath(ref.id)
+        Task { await db.put(path, payload) }
     }
 }
 #endif
