@@ -31,10 +31,20 @@ struct EdgeVisualiser: View {
     /// How far a full-strength crest reaches, as a multiple of the resting
     /// depth.
     private static let swell: CGFloat = 2.5
-    /// Grid pitch, along the perimeter and inward from it. The same in both
-    /// directions, or the dots stop being a matrix and become dashes.
-    private static let pitch: CGFloat = 9
+    /// Rows of dots at rest.
+    ///
+    /// The pitch is derived from this and the notch's height rather than fixed,
+    /// so the resting band is *exactly* as deep as the notch. A fixed pitch
+    /// left it a rounding error short, which is a visible step where the two
+    /// meet — the one place this has to be perfect, since the notch is the
+    /// thing it is pretending to be part of.
+    private static let restingRows = 4
     private static let dot: CGFloat = 3.2
+    /// How much louder than the room a band must be before it adds a row.
+    ///
+    /// Without it, room noise sat just under half a row and rounding flipped
+    /// dots on and off — the border twitched while nobody was speaking.
+    private static let deadzone: Double = 0.16
 
     var body: some View {
         TimelineView(.animation) { context in
@@ -53,10 +63,12 @@ struct EdgeVisualiser: View {
         guard !bands.isEmpty, size.width > 1 else { return }
 
         let half = (size.width - notchWidth) / 2 + size.height + size.width / 2
-        let columns = max(1, Int(half / Self.pitch))
+        let baseRows = Self.restingRows
+        // Derived, so `baseRows` of them come to exactly the notch's height.
+        let pitch = baseDepth / CGFloat(baseRows)
+        let rows = max(baseRows + 1, Int(CGFloat(baseRows) * Self.swell))
+        let columns = max(1, Int(half / pitch))
         let step = half / CGFloat(columns)
-        let rows = max(2, Int(baseDepth * Self.swell / Self.pitch))
-        let baseRows = max(1, Int(baseDepth / Self.pitch))
         let time = now.timeIntervalSinceReferenceDate
         let source = spectrum.stereo ? (Double(spectrum.balance) + 1) / 2 : 0.5
 
@@ -80,16 +92,26 @@ struct EdgeVisualiser: View {
                 let along = Double(index) / Double(columns)
                 let lift = height(along: along, point: point, size: size,
                                   bands: bands, time: time, source: source)
-                let lit = min(rows, baseRows + Int((CGFloat(rows - baseRows)
-                                                    * CGFloat(lift)).rounded()))
-                let depth = CGFloat(lit) * Self.pitch
+                let lit = litRows(lift: lift, rows: rows, baseRows: baseRows)
+                let depth = CGFloat(lit) * pitch
                 inner.append(CGPoint(x: point.x + normal.x * depth,
                                      y: point.y + normal.y * depth))
             }
             for point in inner.reversed() { edge.addLine(to: point) }
             edge.closeSubpath()
-            context.fill(edge, with: .color(.black.opacity(0.93)))
+            context.fill(edge, with: .color(.black))
         }
+
+        // Across the notch itself, at the resting depth.
+        //
+        // The perimeter walk starts at the notch's edge, so without this the
+        // band stops dead either side of the hardware and starts again — a seam
+        // in exactly the place the whole idea depends on there not being one.
+        // Black over the notch is invisible; black over the menu bar beside it
+        // is the point.
+        context.fill(Path(CGRect(x: (size.width - notchWidth) / 2, y: 0,
+                                 width: notchWidth, height: baseDepth)),
+                     with: .color(.black))
 
         // One path per row rather than one per dot.
         //
@@ -107,12 +129,10 @@ struct EdgeVisualiser: View {
                 let along = Double(index) / Double(columns)
                 let lift = height(along: along, point: point, size: size,
                                   bands: bands, time: time, source: source)
-                // Resting depth plus whatever the voice adds.
-                let lit = min(rows, baseRows + Int((CGFloat(rows - baseRows)
-                                                    * CGFloat(lift)).rounded()))
+                let lit = litRows(lift: lift, rows: rows, baseRows: baseRows)
 
                 for row in 0..<lit {
-                    let depth = (CGFloat(row) + 0.5) * Self.pitch
+                    let depth = (CGFloat(row) + 0.5) * pitch
                     let centre = CGPoint(x: point.x + normal.x * depth,
                                          y: point.y + normal.y * depth)
                     paths[row].addEllipse(in: CGRect(
@@ -125,6 +145,16 @@ struct EdgeVisualiser: View {
         for (row, path) in paths.enumerated() where !path.isEmpty {
             context.fill(path, with: .color(colour(row: row, of: rows)))
         }
+    }
+
+    /// Resting depth plus whatever the voice adds.
+    ///
+    /// Floored rather than rounded, and only past a deadzone: a row should
+    /// appear when a voice has earned a whole one, not flicker on half of one.
+    private func litRows(lift: Double, rows: Int, baseRows: Int) -> Int {
+        guard lift > Self.deadzone else { return baseRows }
+        let scaled = (lift - Self.deadzone) / (1 - Self.deadzone)
+        return min(rows, baseRows + Int(Double(rows - baseRows) * scaled))
     }
 
     /// White, dimming with depth.
@@ -147,12 +177,18 @@ struct EdgeVisualiser: View {
     /// towards whichever side of the machine you're speaking into.
     private func height(along: Double, point: CGPoint, size: CGSize,
                         bands: [Float], time: TimeInterval, source: Double) -> Double {
-        let band = bands[min(bands.count - 1, Int(along * Double(bands.count)))]
-        // A light travelling ripple, not a disguise. It used to carry a third
-        // of the height, which kept the border moving when nothing was being
-        // said and made it look the same whatever you said.
+        let band = Double(bands[min(bands.count - 1, Int(along * Double(bands.count)))])
+        // Silence is silence. The ripple below multiplies the band, so a band
+        // of nought stays at nought — but the noise floor is never quite nought,
+        // and a whisper of it travelling round the screen is movement with
+        // nothing behind it.
+        guard band > 0.04 else { return 0 }
+
+        // A travelling ripple, kept small deliberately: enough that a held note
+        // still breathes, not so much that everything looks alike whatever is
+        // said.
         let drift = 0.5 + 0.5 * sin(along * 11 - time * 3.2)
-        let energy = Double(band) * (0.85 + 0.15 * drift)
+        let energy = band * (0.85 + 0.15 * drift)
 
         // Distance from the voice, measured across the screen. Everything moves
         // a little; the near side moves most.
