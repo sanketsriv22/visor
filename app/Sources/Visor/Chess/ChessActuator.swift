@@ -57,15 +57,27 @@ final class ClickingActuator: MoveActuator {
     private var restoreTo: CGPoint?
 
     func present(_ moves: [ScoredMove], on geometry: BoardGeometry) async {
-        guard let best = moves.first else { return }
-        try? await play(best.move, on: geometry)
+        guard let best = moves.first else {
+            ChessDiagnostics.trace("play: nothing to play — engine returned no moves")
+            return
+        }
+        do {
+            try await play(best.move, on: geometry)
+        } catch {
+            ChessDiagnostics.trace("play: \(best.move.uci) failed — \(error.localizedDescription)")
+        }
     }
 
     func clear() {}
 
     func play(_ move: Move, on geometry: BoardGeometry) async throws {
+        ChessDiagnostics.trace("play: \(move.uci)  trusted=\(AXIsProcessTrusted())  "
+                             + "from=\(geometry.center(of: move.from))  to=\(geometry.center(of: move.to))")
         guard AXIsProcessTrusted() else { throw ClickError.notTrusted }
-        guard let source = CGEventSource(stateID: .combinedSessionState) else { return }
+        guard let source = CGEventSource(stateID: .combinedSessionState) else {
+            ChessDiagnostics.trace("play: no event source")
+            return
+        }
 
         restoreTo = CGEvent(source: nil)?.location
 
@@ -81,6 +93,7 @@ final class ClickingActuator: MoveActuator {
         try await click(geometry.center(of: move.from), source: source)
         try await Task.sleep(nanoseconds: betweenClicks)
         try await click(geometry.center(of: move.to), source: source)
+        ChessDiagnostics.trace("play: clicked \(move.uci)")
 
         // The one place in this subsystem that knows which website it is
         // looking at. A promotion opens a picker over the promotion square with
@@ -115,9 +128,13 @@ final class ClickingActuator: MoveActuator {
             let frame = CGRect(x: bounds["X"] ?? 0, y: bounds["Y"] ?? 0,
                                width: bounds["Width"] ?? 0, height: bounds["Height"] ?? 0)
             guard frame.contains(point) else { continue }
-            guard pid != ProcessInfo.processInfo.processIdentifier,
-                  let app = NSRunningApplication(processIdentifier: pid)
-            else { return }
+            guard pid != ProcessInfo.processInfo.processIdentifier else {
+                ChessDiagnostics.trace("activate: topmost window at the board is Visor's own — "
+                                     + "\(window[kCGWindowName as String] as? String ?? "?")")
+                return
+            }
+            guard let app = NSRunningApplication(processIdentifier: pid) else { return }
+            ChessDiagnostics.trace("activate: \(app.localizedName ?? "?") active=\(app.isActive)")
             guard !app.isActive else { return }
 
             if #available(macOS 14.0, *) { app.activate() } else { app.activate(options: []) }
@@ -130,8 +147,10 @@ final class ClickingActuator: MoveActuator {
                 try? await Task.sleep(nanoseconds: 20_000_000)
                 waited += 1
             }
+            ChessDiagnostics.trace("activate: \(app.localizedName ?? "?") active=\(app.isActive) after \(waited * 20)ms")
             return
         }
+        ChessDiagnostics.trace("activate: no window found under the board")
     }
 
     private func click(_ point: CGPoint, source: CGEventSource) async throws {

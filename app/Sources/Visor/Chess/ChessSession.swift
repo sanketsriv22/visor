@@ -128,10 +128,17 @@ final class ChessSession: ObservableObject {
         // Answer immediately rather than waiting for the opponent. Starting
         // mid-game and seeing nothing at all until their next move is
         // indistinguishable from being broken.
+        ChessDiagnostics.trace("session: started \(mode) as \(ourColour) — \(position.fen)")
         if position.turn == ourColour {
             let best = await oracle.analyse(position)
+            ChessDiagnostics.trace("session: our move first; engine offered "
+                                 + best.map { "\($0.move.uci) \($0.score.display)" }.joined(separator: ", "))
             suggestions = best
             await actuator?.present(best, on: geometry)
+            // The same watch-and-retry a mid-game click gets. Without it a
+            // click that didn't take on the very first move failed silently
+            // and the session sat waiting for a board that never changed.
+            if mode == .playing { confirmPlayed(best) }
         } else {
             await oracle.prime(after: position)
         }
@@ -383,10 +390,12 @@ final class ChessSession: ObservableObject {
             // Anything moved means it landed — `commit` resets the count.
             guard self.position.fen == expected, self.position.turn == self.ourColour else { return }
             guard self.playAttempts < 3 else {
+                ChessDiagnostics.trace("session: gave up on \(replies.first?.move.uci ?? "?") after 3 tries")
                 self.fail("Played \(replies.first?.move.uci ?? "a move") three times "
-                        + "and the board didn't change — is it still your turn?")
+                        + "and the board didn't change — " + TextInsertion.staleGrantAdvice)
                 return
             }
+            ChessDiagnostics.trace("session: board unchanged after \(replies.first?.move.uci ?? "?"), retrying (\(self.playAttempts))")
             await self.actuator?.present(replies, on: self.geometry)
             self.confirmPlayed(replies)
         }

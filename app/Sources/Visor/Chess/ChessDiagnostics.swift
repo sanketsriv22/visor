@@ -9,6 +9,24 @@ import AppKit
 /// with a dozen causes. A picture and the finder's own reasoning turn that into
 /// something answerable.
 enum ChessDiagnostics {
+    /// One line per step of anything that acts on the screen, appended to a
+    /// running log. Screenshots explain why a board wasn't found; this
+    /// explains why a click didn't land, which is a question the screenshots
+    /// can't answer and which was being answered by guesswork.
+    static func trace(_ line: String) {
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        let entry = "\(stamp)  \(line)\n"
+        let url = directory.appendingPathComponent("trace.log")
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(Data(entry.utf8))
+            try? handle.close()
+        } else {
+            try? entry.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
     static var directory: URL {
         let base = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("Logs/Visor/chess", isDirectory: true)
