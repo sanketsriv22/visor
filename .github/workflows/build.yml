@@ -1,0 +1,163 @@
+# Compiles the app on every push. Visor is built locally by scripts/release.sh,
+# which needs a full Xcode — so a machine with only Command Line Tools can't
+# type-check a change at all. This runner is the verification loop for those
+# machines, and the gate that a branch actually compiles before it merges.
+name: build
+
+on:
+  push:
+    branches: ['**']
+  # Only for forks — a same-repo PR already ran on push, and running both
+  # builds the identical SHA twice.
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+concurrency:
+  # A new push supersedes an in-flight run on the same branch.
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # macos-15, not macos-14: Firebase 11.15 uses the `sending` keyword, so it
+    # needs a Swift 6 compiler (Xcode 16+), which the -14 image doesn't default
+    # to. The package itself stays on Swift 5 language mode.
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      # The secrets context can't be used in a step's `if:`, so presence is
+      # resolved once here and the steps test this instead. Forks and anyone
+      # without the certificate still get a working ad-hoc build.
+      HAS_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # make-app.sh bakes CFBundleVersion from the commit count, and
+          # Sparkle compares that number. A shallow clone makes it 1, which
+          # reads as older than every installed build.
+          fetch-depth: 0
+
+      - name: Toolchain
+        run: swift --version && xcodebuild -version
+
+      # Firebase + Automerge + Sparkle dominate build time; cache the resolved
+      # checkouts and object files across runs on the same dependency set.
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: app/.build
+          key: spm-${{ runner.os }}-${{ hashFiles('app/Package.swift', 'app/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build
+        working-directory: app
+        run: swift build -c release
+
+      # Catches packaging regressions (Info.plist, icon, Sparkle framework)
+      # that a plain `swift build` would miss.
+      - name: Package .app
+        run: ./scripts/make-app.sh --build-only
+
+      # Gate, not decoration: a red test fails the branch.
+      - name: Test
+        working-directory: app
+        run: swift test
+
+      - name: Build MCP server
+        working-directory: mcp-server
+        run: npm ci && npx tsc --noEmit && npm run build
+
+      - name: Verify bundle
+        run: |
+          APP=dist/Visor.app
+          ls -la "$APP/Contents/Resources/AppIcon.icns"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist"
+          # An Apple Silicon runner will happily produce an arm64-only bundle
+          # that simply never launches on an Intel Mac, with no error anywhere.
+          ARCHS=$(lipo -archs "$APP/Contents/MacOS/Visor")
+          echo "architectures: $ARCHS"
+          case "$ARCHS" in
+            *arm64*x86_64*|*x86_64*arm64*) ;;
+            *) echo "::error::bundle is not universal ($ARCHS)"; exit 1 ;;
+          esac
+
+      # Signing every build is what stops macOS treating each one as a new
+      # app: Keychain ACLs and TCC grants (Accessibility, microphone) are bound
+      # to the code signature, so an ad-hoc build re-prompts for everything on
+      # every install. Notarization is only needed to *distribute*, and takes
+      # minutes, so it's kept off the per-push path.
+      - name: Import signing certificate
+        if: env.HAS_CERT == 'true'
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/visor-signing.keychain-db"
+          KEYCHAIN_PW="$(openssl rand -base64 24)"
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          # Long enough for the build; the runner is destroyed either way.
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          # Without this, codesign hits "User interaction is not allowed" —
+          # the same wall a non-GUI session hits locally.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PW" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      # Notarized, not merely signed.
+      #
+      # macOS ties an Accessibility grant to the exact code hashes of the build
+      # it was given to when it can't validate the app any other way, so every
+      # unnotarized build silently invalidated the permission while System
+      # Settings went on showing it as enabled. A notarized, stapled build is
+      # the only version of this that macOS can check without pinning.
+      #
+      # It costs a round trip to Apple on every build. Re-granting a permission
+      # by hand after every install costs more.
+      - name: Sign and notarize
+        if: env.HAS_CERT == 'true'
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: ./scripts/sign-and-notarize.sh
+
+      # ditto, not zip: an .app bundle contains symlinks (Sparkle.framework's
+      # Versions/Current especially), and a naive zip flattens them into copies
+      # that macOS then refuses to launch.
+      - name: Archive app
+        run: ditto -c -k --keepParent dist/Visor.app dist/Visor.zip
+
+      # Only on demand: notarization is a round trip to Apple measured in
+      # minutes, and a signed build is already enough for testing.
+      - name: Notarize and build DMG
+        if: github.event_name == 'workflow_dispatch' && env.HAS_CERT == 'true'
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: ./scripts/sign-and-notarize.sh --dmg
+
+      - name: Upload DMG
+        if: github.event_name == 'workflow_dispatch' && env.HAS_CERT == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Visor-dmg
+          path: dist/*.dmg
+          retention-days: 14
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Visor-app
+          path: dist/Visor.zip
+          retention-days: 14

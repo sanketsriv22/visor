@@ -25,11 +25,40 @@ BUILD_ONLY=""
 [ -n "${CI:-}" ] && BUILD_ONLY=1
 
 cd "$REPO/app"
-swift build -c release
+# Universal by default: a release built only on an Apple Silicon runner won't
+# launch on an Intel Mac at all, and macOS fails that silently rather than
+# saying why. Set VISOR_ARCHS=native for a single-slice build when iterating
+# locally — it's noticeably faster.
+# A universal build shells out to xcbuild, which only ships with Xcode.
+# Command Line Tools alone can build a single architecture perfectly well, so
+# fall back rather than fail — but say so loudly, because an arm64-only bundle
+# will not launch on an Intel Mac and macOS reports that as nothing happening.
+# Test the capability, not a path: xcbuild lives inside Xcode.app on a runner
+# with Xcode selected and under /Library/Developer with Command Line Tools, so
+# checking one hardcoded location made CI silently fall back to a single-arch
+# build. This is the exact lookup that fails without Xcode.
+WANT_UNIVERSAL=1
+[ "${VISOR_ARCHS:-universal}" = "native" ] && WANT_UNIVERSAL=0
+if [ "$WANT_UNIVERSAL" = "1" ] && ! xcrun --sdk macosx --show-sdk-platform-path >/dev/null 2>&1; then
+    echo "warning: no Xcode found (xcbuild missing) — building for this machine only." >&2
+    echo "         The result is NOT suitable for release; CI produces the universal build." >&2
+    WANT_UNIVERSAL=0
+fi
+
+if [ "$WANT_UNIVERSAL" = "0" ]; then
+    swift build -c release
+    BIN=".build/release/Visor"
+else
+    swift build -c release --arch arm64 --arch x86_64
+    # A multi-arch build lands under .build/apple/Products, not .build/release.
+    BIN="$(find .build/apple/Products/Release -maxdepth 1 -name Visor -type f 2>/dev/null | head -1)"
+    [ -n "$BIN" ] || BIN=".build/release/Visor"
+fi
 
 rm -rf "$REPO/dist"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
-cp .build/release/Visor "$APP/Contents/MacOS/Visor"
+cp "$BIN" "$APP/Contents/MacOS/Visor"
+echo "architectures: $(lipo -archs "$APP/Contents/MacOS/Visor" 2>/dev/null)"
 
 # Embed Sparkle.framework so the app can find it at runtime.
 SPARKLE_FW=$(find .build -path '*/Sparkle.framework' -type d -maxdepth 6 | head -1)
@@ -53,6 +82,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSUIElement</key><true/>
+    <!-- Dictation records from the mic; macOS refuses access without a reason
+         string, and the app is killed on first use if this is missing. -->
+    <key>NSMicrophoneUsageDescription</key><string>Visor records your voice so you can dictate into the composer.</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>SUFeedURL</key><string>https://raw.githubusercontent.com/sanketsriv22/visor/main/appcast.xml</string>
     <key>SUPublicEDKey</key><string>${SU_PUBLIC_ED_KEY}</string>
@@ -121,7 +153,22 @@ else
     echo "warning: no GoogleService-Info.plist (looked at $GOOGLE_SERVICE_PLIST) — live note sharing disabled" >&2
 fi
 
-codesign --force --sign - --deep "$APP"
+# Prefer a real Developer ID when the machine has one: TCC permissions and
+# Keychain ACLs are bound to the signature, so an ad-hoc build is a different
+# app to macOS every time it's rebuilt — which is what makes Accessibility and
+# Keychain grants evaporate between builds. CI has no certificate, so it falls
+# back to ad-hoc and scripts/sign-and-notarize.sh signs properly afterwards.
+# `|| true` matters: with set -e and pipefail, grep finding nothing on a
+# machine with no certificate (i.e. CI) fails the whole script.
+SIGN_ID="${VISOR_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
+  | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)"/\1/' || true)}"
+if [ -n "$SIGN_ID" ] && [ -f "$REPO/app/Visor.entitlements" ]; then
+    echo "signing with: $SIGN_ID"
+    "$REPO/scripts/sign-and-notarize.sh" --skip-notarize
+else
+    echo "no Developer ID found — ad-hoc signing"
+    codesign --force --sign - --deep "$APP"
+fi
 
 if [ -n "$BUILD_ONLY" ]; then
     echo "Built $APP (v${VERSION})"

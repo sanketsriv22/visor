@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# Sign dist/Visor.app with Developer ID, notarize it, staple the ticket, and
+# optionally build a DMG.
+#
+#   ./scripts/sign-and-notarize.sh [--dmg] [--skip-notarize]
+#
+# Needs a "Developer ID Application" identity in the keychain, and (unless
+# --skip-notarize) a stored notarytool profile:
+#
+#   xcrun notarytool store-credentials "visor-notary" \
+#     --apple-id <id> --team-id <team> --password <app-specific-password>
+set -euo pipefail
+cd "$(dirname "$0")/.."
+REPO="$PWD"
+APP="$REPO/dist/Visor.app"
+ENTITLEMENTS="$REPO/app/Visor.entitlements"
+PROFILE="${VISOR_NOTARY_PROFILE:-visor-notary}"
+
+DMG=0; NOTARIZE=1
+for arg in "$@"; do
+  case "$arg" in
+    --dmg) DMG=1 ;;
+    --skip-notarize) NOTARIZE=0 ;;
+    *) echo "unknown flag: $arg" >&2; exit 2 ;;
+  esac
+done
+
+[ -d "$APP" ] || { echo "error: $APP not found — run scripts/make-app.sh first" >&2; exit 1; }
+
+IDENTITY="${VISOR_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
+  | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)"/\1/' || true)}"
+[ -n "$IDENTITY" ] || { echo "error: no Developer ID Application identity in the keychain" >&2; exit 1; }
+echo "signing as: $IDENTITY"
+
+# --- 0. Strip -------------------------------------------------------------
+# Local symbols are 12 MB per architecture — a third of each slice — and
+# nothing at runtime reads them. They exist for a debugger attached to this
+# exact binary, which is not a thing anyone does to a shipped app; a crash
+# report is symbolicated from the .dSYM, which the build keeps separately.
+#
+# Before signing, necessarily: stripping edits the binary, and editing a
+# signed binary invalidates the signature.
+BINARY="$APP/Contents/MacOS/Visor"
+if [ -f "$BINARY" ]; then
+  BEFORE=$(stat -f%z "$BINARY")
+  strip -x "$BINARY"
+  AFTER=$(stat -f%z "$BINARY")
+  echo "stripped: $((BEFORE / 1048576)) MB -> $((AFTER / 1048576)) MB"
+fi
+
+# --- 1. Sign inside-out ----------------------------------------------------
+# Nested code must be signed before whatever contains it: signing the outer
+# bundle seals a hash of its contents, so re-signing anything inside afterwards
+# invalidates the outer signature. Ad-hoc signing let us ignore this; Developer
+# ID and notarization do not.
+sign() {
+  codesign --force --timestamp --options runtime --sign "$IDENTITY" "$@"
+}
+
+# Explicit order, not a heuristic. Sorting paths by length happened to sign
+# Sparkle.framework before Autoupdate — which lives inside it — and signing a
+# child after its container invalidates the container's seal ("nested code is
+# modified or invalid"). Sparkle's layout is known, so state it.
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+if [ -d "$SPARKLE" ]; then
+  CURRENT="$SPARKLE/Versions/Current"
+  for xpc in "$CURRENT/XPCServices/"*.xpc; do
+    [ -e "$xpc" ] || continue
+    echo "  signing $(basename "$xpc")"
+    sign "$xpc"
+  done
+  if [ -e "$CURRENT/Autoupdate" ]; then
+    echo "  signing Autoupdate"
+    sign "$CURRENT/Autoupdate"
+  fi
+  if [ -d "$CURRENT/Updater.app" ]; then
+    echo "  signing Updater.app"
+    sign "$CURRENT/Updater.app"
+  fi
+  # The framework last, so it seals contents that are already final.
+  echo "  signing Sparkle.framework"
+  sign "$SPARKLE"
+fi
+
+# Anything else that ships alongside it.
+for item in "$APP/Contents/Frameworks/"*; do
+  [ -e "$item" ] || continue
+  case "$item" in
+    "$SPARKLE") continue ;;
+  esac
+  case "$item" in
+    *.framework|*.dylib|*.app)
+      echo "  signing $(basename "$item")"
+      sign "$item"
+      ;;
+  esac
+done
+
+echo "  signing Visor.app"
+sign --entitlements "$ENTITLEMENTS" "$APP"
+
+echo "=== verifying ==="
+codesign --verify --deep --strict --verbose=2 "$APP"
+
+# --- 2. Notarize -----------------------------------------------------------
+ZIP="$REPO/dist/Visor-notarize.zip"
+if [ "$NOTARIZE" = "1" ]; then
+  # ditto, not zip: the bundle's symlinks have to survive the round trip.
+  ditto -c -k --keepParent "$APP" "$ZIP"
+  echo "=== submitting to Apple (this takes a few minutes) ==="
+  # A stored profile locally; explicit credentials in CI, where there's no
+  # keychain profile to look up.
+  if [ -n "${NOTARY_APPLE_ID:-}" ] && [ -n "${NOTARY_PASSWORD:-}" ] && [ -n "${MACOS_TEAM_ID:-}" ]; then
+    NOTARY_ARGS=(--apple-id "$NOTARY_APPLE_ID" --team-id "$MACOS_TEAM_ID" --password "$NOTARY_PASSWORD")
+  else
+    NOTARY_ARGS=(--keychain-profile "$PROFILE")
+  fi
+  xcrun notarytool submit "$ZIP" "${NOTARY_ARGS[@]}" --wait
+  # Stapling attaches the ticket to the app so it validates offline.
+  xcrun stapler staple "$APP"
+  xcrun stapler validate "$APP"
+  rm -f "$ZIP"
+  echo "notarized and stapled."
+else
+  echo "skipping notarization (--skip-notarize)"
+fi
+
+# --- 3. DMG ----------------------------------------------------------------
+if [ "$DMG" = "1" ]; then
+  VERSION="$(tr -d '[:space:]' < "$REPO/VERSION")"
+  STAGE="$REPO/dist/dmg"
+  DMG_PATH="$REPO/dist/Visor-$VERSION.dmg"
+  rm -rf "$STAGE" "$DMG_PATH"
+  mkdir -p "$STAGE"
+  ditto "$APP" "$STAGE/Visor.app"
+  # The Applications symlink is what makes the window a drag-to-install.
+  ln -s /Applications "$STAGE/Applications"
+  hdiutil create -volname "Visor" -srcfolder "$STAGE" -ov -format UDZO "$DMG_PATH" >/dev/null
+  rm -rf "$STAGE"
+  # The DMG is signed and notarized in its own right, so Gatekeeper is happy
+  # with the container as well as what's inside it.
+  codesign --force --timestamp --sign "$IDENTITY" "$DMG_PATH"
+  if [ "$NOTARIZE" = "1" ]; then
+    xcrun notarytool submit "$DMG_PATH" "${NOTARY_ARGS[@]}" --wait
+    xcrun stapler staple "$DMG_PATH"
+  fi
+  echo "wrote $DMG_PATH"
+fi

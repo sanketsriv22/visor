@@ -3,6 +3,25 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## 1.0-beta.36 — 2026-08-28
+
+- **Visor has a second face: chat.** Press ⌘⌃K, hit ⌘2, and type — replies stream straight into the notch. The card grows sideways when you switch; the notch stays the notch. Switch with the control in the notch's left shoulder (where VISOR used to sit) or ⌘1 / ⌘2.
+- **Name your own agents.** Settings → Agents lets you create as many as you like, each on its own model — the list is fetched live from OpenRouter, so it's never a stale hard-coded menu — with an optional persona prepended to every conversation. One OpenRouter key is shared by all of them and lives in your Keychain, so you paste it once.
+- **Agents run in the notch.** Send a task to a chat agent and it answers right there instead of opening a Terminal. CLI agents (Claude Code, Codex, Devin) work exactly as before.
+- **Chats remember.** Visor embeds every turn on-device, so an agent can recall what you talked about weeks ago. Nothing leaves your Mac to do it and there's no embedding bill. Deleting a chat forgets it.
+- **Export any chat** as markdown or JSON, or copy it to the clipboard.
+- **⌘⌃K opens and closes the notch** from any app — no Accessibility permission needed.
+- **Settings is a real window now**, with panes for Agents, Workspace, MCP and Memory. The menu-bar dropdown couldn't hold a form.
+- **MCP, both ways.** Ready-to-paste setup for Claude Code, Codex, Cursor and Devin, plus new chat tools — agents can list, read and search your conversations, and `post_to_chat` writes back so their answer lands where you'll see it.
+- **No more red warning under your tasks.** A missing API key isn't a failed run: it opens Settings on that agent instead. And no run outcome is permanent any more — the footer clears itself.
+- **A third face: the HUD.** ⌘⌃M expands chat to full screen, with rails for your agents, open tasks, what Visor has learned and what you've dictated. Transparency and size are sliders in the HUD itself, because you can only judge either while looking at it. It grows out of the notch and collapses back into it.
+- **Agents can do things, not just answer.** They read your note, add and complete tasks, load web pages, and run shell commands in your project folder. Anything irreversible asks first and shows the actual command; "Always" is remembered per agent and per tool.
+- **Dictation.** ⌘⌃V or hold a modifier of your choosing. The notch widens into a live level meter while you speak, then transcribes and closes. Everything dictated is logged, and a cheap model can tidy punctuation and mishearings first.
+- **Optional knowledge graph.** A cheap model extracts durable facts from your conversations and stores them as connected claims, so recall walks relationships instead of matching wording.
+- **Per-message model, thinking effort and routing** in the composer, with models pinned per agent — the full OpenRouter catalogue stays behind a search.
+- **Signed and notarized.** Visor ships with a Developer ID signature and a stapled ticket, and there's a DMG. This also stops macOS re-asking for Keychain and Accessibility permission on every update.
+- **New app icon.**
+
 ## 1.0-beta.35 — 2026-07-15
 
 - **Links on tasks.** Attach a URL to any task with the link button on its row — tap to open it in your browser, or right-click for Add / Edit / Remove link. Linked tasks show a filled blue link icon. The URL is tucked into the markdown as a trailing comment, so your notes stay clean and agents still read plain text.

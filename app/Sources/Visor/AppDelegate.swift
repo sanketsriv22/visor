@@ -2,6 +2,11 @@ import AppKit
 import Sparkle
 import SwiftUI
 
+/// Main-actor isolated: every member touches AppKit or the notch controller,
+/// which is itself main-actor state. The Apple Event handlers below are the
+/// reason this is explicit — they arrive as plain @objc selectors with no
+/// isolation of their own.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var controller: NotchController?
     private var statusItem: NSStatusItem?
@@ -11,6 +16,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var runModeMenu: NSMenu?
     private var runInFolderMenu: NSMenu?
     private var settingsWindow: NSWindow?
+    /// Global shortcuts, held for the app's lifetime — releasing one
+    /// unregisters it.
+    private var hotKeys: [HotKey] = []
+    /// Hold-a-modifier dictation. Off unless the user turns it on, because it
+    /// is the only part of Visor that needs Accessibility.
+    let pushToTalk = PushToTalk()
 
     /// Posted by a second launch so the already-running instance shows its note.
     private static let showNoteNotification = Notification.Name("com.kitalabs.visor.showNote")
@@ -72,15 +83,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             exit(0)
         }
 
-        // Configure Firebase (anonymous auth + Firestore) for live note sharing.
-        // No-op when no GoogleService-Info.plist is bundled, so dev builds run fine.
-        #if canImport(FirebaseCore)
-        FirebaseBootstrap.start()
-        #endif
+        // Before anything reads a key, so the one remaining prompt happens
+        // once at launch rather than the first time a send needs it.
+        Keychain.migrateToOpenAccess()
 
         setUpMainMenu()
-        controller = NotchController(startExpanded: args.contains("--expanded"), ai: ai)
+        // The status item goes up before anything heavier runs. Its menu only
+        // touches `controller` through optionals, and putting it first means a
+        // failure further down degrades a feature instead of leaving the user
+        // with a running app they have no way to reach.
         setUpStatusItem()
+        controller = NotchController(startExpanded: args.contains("--expanded"), ai: ai)
 
         // Re-launching Visor (e.g. from Spotlight) brings the note down.
         DistributedNotificationCenter.default().addObserver(
@@ -95,6 +108,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             forName: NSApplication.willResignActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
             self?.controller?.saveNow()
+        }
+
+        bindShortcuts()
+        NotificationCenter.default.addObserver(
+            forName: .visorShortcutsChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.bindShortcuts()
+        }
+
+        pushToTalk.onHoldStart = { [weak self] in self?.controller?.beginDictation() }
+        pushToTalk.onHoldEnd = { [weak self] in self?.controller?.endDictation() }
+        pushToTalk.onToggle = { [weak self] in self?.controller?.toggleDictation() }
+        // The notch asks for Settings (e.g. from "no agents yet").
+        NotificationCenter.default.addObserver(
+            forName: .visorOpenSettings, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.showSettings(focusing: nil)
+        }
+
+        // Tasks sent to a chat agent are answered in the notch itself.
+        NotificationCenter.default.addObserver(
+            forName: .visorRunInNotch, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let prompt = note.userInfo?["prompt"] as? String else { return }
+            self?.controller?.runInNotch(
+                prompt: prompt, agentName: note.userInfo?["provider"] as? String)
+        }
+
+        // A send against an agent with no key stored opens Settings instead of
+        // leaving a warning under the user's tasks.
+        NotificationCenter.default.addObserver(
+            forName: .visorProviderNeedsKey, object: nil, queue: .main
+        ) { [weak self] note in
+            self?.showSettings(focusing: note.userInfo?["provider"] as? String)
         }
 
         if args.contains("--settings") { openSettings() }
@@ -353,16 +400,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    @objc private func openSettings() {
+    /// Bind every shortcut to whatever the user has chosen.
+    ///
+    /// Rebuilt from scratch each time rather than patched: releasing the old
+    /// HotKey objects is what unregisters them, so dropping the array is both
+    /// the simplest and the only correct way to change a binding.
+    private func bindShortcuts() {
+        hotKeys.removeAll()
+        let settings = ShortcutSettings.shared
+        for action in ShortcutSettings.Action.allCases {
+            let chord = settings.chord(for: action)
+            let handler: () -> Void = { [weak self] in
+                guard let controller = self?.controller else { return }
+                switch action {
+                case .toggle:   controller.toggle()
+                case .swapMode: controller.swapMode()
+                case .hud:      controller.toggleHUD()
+                case .dictate:  controller.toggleDictation()
+                case .agent1:   controller.selectAgent(0)
+                case .agent2:   controller.selectAgent(1)
+                case .agent3:   controller.selectAgent(2)
+                case .agent4:   controller.selectAgent(3)
+                case .agent5:   controller.selectAgent(4)
+                }
+            }
+            let hotKey = HotKey(keyCode: chord.keyCode, modifiers: chord.modifiers,
+                                action: handler)
+            if let hotKey { hotKeys.append(hotKey) }
+            // Recorded either way: a combination another app already owns fails
+            // to bind, and a silent failure is indistinguishable from a
+            // shortcut that's bound and misbehaving.
+            settings.markBound(action, bound: hotKey != nil)
+            if hotKey == nil {
+                NSLog("[Visor] Couldn't bind \(chord.display) — another app owns it.")
+            }
+        }
+    }
+
+    @objc private func openSettings() { showSettings(focusing: nil) }
+
+    /// Show the Settings window, optionally scrolled to a specific agent (used
+    /// when a send is blocked on a missing API key).
+    private func showSettings(focusing provider: String?) {
+        if let provider { SettingsFocus.shared.provider = provider }
         if settingsWindow == nil {
+            // Settings needs a real window now: agents have names, models,
+            // personas and keys, plus memory and MCP panes. Resizable, because
+            // model ids and MCP commands are long.
+            guard let controller else { return }
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 500, height: 480),
-                styleMask: [.titled, .closable],
+                contentRect: NSRect(x: 0, y: 0, width: 820, height: 580),
+                styleMask: [.titled, .closable, .resizable],
                 backing: .buffered,
                 defer: false
             )
             window.title = "Visor Settings"
-            window.contentView = NSHostingView(rootView: SettingsView(ai: ai))
+            window.contentView = NSHostingView(
+                rootView: SettingsView(ai: ai, chat: controller.chat, pushToTalk: pushToTalk))
             window.isReleasedWhenClosed = false
             window.center()
             settingsWindow = window

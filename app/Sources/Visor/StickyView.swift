@@ -5,7 +5,9 @@ struct StickyRootView: View {
     @ObservedObject var store: NotesStore
     @ObservedObject var ui: UIState
     @ObservedObject var ai: AIRunner
+    @ObservedObject var chat: ChatController
     var onToggle: () -> Void
+    var onMode: (VisorMode) -> Void
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -13,14 +15,198 @@ struct StickyRootView: View {
                 // The card extends up behind the notch (topInset) so the notch
                 // overlaps its top edge — the note looks like it slides out
                 // from *behind* the notch, not off its bottom lip.
-                StickyCard(store: store, ai: ai, topInset: ui.notchSize.height, notchWidth: ui.notchSize.width, suppressHover: ui.settling, onClose: onToggle)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                //
+                // Both faces live in one ZStack and the window never resizes
+                // between them, so switching modes is a pure SwiftUI
+                // animation: the card grows sideways instead of the window
+                // snapping to a new size under it.
+                // Unconditional: it decides for itself whether to draw, so
+                // starting dictation never invalidates this body and the card
+                // beneath it is never rebuilt.
+                //
+                // Suppressed on the chat face, which already shows the mic
+                // state and level in its own header — two indicators for one
+                // thing, and this one lands on top of the card's controls.
+                ListeningPillHost(voice: chat.voice,
+                                  notch: ui.trueNotch,
+                                  suppressed: ui.mode != .notes)
+                    .zIndex(1)
+
+                // Hidden while the HUD is up, and it *retracts* to get there —
+                // scaling into the notch it came from rather than the window
+                // being ordered away underneath it, which is what made the
+                // switch feel like a cut rather than a movement.
+                if !ui.mode.isFullScreen {
+                    morphingCard
+                        .transition(.scale(scale: 0.02, anchor: .top)
+                            .combined(with: .opacity))
+                }
+
+                // One switcher, measured from the notch rather than the card.
+                //
+                // Two bugs met here. Each face used to build its own, so a
+                // swap destroyed one instance and created another and SwiftUI
+                // cross-faded them — the icons read as replaced rather than
+                // switched. Hoisting to one instance fixed that, but it hung
+                // off the card as an overlay, and the card's width animates
+                // 420 → 530 during a swap. Its centre is stable only once the
+                // layout settles; mid-flight the overlay is re-proposed the
+                // card's intermediate width every frame, so the switcher
+                // drifted for the length of the transition and landed back
+                // where it started.
+                //
+                // Here it's a sibling of the card, positioned off the notch —
+                // which cannot move while the notch is open — so there is no
+                // animating geometry between it and the screen.
+                if !ui.mode.isFullScreen {
+                    ModeSwitcher(mode: ui.mode, onSelect: onMode)
+                        .frame(height: ui.notchSize.height)
+                        .offset(x: -switcherDistance)
+                        // Out of the notch, with the card.
+                        //
+                        // Being a sibling rather than the card's overlay is
+                        // what stops it drifting during a face swap, but it
+                        // also meant it stopped inheriting the card's
+                        // transition: on open the icons simply appeared, fully
+                        // formed, while the card was still growing out of the
+                        // notch behind them. The anchor is the notch's centre
+                        // expressed in the switcher's own width, so it scales
+                        // out of the same point the card does instead of
+                        // swelling in place off to one side.
+                        //
+                        // Transitions only run on insert and remove, so this
+                        // costs nothing during a swap — the view is never
+                        // replaced there, which was the original point.
+                        .transition(.scale(scale: 0.02, anchor: switcherAnchor)
+                            .combined(with: .opacity))
+                        .zIndex(3)
+                }
             } else {
-                NotchStrip(size: ui.notchSize, expanded: false, suppressHover: ui.settling)
+                // Collapsed. The strip sits over the physical notch; the
+                // listening pill extends to its right, so the notch appears to
+                // widen rather than a window opening beside it.
+                // .top so the extension lines up with the notch's top edge;
+                // the strip below it is 8pt taller than the hardware because of
+                // the click underhang.
+                HStack(alignment: .top, spacing: 0) {
+                    if ui.listening {
+                        // The mirror of the meter: same width, same shape,
+                        // rounded on the outer corner instead of the inner one.
+                        ListeningPill(voice: chat.voice,
+                                      height: ui.trueNotch.height,
+                                      side: .leading)
+                            .transition(.offset(x: Self.pillTravel))
+                    }
+                    // Above both, so the pills are genuinely hidden underneath
+                    // it at rest and emerge from beneath it — which is the only
+                    // way this reads as the notch widening rather than as two
+                    // panels appearing either side of it.
+                    NotchStrip(size: ui.notchSize)
+                        .zIndex(1)
+                    if ui.listening {
+                        ListeningPill(voice: chat.voice, height: ui.trueNotch.height)
+                            .transition(.offset(x: -Self.pillTravel))
+                    }
+                }
+                // Movement, never opacity or scale.
+                //
+                // A fade was the first mistake: the pill is solid black over a
+                // transparent window, so fading it out showed the desktop
+                // through it — the notch appeared to go see-through rather than
+                // to close. Scaling was the second: growing from a sliver at
+                // the notch's edge unfolds *beside* the notch, which is why it
+                // looked like a panel arriving rather than the notch widening.
+                //
+                // It slides. At rest each pill sits one full width inwards,
+                // underneath the strip that is drawn above it, and travels out
+                // from there — so it is genuinely emerging from behind the
+                // notch, opaque the whole way, and retracting back under it.
+                //
+                // Slower going in than coming out. Things that open can be
+                // quick because you asked for them; things that close should
+                // take their time, or they read as vanishing rather than
+                // being put away.
+                .animation(ui.listening
+                           ? .spring(response: 0.34, dampingFraction: 0.86)
+                           : .spring(response: 0.5, dampingFraction: 0.95),
+                           value: ui.listening)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(\.colorScheme, .dark)
+    }
+
+    /// How far left of centre the switcher sits — clear of the notch, hugging
+    /// its edge.
+    /// How far a pill travels: its own width plus the overlap that keeps it
+    /// tucked under the strip, so at rest none of it protrudes.
+    static var pillTravel: CGFloat {
+        NotchController.listeningPillWidth + NotchController.listeningPillOverlap
+    }
+
+    private var switcherDistance: CGFloat {
+        (ui.notchSize.width + NotchController.notchClearance) / 2 + ModeSwitcher.width / 2
+    }
+
+    /// That same point, as a UnitPoint in the switcher's coordinate space.
+    ///
+    /// UnitPoint is measured in multiples of the view's own size and is happy
+    /// outside 0…1, so a point two and a half widths to the right of a 50pt
+    /// control is expressible — and after the offset it lands exactly on the
+    /// centre of the notch.
+    private var switcherAnchor: UnitPoint {
+        UnitPoint(x: 0.5 + switcherDistance / ModeSwitcher.width, y: 0)
+    }
+
+    private var cardShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: 0,
+            bottomLeadingRadius: 18,
+            bottomTrailingRadius: 18,
+            topTrailingRadius: 0)
+    }
+
+    /// One card that changes shape, rather than two cards dissolving into each
+    /// other.
+    ///
+    /// The chrome — fill, border, shadow — is a single persistent view whose
+    /// frame animates between the two modes' sizes, so the black card visibly
+    /// grows and shrinks along the spring. Only the *contents* swap, and they
+    /// cross-fade quickly inside the moving shape.
+    ///
+    /// Previously each mode drew its own background at its own fixed size,
+    /// which gave SwiftUI two unrelated views and no choice but to dissolve
+    /// one into the other — that's the fade this replaces. Content is clipped
+    /// to the shape so a view still laid out at the old width can't spill past
+    /// the edge mid-morph.
+    private var morphingCard: some View {
+        let size = NotchController.cardSize(for: ui.mode)
+        return ZStack(alignment: .top) {
+            Group {
+                switch ui.mode {
+                case .notes:
+                    StickyCard(store: store, ai: ai, topInset: ui.notchSize.height,
+                               notchWidth: ui.notchSize.width,
+                               suppressHover: ui.settling,
+                               listening: ui.listening && ui.mode == .notes,
+                               mode: ui.mode, onMode: onMode, onClose: onToggle)
+                case .chat, .hud:
+                    ChatCard(chat: chat, ai: ai, topInset: ui.notchSize.height,
+                             notchWidth: ui.notchSize.width,
+                             mode: ui.mode, onMode: onMode,
+                             onHUD: { onMode(.hud) }, onClose: onToggle)
+                }
+            }
+            // Short and eased: the shape's travel should read as the motion,
+            // not the contents flickering.
+            .transition(.opacity.animation(.easeInOut(duration: 0.16)))
+        }
+        .frame(width: size.width, height: size.height + ui.notchSize.height)
+        .background(cardShape.fill(Color.black))
+        .clipShape(cardShape)
+        .overlay(CardEdgeBorder(radius: 18).stroke(.white.opacity(0.14), lineWidth: 1))
+        .shadow(color: .black.opacity(0.35), radius: 5, y: 2)
     }
 }
 
@@ -30,50 +216,24 @@ struct StickyRootView: View {
 /// the physical notch, since pixels inside the notch rect don't exist.
 private struct NotchStrip: View {
     let size: CGSize
-    let expanded: Bool
-    /// True briefly after the card collapses, while the window is still resizing
-    /// — suppresses the hover popup so it doesn't reflow mid-resize.
-    var suppressHover: Bool
 
-    @State private var hovering = false
-
+    /// Nothing but a hit target now.
+    ///
+    /// The hover pull-tab that used to appear beneath the notch is gone: it
+    /// existed to teach that the notch is clickable, and once you know that
+    /// it's just something flickering under the cursor every time you reach
+    /// for the menu bar.
     var body: some View {
-        ZStack(alignment: .bottom) {
-            // Always-present invisible hit target so the notch stays clickable.
-            Color.black.opacity(0.011)
-
-            if hovering && !expanded && !suppressHover {
-                ZStack(alignment: .bottom) {
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 0,
-                        bottomLeadingRadius: 8,
-                        bottomTrailingRadius: 8,
-                        topTrailingRadius: 0
-                    )
-                    .fill(Color.black)
-                    Capsule()
-                        .fill(.white.opacity(0.5))
-                        .frame(width: size.width * 0.4, height: 2.5)
-                        .padding(.bottom, 3)
-                }
-                // Pure fade in/out — never a positional/sliding animation.
-                .transition(.opacity)
-            }
-        }
-        .frame(width: size.width, height: size.height)
-        // Never animate the strip's layout when the window resizes on collapse —
-        // that's what caused the popup to slide in from the right.
-        .animation(nil, value: size)
-        .contentShape(Rectangle())
-        // Gentle fade so the pull-tab eases in rather than snapping.
-        .onHover { h in withAnimation(.easeInOut(duration: 0.2)) { hovering = h } }
+        Color.black.opacity(0.011)
+            .frame(width: size.width, height: size.height)
+            .contentShape(Rectangle())
     }
 }
 
 /// The card's outline minus the top edge — traces left, bottom (rounded), and
 /// right. Used for the card border so the top (which sits at the black screen
 /// edge) isn't stroked.
-private struct CardEdgeBorder: Shape {
+struct CardEdgeBorder: Shape {
     var radius: CGFloat = 18
     func path(in rect: CGRect) -> Path {
         let r = min(radius, rect.height)
@@ -297,6 +457,10 @@ private struct StickyCard: View {
     var notchWidth: CGFloat
     /// Suppress per-row hover affordances while the card animates open.
     var suppressHover: Bool
+    /// True while dictation is showing its extension beside the notch.
+    var listening: Bool
+    var mode: VisorMode
+    var onMode: (VisorMode) -> Void
     var onClose: () -> Void
 
     // @FocusState owns the SwiftUI text fields (title + add row). Task rows are
@@ -421,17 +585,9 @@ private struct StickyCard: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
         }
-        .frame(width: NotchController.cardWidth, height: NotchController.cardHeight + topInset)
-        .background(
-            shape
-                .fill(Color.black)
-                .shadow(color: .black.opacity(0.35), radius: 5, y: 2)
-        )
-        .overlay(
-            // Border on the left, bottom, and right only — no top edge, which sat
-            // at the black screen edge and read as an odd light line.
-            CardEdgeBorder(radius: 18).stroke(.white.opacity(0.14), lineWidth: 1)
-        )
+        // Chrome and size are the root view's job now, so the card can morph
+        // between modes as one shape.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(WindowReader { hostWindow = $0 })
         .onExitCommand(perform: onClose)
         // Focusing a SwiftUI field (title/add row) means no task row is focused.
@@ -452,37 +608,51 @@ private struct StickyCard: View {
     /// The strip at notch height. Left shoulder: VISOR + the open-task count.
     /// Right shoulder: the share/presence beacon, then the beam button at the far
     /// right edge. A gap in the middle clears the physical notch.
+    /// The strip at notch height, centred on the notch rather than stretched
+    /// across the card. Both faces build this the same way and from the same
+    /// constants, so nothing in it moves when the card changes size.
     private var notchBand: some View {
-        let gap = notchWidth + 18 // notch + a little clearance on each side
-        let shoulder = max(0, (NotchController.cardWidth - gap) / 2)
-        return HStack(spacing: 0) {
-            // The shoulder is only ~101pt (card 420, notch 200), so keep this tight:
-            // VISOR stays whole and left-justified; the count is right-justified
-            // against the notch and truncates (never overflows under it).
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            // Switcher against the notch, count pushed to the outer edge.
+            //
+            // The shoulder is a fixed width anchored to the notch, so whatever
+            // sits at its *outer* end is a fixed distance from the notch and a
+            // varying distance from the card edge — which left the switcher
+            // stranded in open space on the wider chat card. Hugging the notch
+            // puts it in the same place on both faces, whatever the card does.
             HStack(spacing: 4) {
-                Text("VISOR")
-                    .font(.system(size: 11, weight: .semibold))
-                    .tracking(1)
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-                    .layoutPriority(1)
-                Spacer(minLength: 4)
                 Text("\(store.openTaskCount) open")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(store.openTaskCount > 0 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                     .lineLimit(1)
+                Spacer(minLength: 4)
+                // Reserved for the switcher the root draws.
+                Color.clear.frame(width: ModeSwitcher.width, height: 1)
             }
+            // Swapping the band left the count flush against the card's edge.
             .padding(.leading, 12)
-            .padding(.trailing, 2)
-            .frame(width: shoulder, alignment: .leading)
-            Spacer(minLength: 0).frame(width: gap)
+            .frame(width: NotchController.shoulderWidth, alignment: .trailing)
+            Spacer(minLength: 0)
+                .frame(width: notchWidth + NotchController.notchClearance)
+            // Parked at the shoulder's outer edge permanently. It used to hug
+            // the notch and slide aside when dictation started, which kept it
+            // clear of the extension but made a control jump for a reason
+            // unrelated to it — a moving target is worse than a static one
+            // slightly further out.
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
                 if store.isActiveNoteShared { sharedBeacon }
                 beamButton
             }
+            // Padding inside the fixed width, never outside it. Applied
+            // after .frame this made the shoulder 116pt against the chat
+            // card's 106 — and since the band is a centred assembly, ten extra
+            // points on the right shifted everything left, so the mode
+            // switcher moved when you swapped faces.
             .padding(.trailing, 10)
-            .frame(width: shoulder, alignment: .trailing)
+            .frame(width: NotchController.shoulderWidth, alignment: .trailing)
+            Spacer(minLength: 0)
         }
         .frame(height: topInset)
     }
@@ -518,7 +688,7 @@ private struct StickyCard: View {
                 .padding(.leading, 6)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.visor)
         .help("Add a task")
     }
 
@@ -544,7 +714,7 @@ private struct StickyCard: View {
                 .padding(.horizontal, 4)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.visor)
         .help("Beam a live link — edits sync both ways")
     }
 
@@ -673,7 +843,7 @@ private struct StickyCard: View {
                 .foregroundStyle(.secondary)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.visor)
             .padding(.top, 6)
             .padding(.bottom, 2)
 
@@ -878,14 +1048,14 @@ private struct StickyCard: View {
                         .font(.system(size: 10))
                         .foregroundStyle(.green)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.visorBare)
             case .failed(let why):
                 Button(action: ai.revealLog) {
                     Label("\(ai.lastProviderName) failed (\(why))", systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 10))
                         .foregroundStyle(.red)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.visorBare)
             }
         }
     }
@@ -1085,7 +1255,7 @@ private struct NoteRow: View {
                                 .frame(width: 24, height: 24)   // solid, reliable hit target
                                 .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.visor)
                         .modifier(IconHoverGlow())
                         .help("Send just this task to the chosen agent")
                     }
@@ -1094,7 +1264,7 @@ private struct NoteRow: View {
                             .frame(width: 24, height: 24)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.visor)
                     .modifier(IconHoverGlow())
                     .help("Delete task")
                     if item.isTask {
@@ -1105,7 +1275,7 @@ private struct NoteRow: View {
                                 .frame(width: 24, height: 24)
                                 .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.visor)
                         .modifier(IconHoverGlow())
                         .help(item.link?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? "Open link" : "Add link")
                     }
@@ -1230,5 +1400,34 @@ private struct WindowReader: NSViewRepresentable {
     }
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async { onWindow(nsView.window) }
+    }
+}
+
+/// Root of the HUD's own window.
+///
+/// Separate from the card's root so neither window has to change size for the
+/// other: the card's panel stays card-width and off the menu bar, and this one
+/// is created at full screen and only ever shown or hidden.
+struct HUDRootView: View {
+    @ObservedObject var chat: ChatController
+    @ObservedObject var store: NotesStore
+    @ObservedObject var ui: UIState
+    var onExit: () -> Void
+    var onClose: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            // Always mounted, visibility driven by the mode — a view removed
+            // from the hierarchy can't animate its own exit, which is why
+            // leaving the HUD used to be instant.
+            HUDView(chat: chat, store: store,
+                    notchWidth: ui.notchSize.width,
+                    topInset: ui.notchSize.height,
+                    onExit: onExit,
+                    onClose: onClose,
+                    visible: ui.mode.isFullScreen)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .environment(\.colorScheme, .dark)
     }
 }

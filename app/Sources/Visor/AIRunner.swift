@@ -6,20 +6,74 @@ import Foundation
 struct AIProvider: Codable, Identifiable, Equatable {
     /// How a send reaches the agent: run a local CLI, or POST to the Devin
     /// cloud API and open the resulting session.
-    enum Kind: String, Codable { case cli, devinCloud }
+    /// - cli: run a local command-line agent
+    /// - devinCloud: POST to Devin's REST API and open the session
+    /// - openRouter: talk to a model directly, in the notch
+    enum Kind: String, Codable { case cli, devinCloud, openRouter }
 
     var name: String          // shown in the UI, e.g. "Devin"
     var command: String       // executable name or absolute path, e.g. "devin"
     var args: [String]        // fixed args; the prompt is appended after these
     var apiKeyEnv: String?    // env var the CLI reads its key from, if any (e.g. "OPENAI_API_KEY")
+    /// Where this agent's CLI keeps its credentials.
+    ///
+    /// A tool signs in once for the whole machine, so without this every CLI
+    /// agent shares one account — which is how a work subscription ends up
+    /// answering personal questions with nothing on screen to say so. Pointing
+    /// two agents at two directories makes them two accounts.
+    var configDir: String?
     var interactiveArgs: [String]?  // args used in Terminal mode instead of `args`, to run the
                                     // CLI interactively (e.g. claude with no -p). Falls back to `args`.
     var kind: Kind?           // nil / .cli = local CLI; .devinCloud = Devin REST API
+    /// OpenRouter model id for `.openRouter` agents, e.g. "anthropic/claude-sonnet-4".
+    var model: String?
+    /// Optional persona prepended to every conversation with this agent.
+    var systemPrompt: String?
+    /// How hard the model should think, for models that support it:
+    /// "low" / "medium" / "high". Nil leaves it to the provider's default.
+    var effort: String?
+    /// Route to the fastest provider serving this model rather than the
+    /// cheapest. Costs more per token; worth it for short interactive turns.
+    var fastMode: Bool?
+    /// Tools this agent may run without asking each time.
+    ///
+    /// Per agent, not global: a research agent you let browse freely and an
+    /// agent with shell access are not the same trust decision.
+    var autoApprovedTools: [String]?
+
+    /// Answer in the notch rather than a Terminal window. CLI agents only.
+    var runsInNotch: Bool?
+
+    /// Models this agent switches between often.
+    ///
+    /// OpenRouter lists several hundred; nobody picks from that in a notch.
+    /// The picker shows these first and keeps the full catalogue behind a
+    /// search, which is the difference between choosing and hunting.
+    var favouriteModels: [String]?
     var id: String { name }
 
     var isDevinCloud: Bool { kind == .devinCloud }
+    /// Runs a conversation in the notch rather than handing off to a CLI or
+    /// the Devin API.
+    var isChat: Bool { kind == .openRouter }
+
+    /// A local CLI agent that answers in the notch instead of opening a
+    /// Terminal — Claude Code and friends as first-class agents in the app.
+    var isNotchCLI: Bool { (kind == nil || kind == .cli) && (runsInNotch ?? false) }
+
+    /// Anything the composer can talk to.
+    var isNotchAgent: Bool { isChat || isNotchCLI }
     /// Whether this provider authenticates with a stored key (env var or Bearer token).
-    var needsKey: Bool { apiKeyEnv != nil || isDevinCloud }
+    var needsKey: Bool { apiKeyEnv != nil || isDevinCloud || isChat }
+
+    /// Which Keychain account holds this agent's key.
+    ///
+    /// Every OpenRouter agent shares one entry: a user who names five agents
+    /// pointing at five models has one OpenRouter account behind all of them,
+    /// and should paste the key once. CLI and Devin agents keep their own.
+    var keyAccount: String {
+        isChat ? OpenRouterClient.sharedKeyAccount : name
+    }
 }
 
 private struct ProvidersConfig: Codable {
@@ -67,6 +121,32 @@ final class AIRunner: ObservableObject {
     var isBusy: Bool { runningCount > 0 }
     private var lastLogURL: URL?
 
+    /// How long a finished run's status stays in the note footer before it
+    /// clears itself.
+    private static let resultLinger: TimeInterval = 12
+    /// Pending auto-clear of `lastResult`, cancelled if a new run starts first.
+    private var resultClear: DispatchWorkItem?
+
+    /// Publish a run outcome, then clear it after `resultLinger`.
+    ///
+    /// A run outcome is transient status, not a standing condition. Assigning
+    /// `lastResult` directly used to park the result under the user's tasks
+    /// until the *next* send — so a single failure read as a permanently
+    /// broken app. Nothing in the footer is permanent any more.
+    private func setResult(_ result: RunResult) {
+        resultClear?.cancel()
+        resultClear = nil
+        lastResult = result
+        guard result != .none else { return }
+        let work = DispatchWorkItem { [weak self] in
+            // A run that started in the meantime owns the footer now.
+            guard let self, self.runningCount == 0 else { return }
+            self.lastResult = .none
+        }
+        resultClear = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.resultLinger, execute: work)
+    }
+
     private var homeDir: URL { FileManager.default.homeDirectoryForCurrentUser }
 
     /// Where agents run: the user-chosen project folder if set and present,
@@ -79,6 +159,9 @@ final class AIRunner: ObservableObject {
         if fm.fileExists(atPath: repos.path) { return repos }
         return homeDir
     }
+
+    /// The folder tools and CLI agents operate in.
+    var workDirURL: URL { workDir }
 
     /// The working directory shown to the user, with home abbreviated to ~.
     var workDirDisplay: String {
@@ -117,6 +200,11 @@ final class AIRunner: ObservableObject {
     )
 
     private let defaultKey = "visor.defaultProvider"
+    /// Names of built-in agents the user has deleted.
+    ///
+    /// Without this, the migration below helpfully re-added Devin every launch,
+    /// so deleting it did nothing that survived a restart.
+    private let removedDefaultsKey = "visor.removedDefaultProviders"
     private let runModeKey = "visor.runMode"
     private let projectDirKey = "visor.projectDir"
 
@@ -164,42 +252,85 @@ final class AIRunner: ObservableObject {
     func send(tasks: [String], provider: AIProvider, taskIDs: [UUID] = []) {
         guard !tasks.isEmpty else { return } // no single-run guard: runs are concurrent
         lastSessionURL = nil
+        setResult(.none)   // a new send supersedes whatever the footer showed
+        if provider.isChat {
+            // Chat agents answer in the notch: hand the tasks to the composer
+            // rather than opening a Terminal or a browser tab.
+            lastProviderName = provider.name
+            NotificationCenter.default.post(
+                name: .visorRunInNotch, object: nil,
+                userInfo: ["provider": provider.name,
+                           "prompt": buildPrompt(tasks, style: .plain)])
+            return
+        }
         if provider.isDevinCloud {
             sendToDevinCloud(tasks: tasks, provider: provider, taskIDs: taskIDs)
             return
         }
         guard let exe = resolveExecutable(provider.command) else {
             lastProviderName = provider.name
-            lastResult = .failed("\(provider.name) not found (\(provider.command))")
+            setResult(.failed("\(provider.name) not found (\(provider.command))"))
             return
         }
         lastProviderName = provider.name
         // Local CLI agents run in the chosen project folder, so the prompt frames
         // the task for that repo. Devin Cloud works in its own sandbox, so it omits
         // the local working-directory line.
-        let prompt = buildPrompt(tasks, includeWorkdir: true)
+        let prompt = buildPrompt(tasks, style: .coding, includeWorkdir: true)
         switch runMode {
         case .terminal:   runInTerminal(exe: exe, provider: provider, prompt: prompt)
         case .background: runInBackground(exe: exe, provider: provider, prompt: prompt, taskIDs: taskIDs)
         }
     }
 
-    private func buildPrompt(_ tasks: [String], includeWorkdir: Bool) -> String {
-        let list = tasks.map { "- \($0)" }.joined(separator: "\n")
-        let context = includeWorkdir
-            ? "\nYou're working in \(workDirDisplay) (the current directory) — treat these "
-              + "as tasks for that project, and you have access to all of its code.\n"
-            : ""
-        return """
-        Here are tasks from my sticky note:
+    /// How a task is framed for the agent receiving it.
+    private enum PromptStyle {
+        /// A coding agent with a checkout and a shell.
+        case coding
+        /// A conversation. No repo, no tools, no PRs.
+        case plain
+    }
 
-        \(list)
-        \(context)
-        Work through them. For each task, do whatever it takes to finish it — you \
-        have my permission to run any tools and to spin up additional agents or \
-        sessions as needed. Make the actual changes (and open PRs where that fits). \
-        When you complete a task, say so clearly. End with a short summary.
-        """
+    /// Turn selected tasks into a prompt.
+    ///
+    /// The framing has to match the agent, which it previously didn't: every
+    /// send got the coding preamble, so "order hand soap" arrived at a chat
+    /// model as a task for a repository, with permission to spin up sessions
+    /// and open pull requests. That reads as a broken app, and it drags the
+    /// model's answer somewhere useless.
+    ///
+    /// A conversation gets the task close to verbatim. A single task is sent
+    /// exactly as written — the user already said what they wanted, and
+    /// wrapping it only gives the model something else to respond to.
+    private func buildPrompt(_ tasks: [String], style: PromptStyle,
+                             includeWorkdir: Bool = false) -> String {
+        let list = tasks.map { "- \($0)" }.joined(separator: "\n")
+
+        switch style {
+        case .plain:
+            guard tasks.count > 1 else { return tasks[0] }
+            return """
+            Help me with these:
+
+            \(list)
+            """
+
+        case .coding:
+            let context = includeWorkdir
+                ? "\nYou're working in \(workDirDisplay) (the current directory) — treat these "
+                  + "as tasks for that project, and you have access to all of its code.\n"
+                : ""
+            return """
+            Here are tasks from my sticky note:
+
+            \(list)
+            \(context)
+            Work through them. For each task, do whatever it takes to finish it — you \
+            have my permission to run any tools and to spin up additional agents or \
+            sessions as needed. Make the actual changes (and open PRs where that fits). \
+            When you complete a task, say so clearly. End with a short summary.
+            """
+        }
     }
 
     /// Create a Devin cloud session via the REST API and open it in the Devin
@@ -207,7 +338,12 @@ final class AIRunner: ObservableObject {
     private func sendToDevinCloud(tasks: [String], provider: AIProvider, taskIDs: [UUID]) {
         lastProviderName = provider.name
         guard let key = Keychain.get(provider.name), !key.isEmpty else {
-            lastResult = .failed("Add a Devin API key in Settings")
+            // Not a failure — the agent was simply never configured. Open
+            // Settings on it rather than leaving a warning in the note.
+            setResult(.none)
+            NotificationCenter.default.post(
+                name: .visorProviderNeedsKey, object: nil,
+                userInfo: ["provider": provider.name])
             return
         }
         guard let url = URL(string: "https://api.devin.ai/v1/sessions") else { return }
@@ -216,7 +352,7 @@ final class AIRunner: ObservableObject {
         req.httpMethod = "POST"
         req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        var body: [String: Any] = ["prompt": buildPrompt(tasks, includeWorkdir: false)]
+        var body: [String: Any] = ["prompt": buildPrompt(tasks, style: .coding)]
         if let first = tasks.first?.trimmingCharacters(in: .whitespaces), !first.isEmpty {
             body["title"] = String(first.prefix(60))
         }
@@ -236,12 +372,12 @@ final class AIRunner: ObservableObject {
                 }
                 self.lastProviderName = provider.name
                 if let error {
-                    self.lastResult = .failed(error.localizedDescription)
+                    self.setResult(.failed(error.localizedDescription))
                     return
                 }
                 let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
                 guard (200..<300).contains(code) else {
-                    self.lastResult = .failed("Devin API error \(code)")
+                    self.setResult(.failed("Devin API error \(code)"))
                     return
                 }
                 if let data,
@@ -250,7 +386,7 @@ final class AIRunner: ObservableObject {
                     self.lastSessionURL = sessionURL
                     NSWorkspace.shared.open(sessionURL)
                 }
-                self.lastResult = .done
+                self.setResult(.done)
             }
         }.resume()
     }
@@ -290,7 +426,7 @@ final class AIRunner: ObservableObject {
                     let n = (self.runningTaskIDs[id] ?? 0) - 1
                     if n <= 0 { self.runningTaskIDs[id] = nil } else { self.runningTaskIDs[id] = n }
                 }
-                self.lastResult = proc.terminationStatus == 0 ? .done : .failed("exit \(proc.terminationStatus)")
+                self.setResult(proc.terminationStatus == 0 ? .done : .failed("exit \(proc.terminationStatus)"))
                 self.lastProviderName = provider.name
                 self.lastLogURL = logURL
             }
@@ -302,7 +438,7 @@ final class AIRunner: ObservableObject {
             for id in taskIDs { runningTaskIDs[id, default: 0] += 1 }
             lastLogURL = logURL
         } catch {
-            lastResult = .failed(error.localizedDescription)
+            setResult(.failed(error.localizedDescription))
         }
     }
 
@@ -326,7 +462,7 @@ final class AIRunner: ObservableObject {
         do {
             try prompt.write(to: promptURL, atomically: true, encoding: .utf8)
         } catch {
-            lastResult = .failed("couldn't stage prompt: \(error.localizedDescription)")
+            setResult(.failed("couldn't stage prompt: \(error.localizedDescription)"))
             return
         }
 
@@ -360,7 +496,7 @@ final class AIRunner: ObservableObject {
             try FileManager.default.setAttributes(
                 [.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
         } catch {
-            lastResult = .failed("couldn't stage run: \(error.localizedDescription)")
+            setResult(.failed("couldn't stage run: \(error.localizedDescription)"))
             return
         }
 
@@ -426,21 +562,62 @@ final class AIRunner: ObservableObject {
         persist()
     }
 
+    /// Rename an agent in place.
+    ///
+    /// Not remove-then-add: that dropped the agent to the end of the list,
+    /// cleared its Keychain entry when no other agent shared the account, and
+    /// lost its default status — so renaming a CLI agent silently deleted its
+    /// key. The name is the identity everywhere else, so the key and the
+    /// default move with it.
+    @discardableResult
+    func rename(_ provider: AIProvider, to newName: String) -> Bool {
+        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != provider.name,
+              !providers.contains(where: { $0.name == name }),
+              let i = providers.firstIndex(where: { $0.name == provider.name })
+        else { return false }
+
+        var renamed = provider
+        renamed.name = name
+        // Carry the key across when it was stored under the old name (CLI and
+        // Devin agents); chat agents share one account, so there's nothing to
+        // move.
+        if provider.keyAccount == provider.name, let key = Keychain.get(provider.name) {
+            Keychain.set(key, account: renamed.keyAccount)
+            Keychain.delete(provider.name)
+        }
+        providers[i] = renamed
+        if defaultProviderName == provider.name { defaultProviderName = name }
+        UserDefaults.standard.set(defaultProviderName, forKey: defaultKey)
+        persist()
+        return true
+    }
+
     func remove(_ provider: AIProvider) {
+        // Remember it was removed, so a built-in doesn't come back next launch.
+        var removed = Set(UserDefaults.standard.stringArray(forKey: removedDefaultsKey) ?? [])
+        removed.insert(provider.name)
+        UserDefaults.standard.set(Array(removed), forKey: removedDefaultsKey)
+
         providers.removeAll { $0.name == provider.name }
-        Keychain.delete(provider.name)
+        // Only drop the key if no remaining agent shares that account — chat
+        // agents all point at the one OpenRouter entry.
+        if !providers.contains(where: { $0.keyAccount == provider.keyAccount }) {
+            Keychain.delete(provider.keyAccount)
+        }
         if defaultProviderName == provider.name { defaultProviderName = providers.first?.name ?? "" }
         persist()
     }
 
     /// Whether a key has been stored for an agent that needs one.
     func hasKey(_ provider: AIProvider) -> Bool {
-        provider.needsKey && Keychain.has(provider.name)
+        provider.needsKey && Keychain.has(provider.keyAccount)
     }
 
     /// Save (or clear, if empty) an agent's API key in the Keychain.
     func setKey(_ value: String, for provider: AIProvider) {
-        Keychain.set(value.trimmingCharacters(in: .whitespacesAndNewlines), account: provider.name)
+        Keychain.set(value.trimmingCharacters(in: .whitespacesAndNewlines),
+                     account: provider.keyAccount)
         objectWillChange.send()
     }
 
@@ -458,9 +635,10 @@ final class AIRunner: ObservableObject {
             providers = cfg.providers
             defaultProviderName = cfg.default
         } else {
-            providers = Self.defaults.providers
-            defaultProviderName = Self.defaults.default
-            saveConfig(Self.defaults)
+            let removed = Set(UserDefaults.standard.stringArray(forKey: removedDefaultsKey) ?? [])
+            providers = Self.defaults.providers.filter { !removed.contains($0.name) }
+            defaultProviderName = providers.first?.name ?? ""
+            saveConfig(ProvidersConfig(default: defaultProviderName, providers: providers))
         }
         // Migrate older configs: Claude Code should run interactively in Terminal
         // mode (no -p) so you watch it work and can follow up. Add it if missing.
@@ -471,11 +649,24 @@ final class AIRunner: ObservableObject {
             providers[i].interactiveArgs = []
             migrated = true
         }
-        // Add the Devin Cloud target if the config predates it.
-        if !providers.contains(where: { $0.isDevinCloud }) {
+        // Add the Devin Cloud target if the config predates it — unless the
+        // user has deleted it, in which case putting it back every launch is
+        // just ignoring them.
+        let removed = Set(UserDefaults.standard.stringArray(forKey: removedDefaultsKey) ?? [])
+        if !providers.contains(where: { $0.isDevinCloud }),
+           !removed.contains("Devin (Cloud)") {
             providers.append(AIProvider(name: "Devin (Cloud)", command: "", args: [], kind: .devinCloud))
             migrated = true
         }
+        // The composer used to offer OpenRouter's catalogue for every agent,
+        // so CLI agents ended up storing ids like "anthropic/claude-fable-5" —
+        // which they reject on every turn. A slash is the tell.
+        for i in providers.indices
+        where providers[i].isNotchCLI && (providers[i].model?.contains("/") ?? false) {
+            providers[i].model = nil
+            migrated = true
+        }
+
         if migrated { saveConfig(ProvidersConfig(default: defaultProviderName, providers: providers)) }
         // The user's saved choice (from settings) wins over the file default.
         if let saved = UserDefaults.standard.string(forKey: defaultKey),
@@ -502,4 +693,25 @@ final class AIRunner: ObservableObject {
         let dirs = ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
         return dirs.map { "\($0)/\(command)" }.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
+}
+
+extension Notification.Name {
+    /// Posted around anything that raises a system prompt (microphone,
+    /// Accessibility). The notch sits above the menu bar, which means it also
+    /// sits above those dialogs — so it steps down while one is up.
+    /// userInfo: "showing" (Bool).
+    static let visorSystemPrompt = Notification.Name("visor.systemPrompt")
+
+    /// Posted from the notch to open the Settings window. The notch has no
+    /// menu bar of its own, so this is how a dead end there ("no agents yet")
+    /// offers a way out.
+    static let visorOpenSettings = Notification.Name("visor.openSettings")
+
+    /// Posted when tasks are sent to a chat agent, which answers in the notch.
+    /// userInfo: "provider" (agent name), "prompt".
+    static let visorRunInNotch = Notification.Name("visor.runInNotch")
+
+    /// Posted when a send can't proceed because that agent has no API key
+    /// stored yet. The app opens Settings on the agent; the note stays clean.
+    static let visorProviderNeedsKey = Notification.Name("visor.providerNeedsKey")
 }

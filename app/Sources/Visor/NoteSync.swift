@@ -13,7 +13,7 @@ struct BeamRef: Equatable {
 }
 
 /// The seam between `NotesStore` and the real-time sync backend. The store never
-/// imports Firebase or Automerge directly — it talks to this protocol — so the
+/// imports the sync stack directly — it talks to this protocol — so the
 /// app compiles and runs even when the sharing stack isn't available (no SDK
 /// resolved yet, or no `GoogleService-Info.plist` bundled). In that case
 /// `NoteSyncFactory.make()` returns nil and every share action degrades to the
@@ -57,18 +57,17 @@ protocol NoteSyncing: AnyObject {
     func detach()
 }
 
-/// Builds the live sync engine when the backend is available, else nil.
+/// Builds the live sync engine, when there is one.
 ///
-/// The concrete implementation lives in `SharedNoteSync` behind a `canImport`
-/// guard, and `makeBackend()` is provided there. When the Firebase/Automerge
-/// products aren't linked, the fallback below wins and sharing stays offline.
+/// There isn't, currently. Live shared notes were a CRDT (Automerge, 12 MB of
+/// Rust) merging concurrent edits locally, plus a hosted database to carry the
+/// deltas. Between them they were most of a 44 MB app, and the feature they
+/// bought — two people typing in one note at the same time — wasn't being used.
+///
+/// The protocol above stays because the seam is worth keeping: sharing still
+/// works, it just hands over a copy rather than a live document, and this is
+/// the single place a future implementation plugs back in. Deleting the seam
+/// with the implementation would mean rebuilding both.
 enum NoteSyncFactory {
-    static func make() -> NoteSyncing? { makeBackend() }
+    static func make() -> NoteSyncing? { nil }
 }
-
-#if !(canImport(FirebaseFirestore) && canImport(FirebaseDatabase) && canImport(Automerge))
-extension NoteSyncFactory {
-    /// No sharing backend linked — sharing degrades to the offline copy path.
-    static func makeBackend() -> NoteSyncing? { nil }
-}
-#endif
