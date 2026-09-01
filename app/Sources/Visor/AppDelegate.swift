@@ -415,7 +415,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // the controller is required — otherwise the shortcut would do
                 // nothing whenever the notch happens not to exist yet.
                 if action == .watchBoard {
-                    ChessController.shared.watchABoard()
+                    ChessController.shared.toggle()
                     return
                 }
                 guard let controller = self?.controller else { return }

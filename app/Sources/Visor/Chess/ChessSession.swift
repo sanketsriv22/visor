@@ -78,6 +78,10 @@ final class ChessSession: ObservableObject {
     /// I am looking at".
     private var emptyLook: [Bool: ChessWatcher.Signature] = [:]
 
+    /// How many times the current move has been clicked at the board without
+    /// the board changing.
+    private var playAttempts = 0
+
     /// One resolve at a time.
     ///
     /// `resolve` awaits the engine, and frames keep arriving at 120Hz while it
@@ -242,6 +246,7 @@ final class ChessSession: ObservableObject {
         if case .recovering = state { state = .watching }
         baseline = current
         settling = []
+        playAttempts = 0
         for move in moves { position.apply(move) }
 
         if position.turn == ourColour {
@@ -275,6 +280,7 @@ final class ChessSession: ObservableObject {
                 guard state == .watching, position.turn == ourColour else { return }
             }
             await actuator?.present(replies, on: geometry)
+            if mode == .playing { confirmPlayed(replies) }
         } else {
             suggestions = []
             actuator?.clear()
@@ -309,6 +315,32 @@ final class ChessSession: ObservableObject {
             }
         }
         return best?.pair
+    }
+
+    /// Check the click actually moved a piece, and click again if it didn't.
+    ///
+    /// Synthetic clicks land in someone else's web page, and a page is entitled
+    /// to be busy, mid-animation, or briefly not listening. Firing once and
+    /// assuming it worked is what made this feel unreliable: a move that didn't
+    /// take left the session waiting for a change that was never coming, and
+    /// the game simply stopped. Watching for the board to move is the only
+    /// honest confirmation available.
+    private func confirmPlayed(_ replies: [ScoredMove]) {
+        playAttempts += 1
+        let expected = position.fen
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_100_000_000)
+            guard let self, self.mode == .playing, self.state == .watching else { return }
+            // Anything moved means it landed — `commit` resets the count.
+            guard self.position.fen == expected, self.position.turn == self.ourColour else { return }
+            guard self.playAttempts < 3 else {
+                self.fail("Played \(replies.first?.move.uci ?? "a move") three times "
+                        + "and the board didn't change — is it still your turn?")
+                return
+            }
+            await self.actuator?.present(replies, on: self.geometry)
+            self.confirmPlayed(replies)
+        }
     }
 
     /// Learn the two empty-square colours from the position we are starting

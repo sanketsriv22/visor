@@ -91,6 +91,12 @@ final class ChessController: ObservableObject {
 
     var isWatching: Bool { session != nil }
 
+    /// What ⌘⌃U does. Starting with one key and having to open Settings to
+    /// stop is a half-built shortcut.
+    func toggle() {
+        if isWatching { stop() } else { watchABoard() }
+    }
+
     // ── what has to be true first ─────────────────────────────────────
 
     /// Whether an engine can be found. Checked rather than assumed: without one
@@ -271,6 +277,9 @@ final class ChessController: ObservableObject {
                             self.badge.hide()
                         }
                     }
+                // Clicking the island stops it, which is the other half of the
+                // shortcut and the only control most people will ever see.
+                self.badge.onClick = { [weak self] in self?.stop() }
             } catch {
                 self.fail(error.localizedDescription)
                 self.session = nil

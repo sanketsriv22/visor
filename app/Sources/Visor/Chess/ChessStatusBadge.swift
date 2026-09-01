@@ -21,7 +21,11 @@ final class ChessStatusBadge {
     private let label = NSTextField(labelWithString: "")
     private let dot = CALayer()
     private var hideWork: DispatchWorkItem?
-    private var moveObserver: NSObjectProtocol?
+    private var island: Island?
+    /// Clicking it stops watching. The other half of ⌘⌃U, and the only control
+    /// most people will ever see — Settings is not open during a game.
+    var onClick: (() -> Void)?
+    private var resting = ""
 
     private static let originKey = "visor.chess.badgeOrigin"
 
@@ -31,6 +35,7 @@ final class ChessStatusBadge {
     /// isn't a place to explain anything, and the explanation is in Settings.
     func show(_ text: String, live: Bool = true, fadingAfter seconds: TimeInterval? = nil) {
         let panel = ensurePanel()
+        resting = text
         label.stringValue = text
         label.sizeToFit()
 
@@ -129,26 +134,31 @@ final class ChessStatusBadge {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        // Draggable from anywhere on it, which for a pill with no title bar is
-        // the only sensible grab area.
-        panel.isMovableByWindowBackground = true
         panel.ignoresMouseEvents = false
+        // Moved by hand rather than by `isMovableByWindowBackground`, which
+        // swallows the mouse-up and would leave no way to tell a click from a
+        // drag — and a click has to mean something here.
+        panel.isMovableByWindowBackground = false
 
-        // The closest thing to glass that compiles everywhere: a dark HUD
-        // material with a light top edge. macOS 26's `NSGlassEffectView` would
-        // be the real article, but the build runs against an older SDK where
-        // that symbol doesn't exist, so it isn't reachable from here yet.
-        let glass = NSVisualEffectView()
-        glass.material = .hudWindow
-        glass.blendingMode = .behindWindow
-        glass.state = .active
-        glass.wantsLayer = true
-        glass.layer?.cornerRadius = 16
-        glass.layer?.cornerCurve = .continuous
-        glass.layer?.masksToBounds = true
-        glass.layer?.borderWidth = 1
-        glass.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
-        glass.layer?.addSublayer(dot)
+        let island = Island()
+        island.wantsLayer = true
+        // Solid black, not a material. It has to read the same over a white
+        // board, a dark editor and a photograph, and a translucent panel reads
+        // differently over each.
+        island.layer?.backgroundColor = NSColor.black.cgColor
+        island.layer?.cornerRadius = 16
+        island.layer?.cornerCurve = .continuous
+        island.layer?.borderWidth = 1
+        island.layer?.borderColor = NSColor.white.withAlphaComponent(0.16).cgColor
+        island.layer?.addSublayer(dot)
+        island.onClick = { [weak self] in self?.onClick?() }
+        island.onMoved = { origin in
+            UserDefaults.standard.set(NSStringFromPoint(origin), forKey: Self.originKey)
+        }
+        island.onHover = { [weak self] inside in
+            guard let self else { return }
+            self.label.stringValue = inside ? "Stop watching" : self.resting
+        }
 
         label.font = .systemFont(ofSize: 12, weight: .medium)
         label.textColor = NSColor.white.withAlphaComponent(0.94)
@@ -156,17 +166,60 @@ final class ChessStatusBadge {
         label.backgroundColor = .clear
         label.isBordered = false
         label.lineBreakMode = .byTruncatingTail
-        glass.addSubview(label)
+        island.addSubview(label)
 
-        panel.contentView = glass
-        moveObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didMoveNotification, object: panel, queue: .main
-        ) { note in
-            guard let moved = note.object as? NSWindow else { return }
-            UserDefaults.standard.set(NSStringFromPoint(moved.frame.origin),
-                                      forKey: Self.originKey)
-        }
+        panel.contentView = island
+        self.island = island
         self.panel = panel
         return panel
+    }
+
+    /// The pill itself: draggable, clickable, and able to tell the two apart.
+    private final class Island: NSView {
+        var onClick: (() -> Void)?
+        var onMoved: ((CGPoint) -> Void)?
+        var onHover: ((Bool) -> Void)?
+
+        private var grab: CGSize?
+        private var dragged = false
+        private var tracking: NSTrackingArea?
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let tracking { removeTrackingArea(tracking) }
+            let area = NSTrackingArea(rect: bounds,
+                                      options: [.mouseEnteredAndExited, .activeAlways],
+                                      owner: self)
+            addTrackingArea(area)
+            tracking = area
+        }
+
+        override func mouseEntered(with event: NSEvent) { onHover?(true) }
+        override func mouseExited(with event: NSEvent) { onHover?(false) }
+
+        override func mouseDown(with event: NSEvent) {
+            guard let window else { return }
+            let mouse = NSEvent.mouseLocation
+            grab = CGSize(width: mouse.x - window.frame.origin.x,
+                          height: mouse.y - window.frame.origin.y)
+            dragged = false
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            guard let window, let grab else { return }
+            let mouse = NSEvent.mouseLocation
+            let origin = CGPoint(x: mouse.x - grab.width, y: mouse.y - grab.height)
+            // A few pixels of slop, so a click with a shaky hand is still a
+            // click rather than a one-pixel move that eats it.
+            if abs(origin.x - window.frame.origin.x) > 2
+                || abs(origin.y - window.frame.origin.y) > 2 { dragged = true }
+            window.setFrameOrigin(origin)
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            defer { grab = nil }
+            guard let window else { return }
+            if dragged { onMoved?(window.frame.origin) } else { onClick?() }
+        }
     }
 }
