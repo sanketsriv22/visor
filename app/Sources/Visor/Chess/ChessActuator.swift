@@ -128,26 +128,41 @@ final class ClickingActuator: MoveActuator {
             let frame = CGRect(x: bounds["X"] ?? 0, y: bounds["Y"] ?? 0,
                                width: bounds["Width"] ?? 0, height: bounds["Height"] ?? 0)
             guard frame.contains(point) else { continue }
-            guard pid != ProcessInfo.processInfo.processIdentifier else {
-                ChessDiagnostics.trace("activate: topmost window at the board is Visor's own — "
-                                     + "\(window[kCGWindowName as String] as? String ?? "?")")
-                return
+
+            // Only a window that could actually be the board.
+            //
+            // The list is front to back and full of things that aren't apps:
+            // status items, overlays, and — the one that broke this — an
+            // invisible full-screen window macOS's Screenshot utility leaves
+            // behind after ⌘⇧4. Taking the topmost window under the board
+            // found that, activated *Screenshot*, and pulled focus off the
+            // browser. The cursor still moved, because moves don't care who is
+            // frontmost; the first click was then spent giving the browser its
+            // focus back and the second landed on nothing. Three times.
+            //
+            // An app's document window sits at layer 0 and is opaque. Anything
+            // else is skipped — and skipped, not returned from, since the real
+            // window is further down the list.
+            let layer = window[kCGWindowLayer as String] as? Int ?? -1
+            let alpha = window[kCGWindowAlpha as String] as? Double ?? 0
+            let owner = window[kCGWindowOwnerName as String] as? String ?? "?"
+            guard layer == 0, alpha > 0.05 else {
+                ChessDiagnostics.trace("activate: skipping \(owner) (layer \(layer), alpha \(alpha))")
+                continue
             }
-            guard let app = NSRunningApplication(processIdentifier: pid) else { return }
-            ChessDiagnostics.trace("activate: \(app.localizedName ?? "?") active=\(app.isActive)")
+            guard pid != ProcessInfo.processInfo.processIdentifier else { continue }
+            guard let app = NSRunningApplication(processIdentifier: pid) else { continue }
+
+            ChessDiagnostics.trace("activate: \(app.localizedName ?? owner) active=\(app.isActive)")
             guard !app.isActive else { return }
 
             if #available(macOS 14.0, *) { app.activate() } else { app.activate(options: []) }
-            // Activation is asynchronous. A fixed sleep is either a stall or a
-            // race depending on the machine, so wait for the fact instead —
-            // bounded, because an app that won't come forward shouldn't hang
-            // the move.
             var waited = 0
             while !app.isActive && waited < 25 {
                 try? await Task.sleep(nanoseconds: 20_000_000)
                 waited += 1
             }
-            ChessDiagnostics.trace("activate: \(app.localizedName ?? "?") active=\(app.isActive) after \(waited * 20)ms")
+            ChessDiagnostics.trace("activate: \(app.localizedName ?? owner) active=\(app.isActive) after \(waited * 20)ms")
             return
         }
         ChessDiagnostics.trace("activate: no window found under the board")
