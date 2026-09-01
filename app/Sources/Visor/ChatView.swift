@@ -1591,114 +1591,146 @@ private struct HUDComposer: View {
 /// continuous curve is a wobbling line you can't read, where lit and unlit
 /// cells are legible at a glance and match the dot-matrix indicator's
 /// language.
-/// One wave, drawn in dots, passing right to left behind the notch.
+/// The dot grid both voice states are drawn on.
 ///
-/// Each column is a moment: the newest sample enters at the right of the right
-/// meter, travels left, disappears behind the notch, and comes out the left
-/// meter still moving. Both sides read the same buffer, which is why they line
-/// up — a mic icon on one side and a meter on the other was two things where
-/// one continuous thing was available.
+/// One view, two things to say. Splitting it meant the meter and the
+/// transcribing animation drifted apart in dot size and spacing, which is how
+/// you end up with two visual languages for one feature.
 ///
-/// Never animates layout. An earlier attempt resized bars on every sample,
-/// twenty-four times a second, and SwiftUI re-laid-out the row each frame. The
-/// grid is fixed; only opacity changes.
-///
-/// Dots fade rather than switch. Four rows lighting on a threshold gave three
-/// visible states, so the middle pair was on for anything above a murmur and
-/// the meter looked stuck. Six rows, smaller, with each dot ramping through its
-/// own band gives a gradient instead of a staircase.
-struct AudioLevelMeter: View {
-    /// Oldest first. One per column.
-    var samples: [Float]
-    var rows = 6
+/// Never animates layout: every dot is fixed and only opacity moves. An earlier
+/// version resized bars on every sample, thirty-six times a second, and
+/// SwiftUI re-laid-out the row each frame.
+struct DotGrid: View {
+    /// Outer: columns, left to right. Inner: rows, top to bottom. 0…1.
+    var columns: [[Double]]
     var cell: CGFloat = 2
 
     private var spacing: CGFloat { cell * 0.85 }
 
     var body: some View {
         HStack(spacing: spacing) {
-            ForEach(Array(samples.enumerated()), id: \.offset) { _, sample in
+            ForEach(Array(columns.enumerated()), id: \.offset) { _, rows in
                 VStack(spacing: spacing) {
-                    ForEach(0..<rows, id: \.self) { row in
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, value in
                         Circle()
                             .fill(Color.white)
-                            .opacity(opacity(sample: sample, row: row))
+                            .opacity(0.08 + 0.85 * max(0, min(1, value)))
                             .frame(width: cell, height: cell)
-                            .animation(.easeOut(duration: 0.13), value: sample)
+                            .animation(.easeOut(duration: 0.09), value: value)
                     }
                 }
             }
         }
-        .accessibilityLabel("Microphone level")
-    }
-
-    /// Rows light from the middle outwards, the way a waveform sits around its
-    /// zero line. Each has a band it fades across rather than a point it snaps
-    /// at, so a rising voice sweeps the dots instead of stepping them.
-    private func opacity(sample: Float, row: Int) -> Double {
-        let value = Double(max(0, min(1, sample)))
-        // Silence is silence. Without this the innermost row began lighting at
-        // the first flicker above zero, so the meter looked switched on before
-        // anyone had spoken.
-        guard value > 0.02 else { return 0.08 }
-
-        let centre = Double(rows - 1) / 2
-        let distance = abs(Double(row) - centre)
-        // Each row occupies an equal share of the scale from the middle out, and
-        // fades across its own share rather than snapping at its edge.
-        let share = 1.0 / (centre + 1)
-        let reach = (distance + 1) * share
-        let lit = (value - (reach - share)) / share
-        return 0.08 + 0.85 * max(0, min(1, lit))
     }
 }
 
-/// What the meter does while it's thinking.
+/// One wave, drawn in dots, passing right to left behind the notch.
 ///
-/// The obvious thing was a spinner in each pill, which is what it did: the same
-/// indicator twice, either side of the notch, saying "working" and nothing
-/// else. Two copies of one idea is worse than one, and it threw away the
-/// vocabulary the recording state had just established.
+/// Each column is a moment: the newest sample enters at the right of the right
+/// meter, travels left, disappears behind the notch, and comes out the left
+/// meter still moving. Both sides read the same buffer, which is why they line
+/// up — a peak travels across rather than happening twice.
 ///
-/// So the dots stay and the content changes. A single pulse runs right to left
-/// through the same grid, behind the notch and out the other side — the same
-/// motion your voice made a moment ago, now with the machine's hand on it
-/// instead of yours. Recording and transcribing become one continuous idea
-/// rather than two unrelated animations.
-struct ScanningWave: View {
-    let side: ListeningPill.Side
-
-    /// Matches the level meter's buffer, so the pulse crosses the notch on the
-    /// same grid the voice did.
-    private static let total = 28
-    private static let perSide = 14
-    /// One full traverse per this many seconds. Slow enough to read as
-    /// deliberate rather than agitated.
-    private static let period: Double = 1.5
+/// Dots fade rather than switch. Rows split the scale evenly from the middle
+/// outwards and each fades across its own share, so a rising voice sweeps the
+/// dots instead of stepping between two states.
+struct AudioLevelMeter: View {
+    /// Oldest first. One per column.
+    var samples: [Float]
+    var rows = 6
+    var cell: CGFloat = 2
 
     var body: some View {
-        // Driven by the clock rather than by state, so both sides compute the
-        // same position from the same instant and the halves stay joined.
+        DotGrid(columns: samples.map { sample in
+            (0..<rows).map { opacity(sample: sample, row: $0) }
+        }, cell: cell)
+        .accessibilityLabel("Microphone level")
+    }
+
+    private func opacity(sample: Float, row: Int) -> Double {
+        let value = Double(max(0, min(1, sample)))
+        // Silence is silence, or the meter looks switched on before anyone has
+        // spoken.
+        guard value > 0.02 else { return 0 }
+
+        let centre = Double(rows - 1) / 2
+        let distance = abs(Double(row) - centre)
+        let share = 1.0 / (centre + 1)
+        let reach = (distance + 1) * share
+        return max(0, min(1, (value - (reach - share)) / share))
+    }
+}
+
+/// What the notch does while it's thinking.
+///
+/// It was the same spinner in both pills — one idea drawn twice, saying
+/// "working" and nothing else. Then it was a pulse, which was better but still
+/// abstract: a thing sliding past is not obviously a thing being done.
+///
+/// It's a sprite now, marching across the dots. Two frames alternating as it
+/// walks, which is exactly how the arcade machines this borrows from animated
+/// a character on a grid this size — there was no room for anything else, and
+/// it turns out two frames is enough to read as alive. It crosses the whole
+/// notch in a little over a second, because it usually only gets a moment or
+/// two before the words arrive, and an animation you never see finish is a
+/// waste of a good one.
+struct MarchingSprite: View {
+    let side: ListeningPill.Side
+
+    /// Matches the meter's grid so the two states share one surface.
+    private static let total = 28
+    private static let perSide = 14
+    private static let rows = 6
+    /// One crossing per this many seconds.
+    private static let period: Double = 1.3
+    /// Frames per second of the walk cycle. Two frames, swapped this often.
+    private static let step: Double = 0.16
+
+    /// Six rows by five columns, written as it looks. The second frame moves
+    /// the legs — the only part that needs to move for a walk to register.
+    private static let frames: [[String]] = [
+        ["..#..",
+         ".###.",
+         "#####",
+         "#.#.#",
+         "#####",
+         ".#.#."],
+        ["..#..",
+         ".###.",
+         "#####",
+         "#.#.#",
+         "#####",
+         "#...#"],
+    ]
+
+    var body: some View {
+        // Clock-driven, so both halves compute the same position from the same
+        // instant and the sprite doesn't tear in half at the notch.
         TimelineView(.animation) { context in
-            AudioLevelMeter(samples: samples(at: context.date))
+            DotGrid(columns: columns(at: context.date))
         }
     }
 
-    private func samples(at date: Date) -> [Float] {
-        let t = date.timeIntervalSinceReferenceDate.truncatingRemainder(
-            dividingBy: Self.period) / Self.period
-        // Right to left: the head starts past the right edge and runs off the
-        // left, which is the direction speech was travelling.
-        let head = Double(Self.total) * (1 - t)
+    private func columns(at date: Date) -> [[Double]] {
+        let now = date.timeIntervalSinceReferenceDate
+        let progress = now.truncatingRemainder(dividingBy: Self.period) / Self.period
+        let frame = Self.frames[
+            Int(now / Self.step) % Self.frames.count]
+        let width = frame[0].count
+
+        // Right to left, starting off the right edge and walking off the left.
+        let head = Double(Self.total + width) * (1 - progress) - Double(width)
         let offset = side == .trailing ? Self.perSide : 0
 
         return (0..<Self.perSide).map { index in
-            let position = Double(index + offset)
-            // Wrapped, so the pulse leaving one end is the pulse entering the
-            // other rather than a new one appearing.
-            let raw = abs(position - head)
-            let distance = min(raw, Double(Self.total) - raw)
-            return Float(exp(-pow(distance / 2.2, 2)))
+            let column = Int((Double(index + offset) - head).rounded())
+            guard column >= 0, column < width else {
+                return Array(repeating: 0.0, count: Self.rows)
+            }
+            return (0..<Self.rows).map { row in
+                let line = Array(frame[row])
+                return line[column] == "#" ? 1.0 : 0.0
+            }
         }
     }
 }
@@ -1816,7 +1848,7 @@ struct ListeningPill: View {
                             ? Array(voice.levels.suffix(14))
                             : Array(voice.levels.prefix(voice.levels.count - 14).suffix(14)))
         case .transcribing:
-            ScanningWave(side: side)
+            MarchingSprite(side: side)
         default:
             statusContent
         }

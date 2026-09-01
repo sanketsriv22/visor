@@ -304,7 +304,7 @@ final class VoiceInput: NSObject, ObservableObject {
         // Re-measured each time: the room is not the same room it was.
         noiseFloor = -40
         meterTimer?.invalidate()
-        meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 24, repeats: true) { [weak self] _ in
+        meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 36, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.sampleLevel() }
         }
     }
@@ -348,7 +348,9 @@ final class VoiceInput: NSObject, ObservableObject {
 
         // Nothing registers until it is clearly above that floor, so an empty
         // room reads as empty.
-        let floor = noiseFloor + 8
+        // Five, not eight: enough to clear the room, little enough that a
+        // normal speaking voice is well up the scale rather than scraping in.
+        let floor = noiseFloor + 5
         let ceiling: Float = -12
         guard ceiling > floor else { level = 0; levels.removeFirst(); levels.append(0); return }
         let span = max(0, min(1, (dB - floor) / (ceiling - floor)))
@@ -359,7 +361,10 @@ final class VoiceInput: NSObject, ObservableObject {
         let normalised = pow(span, 0.7)
         // Rise instantly, fall slowly: a meter that decays reads as a voice,
         // one that tracks exactly reads as a flicker.
-        level = normalised > level ? normalised : level * 0.78 + normalised * 0.22
+        // Falls quickly. A slow decay meant a single syllable stayed lit as it
+        // travelled the whole grid, so the meter read as lagging behind the
+        // voice rather than following it.
+        level = normalised > level ? normalised : level * 0.6 + normalised * 0.4
         levels.removeFirst()
         levels.append(level)
     }
