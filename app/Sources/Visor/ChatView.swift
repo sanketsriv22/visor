@@ -1717,6 +1717,25 @@ struct VoiceInvaders: View {
     }
 }
 
+/// Voice Pong, which is the invaders' sibling: a simulation your voice
+/// changes, drawn across both pills as one board with the notch for a net.
+struct VoicePongView: View {
+    @ObservedObject var pong: VoicePong
+    let side: ListeningPill.Side
+
+    private static let perSide = 20
+
+    var body: some View {
+        let offset = side == .trailing ? Self.perSide : 0
+        DotGrid(columns: (0..<Self.perSide).map { index in
+            let column = index + offset
+            return pong.grid.indices.contains(column)
+                ? pong.grid[column]
+                : Array(repeating: 0, count: VoicePong.rows)
+        })
+    }
+}
+
 /// What the notch does while it's thinking: Pong, with the notch as the net.
 ///
 /// Three attempts got here. A spinner in each pill was one idea drawn twice. A
@@ -1864,6 +1883,7 @@ struct ListeningPill: View {
     enum Side { case leading, trailing }
 
     @ObservedObject var voice: VoiceInput
+    @ObservedObject private var visuals = NotchVisuals.shared
     var height: CGFloat
     var side: Side = .trailing
 
@@ -1898,9 +1918,16 @@ struct ListeningPill: View {
         // peak appears to travel across rather than to happen twice.
         switch voice.state {
         case .recording:
-            VoiceInvaders(arcade: voice.arcade, side: side)
+            switch visuals.during {
+            case .invaders:  VoiceInvaders(arcade: voice.arcade, side: side)
+            case .voicePong: VoicePongView(pong: voice.pong, side: side)
+            case .pong:      NotchPong(side: side)
+            }
         case .transcribing:
-            NotchPong(side: side)
+            switch visuals.after {
+            case .pong:  NotchPong(side: side)
+            case .quiet: Color.clear
+            }
         default:
             statusContent
         }
@@ -2220,12 +2247,15 @@ struct ListeningPillHost: View {
     /// Suppressed in the HUD, which has its own indicators and no notch strip.
     var suppressed: Bool
 
+    @ObservedObject private var visuals = NotchVisuals.shared
     private var showing: Bool { voice.state.isBusy && !suppressed }
 
     var body: some View {
         ZStack(alignment: .top) {
             if showing {
-                ListeningPill(voice: voice, height: notch.height)
+                // Taller for the game that needs it; the pill hangs from the
+                // notch, so extra height goes downwards.
+                ListeningPill(voice: voice, height: notch.height + visuals.extraHeight)
                     .offset(x: (notch.width + NotchController.listeningPillWidth) / 2
                                - NotchController.listeningPillOverlap / 2)
                     // Scales from its own leading edge rather than moving from

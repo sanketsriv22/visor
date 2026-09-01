@@ -1017,10 +1017,13 @@ final class NotchController {
             // hardware lopsided for the duration — the eye reads the notch as
             // centred, so a one-sided extension looks like the whole thing has
             // shifted rather than widened.
+            // And, for a game that needs the room, downward: the pill hangs
+            // from the notch, so extra height is taken off the bottom edge.
+            let extra = NotchVisuals.shared.extraHeight
             frame = ui.listening
-                ? NSRect(x: hit.minX - Self.listeningPillWidth, y: hit.minY,
+                ? NSRect(x: hit.minX - Self.listeningPillWidth, y: hit.minY - extra,
                          width: hit.width + Self.listeningPillWidth * 2,
-                         height: hit.height)
+                         height: hit.height + extra)
                 : hit
         }
         panel.setFrame(frame, display: true)

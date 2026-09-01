@@ -998,6 +998,10 @@ private struct VoicePane: View {
 
             Divider()
 
+            notchGames
+
+            Divider()
+
             voiceLogSection
         }
     }
@@ -1282,6 +1286,47 @@ private struct VoicePane: View {
     }
 
     /// Everything dictated, whether or not it ever reached a chat.
+    /// Which game the notch plays while you talk, and which while it thinks.
+    @ObservedObject private var visuals = NotchVisuals.shared
+
+    private var notchGames: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("What the notch shows").font(.headline)
+            Text("Two moments, two slots. While you're talking there's a voice level to "
+               + "play with; afterwards there isn't, so what fits there plays itself.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: Design.Space.roomy) {
+                Text("While listening")
+                    .font(.system(size: 12))
+                    .frame(width: 110, alignment: .leading)
+                Picker("", selection: $visuals.during) {
+                    ForEach(NotchVisuals.During.allCases) { Text($0.title).tag($0) }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 300)
+            }
+            HStack(spacing: Design.Space.roomy) {
+                Text("While transcribing")
+                    .font(.system(size: 12))
+                    .frame(width: 110, alignment: .leading)
+                Picker("", selection: $visuals.after) {
+                    ForEach(NotchVisuals.After.allCases) { Text($0.title).tag($0) }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 300)
+            }
+            if visuals.during == .voicePong {
+                Text("Your paddle is on the left and moves while you speak, turning round "
+                   + "at the top and bottom. Stop talking and it stays put. The notch "
+                   + "grows downward to give the rally room.")
+                    .font(.caption2).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
     private var voiceLogSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {

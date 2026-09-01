@@ -32,6 +32,7 @@ final class VoiceInput: NSObject, ObservableObject {
     /// The listening animation's simulation, ticked from the same sampler that
     /// reads the level so the two never drift apart.
     let arcade = VoiceArcade()
+    let pong = VoicePong()
 
     /// The recent past of that level, oldest first.
     ///
@@ -319,6 +320,7 @@ final class VoiceInput: NSObject, ObservableObject {
         level = 0
         levels = Array(repeating: 0, count: levels.count)
         arcade.reset()
+        pong.reset()
     }
 
     private func sampleLevel() {
@@ -374,6 +376,7 @@ final class VoiceInput: NSObject, ObservableObject {
         levels.append(level)
 
         arcade.tick(delta: 1.0 / 50, level: level)
+        pong.tick(delta: 1.0 / 50, level: level)
     }
 
     // MARK: - Transcription
