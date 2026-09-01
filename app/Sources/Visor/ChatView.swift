@@ -1782,6 +1782,10 @@ struct ListeningPill: View {
                 .foregroundStyle(.orange)
         case .idle:
             EmptyView()
+        // Recording is drawn by the caller, which needs to know which side of
+        // the notch it is on to pick its half of the wave.
+        case .recording:
+            EmptyView()
         }
     }
 }
