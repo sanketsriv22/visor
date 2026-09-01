@@ -34,9 +34,12 @@ final class SpectrumAnalyser: ObservableObject {
 
     private var fft: FFTSetup?
     private var window: [Float]
+    /// Per-band noise floor, in dB, learned from the room.
+    private var floors: [Float]
 
     init() {
         bands = Array(repeating: 0, count: Self.bandCount)
+        floors = Array(repeating: -30, count: Self.bandCount)
         window = [Float](repeating: 0, count: Self.fftSize)
         // Hann, or the edges of each window produce spectral splatter that
         // shows up as every band twitching at once.
@@ -83,6 +86,8 @@ final class SpectrumAnalyser: ObservableObject {
         engine.stop()
         running = false
         bands = Array(repeating: 0, count: Self.bandCount)
+        // Re-learned next time: the room is not the same room it was.
+        floors = Array(repeating: -30, count: Self.bandCount)
     }
 
     /// One window of samples, windowed and transformed. Runs on the audio
@@ -117,7 +122,6 @@ final class SpectrumAnalyser: ObservableObject {
 
     /// Fold the transform into bars.
     private func absorb(_ magnitudes: [Float]) {
-        var next = [Float](repeating: 0, count: Self.bandCount)
         let usable = magnitudes.count
 
         for band in 0..<Self.bandCount {
@@ -127,19 +131,30 @@ final class SpectrumAnalyser: ObservableObject {
             let high = max(low + 1, Self.edge(band + 1, of: Self.bandCount, bins: usable))
             var sum: Float = 0
             for bin in low..<min(high, usable) { sum += magnitudes[bin] }
-            let mean = sum / Float(high - low)
-            // Into decibels, then onto 0…1 across the range a voice occupies.
-            let dB = 20 * log10(max(mean, 1e-7))
-            next[band] = max(0, min(1, (dB + 52) / 46))
-        }
+            // Scaled by the window length. vDSP's forward transform is
+            // unnormalised, so without this the magnitudes are a thousand times
+            // larger than they should be and every band pegs at full — which is
+            // exactly what a silent room looked like.
+            let mean = sum / Float(high - low) / Float(Self.fftSize)
+            let dB = 20 * log10(max(mean, 1e-9))
 
-        // Rise fast, fall slowly — the decay is what makes bars look like they
-        // are dancing rather than flickering.
-        for index in 0..<Self.bandCount {
-            let target = next[index]
-            bands[index] = target > bands[index]
-                ? target
-                : bands[index] * 0.72 + target * 0.28
+            // Each band learns its own floor. Room tone is not flat — a fan is
+            // low, a fridge hums, a laptop hisses — so one threshold across the
+            // spectrum either buries a voice or lights the bands the room is
+            // already filling.
+            if dB < floors[band] {
+                floors[band] = dB
+            } else {
+                floors[band] += 0.02
+            }
+            let above = dB - (floors[band] + 6)
+            let value = max(0, min(1, above / 34))
+
+            // Rise fast, fall slowly — the decay is what makes bars look like
+            // they are dancing rather than flickering.
+            bands[band] = value > bands[band]
+                ? value
+                : bands[band] * 0.72 + value * 0.28
         }
     }
 

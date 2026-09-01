@@ -694,12 +694,9 @@ final class NotchController {
             edgePanel = panel
         }
 
-        let height = EdgeVisualiser.height
-        edgePanel?.setFrame(NSRect(x: screen.frame.minX,
-                                   y: screen.frame.maxY - height,
-                                   width: screen.frame.width,
-                                   height: height),
-                            display: false)
+        // The whole screen, because the bars run all four edges. Transparent
+        // and click-through, so covering everything costs nothing.
+        edgePanel?.setFrame(screen.frame, display: false)
         edgePanel?.orderFront(nil)
     }
 
