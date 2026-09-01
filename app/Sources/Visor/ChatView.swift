@@ -1673,6 +1673,79 @@ struct AudioLevelMeter: View {
     }
 }
 
+/// What the notch does while it's listening: something eats your words.
+///
+/// The scrolling waveform is gone. It had two problems that were really one —
+/// a sound stayed visible for however long the buffer took to cross, and the
+/// half that had already crossed was by then so faint the left side looked
+/// broken. Both are properties of drawing a history. This draws the present
+/// instead.
+///
+/// The chomper is driven by your voice rather than merely coloured by it:
+/// silence leaves it drifting, speech sends it running and opens its mouth
+/// wide. So the thing you are watching *is* the level, rather than a graph of
+/// it — and it belongs to the same arcade as the game that follows it.
+struct VoiceChomp: View {
+    @ObservedObject var voice: VoiceInput
+    let side: ListeningPill.Side
+
+    private static let total = 28
+    private static let perSide = 14
+    private static let rows = 6
+    /// Radius of the body, in dots.
+    private static let radius = 2.3
+    /// Widest the mouth opens, in radians.
+    private static let gape = 0.95
+
+    var body: some View {
+        DotGrid(columns: columns)
+    }
+
+    private var columns: [[Double]] {
+        // Travels right to left, entering from beyond the right edge.
+        let head = Double(Self.total) + 6 - voice.chompPhase
+        let open = Double(max(0, min(1, voice.level)))
+        let offset = side == .trailing ? Self.perSide : 0
+        let centreRow = Double(Self.rows - 1) / 2
+
+        return (0..<Self.perSide).map { index in
+            let column = Double(index + offset)
+            return (0..<Self.rows).map { row in
+                pellet(column: column, row: row, head: head)
+                    + body(column: column, row: Double(row),
+                           centreRow: centreRow, head: head, open: open)
+            }
+        }
+    }
+
+    /// The trail it is heading towards: a dot every four columns, on the middle
+    /// row, only ahead of it. Behind, they have been eaten.
+    private func pellet(column: Double, row: Int, head: Double) -> Double {
+        guard row == Self.rows / 2 - 1 else { return 0 }
+        guard Int(column) % 4 == 0 else { return 0 }
+        guard column < head - Self.radius else { return 0 }
+        return 0.45
+    }
+
+    /// A filled circle with a wedge taken out of the leading edge, which is the
+    /// whole of the character and always has been.
+    private func body(column: Double, row: Double, centreRow: Double,
+                      head: Double, open: Double) -> Double {
+        let dx = column - head
+        let dy = row - centreRow
+        let distance = (dx * dx + dy * dy).squareRoot()
+        guard distance <= Self.radius else { return 0 }
+
+        // The mouth points the way it is going.
+        if dx < 0 {
+            let angle = atan2(abs(dy), -dx)
+            if angle < open * Self.gape { return 0 }
+        }
+        // Softened at the rim so the circle doesn't look like a staircase.
+        return max(0.35, min(1, (Self.radius - distance) + 0.5))
+    }
+}
+
 /// What the notch does while it's thinking: Pong, with the notch as the net.
 ///
 /// Three attempts got here. A spinner in each pill was one idea drawn twice. A
@@ -1854,11 +1927,7 @@ struct ListeningPill: View {
         // peak appears to travel across rather than to happen twice.
         switch voice.state {
         case .recording:
-            AudioLevelMeter(
-                samples: side == .trailing
-                    ? Array(voice.levels.suffix(14))
-                    : Array(voice.levels.prefix(voice.levels.count - 14).suffix(14)),
-                oldestAge: side == .trailing ? 13 : 27)
+            VoiceChomp(voice: voice, side: side)
         case .transcribing:
             NotchPong(side: side)
         default:
