@@ -1604,6 +1604,12 @@ struct DotGrid: View {
     /// Outer: columns, left to right. Inner: rows, top to bottom. 0…1.
     var columns: [[Double]]
     var cell: CGFloat = 2
+    /// Hot cells warm towards orange. White fire is just noise; the colour is
+    /// most of what makes it read as flame rather than as static.
+    var warm = false
+    /// Fire changes on its own every frame, so animating each dot on top of
+    /// that is a smear. Games move a few dots at a time and want the easing.
+    var animated = true
 
     private var spacing: CGFloat { cell * 0.6 }
 
@@ -1613,14 +1619,25 @@ struct DotGrid: View {
                 VStack(spacing: spacing) {
                     ForEach(Array(rows.enumerated()), id: \.offset) { _, value in
                         Circle()
-                            .fill(Color.white)
-                            .opacity(0.08 + 0.85 * max(0, min(1, value)))
+                            .fill(colour(for: value))
+                            .opacity(0.06 + 0.9 * max(0, min(1, value)))
                             .frame(width: cell, height: cell)
-                            .animation(.easeOut(duration: 0.09), value: value)
+                            .animation(animated ? .easeOut(duration: 0.09) : nil,
+                                       value: value)
                     }
                 }
             }
         }
+    }
+
+    private func colour(for value: Double) -> Color {
+        guard warm else { return .white }
+        // Cool at the tips, white-hot at the base — the way a flame actually
+        // grades, and the way every fire effect of that era faked it.
+        let heat = max(0, min(1, value))
+        return Color(red: 1,
+                     green: 0.45 + 0.55 * heat,
+                     blue: 0.15 + 0.75 * heat * heat)
     }
 }
 
@@ -1675,21 +1692,9 @@ struct AudioLevelMeter: View {
 
 /// What the notch does while it's listening.
 ///
-/// A scrolling waveform came first, and it had two faults that were one: a
-/// sound stayed visible for however long the buffer took to cross, and the half
-/// that had already crossed was too faint to see. Both are what drawing a
-/// history does. Then a chomper, which fixed that by drawing the present — but
-/// it was still a character pushed along by a number, and nothing it did
-/// depended on what you had said a moment earlier.
-///
-/// This does. Invaders descend on their own and speaking is what shoots them,
-/// so going quiet loses ground and talking clears the sky. The picture is a
-/// short account of the last few seconds rather than a reading of the current
-/// instant, which is the one thing a meter can never be.
-///
-/// The formation spans the notch: both pills read one grid, so the row of
-/// invaders continues behind the gap instead of two separate games being
-/// played either side of it.
+/// The formation spans the notch: both pills read one grid, so the fire
+/// continues behind the gap rather than two separate fires burning either side
+/// of it.
 struct VoiceInvaders: View {
     @ObservedObject var arcade: VoiceArcade
     let side: ListeningPill.Side
@@ -1703,7 +1708,7 @@ struct VoiceInvaders: View {
             return arcade.grid.indices.contains(column)
                 ? arcade.grid[column]
                 : Array(repeating: 0, count: VoiceArcade.rows)
-        })
+        }, warm: true, animated: false)
     }
 }
 
