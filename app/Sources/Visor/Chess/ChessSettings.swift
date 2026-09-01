@@ -54,6 +54,7 @@ struct ComputerUsePane: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             modePicker
+            if chess.mode == .playing { latencyBand }
             requirements
 
             if let notice = chess.notice {
@@ -99,6 +100,54 @@ struct ComputerUsePane: View {
                     : "Plays the best move by clicking it. Visor takes the pointer for a moment.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    /// How long to sit on the answer before playing it.
+    ///
+    /// Only shown for the mode that moves pieces. Arrows have no reason to
+    /// arrive late — being there before you have finished looking is the whole
+    /// point of them.
+    private var latencyBand: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text("Response time").font(.system(size: 12))
+                Spacer()
+                Text(chess.latency.display)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            bandSlider("Fastest", get: { chess.latency.shortest }, set: { new in
+                chess.latency.shortest = min(new, chess.latency.longest)
+            })
+            bandSlider("Slowest", get: { chess.latency.longest }, set: { new in
+                chess.latency.longest = max(new, chess.latency.shortest)
+            })
+            Text("Each move waits a random time inside the band. The engine is "
+               + "as quick either way — this only decides when the answer gets used.")
+                .font(.caption2).foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// Squared, so the low end is reachable.
+    ///
+    /// A linear nought-to-ten-seconds slider gives fifty milliseconds and five
+    /// hundred milliseconds the same half-pixel of travel, which makes the
+    /// interesting part of the range impossible to set. Squaring puts most of
+    /// the movement under a second, where the choices actually differ.
+    private func bandSlider(_ label: String,
+                            get: @escaping () -> TimeInterval,
+                            set: @escaping (TimeInterval) -> Void) -> some View {
+        let span = LatencyBand.range.upperBound
+        return HStack(spacing: Design.Space.normal) {
+            Text(label)
+                .font(.caption2).foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .leading)
+            Slider(value: Binding(
+                get: { (get() / span).squareRoot() },
+                set: { set($0 * $0 * span) }), in: 0...1)
         }
     }
 

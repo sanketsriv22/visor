@@ -11,6 +11,51 @@ import ScreenCaptureKit
 /// and this is what establishes those and says which one is missing when it
 /// can't. Cramming the two together would put "Stockfish isn't installed"
 /// inside the frame handler.
+/// How long to wait before playing a move, as a range to pick from.
+///
+/// A move played the instant the opponent's lands is the one thing about this
+/// that looks nothing like a person at the board. Answering in forty
+/// milliseconds every single time is also just worse to sit next to — the reply
+/// arrives before you have finished seeing what was played. The engine is still
+/// as fast as it was; this decides when to use the answer, not when to find it.
+struct LatencyBand: Equatable {
+    /// Seconds.
+    var shortest: TimeInterval
+    var longest: TimeInterval
+
+    static let `default` = LatencyBand(shortest: 0.05, longest: 3.0)
+    /// What the sliders allow.
+    static let range: ClosedRange<TimeInterval> = 0...10
+
+    /// A wait, uniform across the band.
+    func sample() -> TimeInterval {
+        let low = min(shortest, longest), high = max(shortest, longest)
+        return low == high ? low : .random(in: low...high)
+    }
+
+    var display: String {
+        func label(_ seconds: TimeInterval) -> String {
+            seconds < 1 ? "\(Int(seconds * 1000))ms"
+                        : String(format: "%.1fs", seconds)
+        }
+        return "\(label(min(shortest, longest))) – \(label(max(shortest, longest)))"
+    }
+
+    private static let key = "visor.chess.latencyBand"
+
+    static var stored: LatencyBand {
+        get {
+            let defaults = UserDefaults.standard
+            guard let pair = defaults.array(forKey: key) as? [Double], pair.count == 2
+            else { return .default }
+            return LatencyBand(shortest: pair[0], longest: pair[1])
+        }
+        set {
+            UserDefaults.standard.set([newValue.shortest, newValue.longest], forKey: key)
+        }
+    }
+}
+
 @MainActor
 final class ChessController: ObservableObject {
     static let shared = ChessController()
@@ -20,6 +65,13 @@ final class ChessController: ObservableObject {
     /// there's no reason to make anybody choose.
     @Published var mode: ChessMode {
         didSet { UserDefaults.standard.set(mode.rawValue, forKey: Self.modeKey) }
+    }
+
+    /// Only consulted when Visor is the one moving the pieces. Arrows have no
+    /// reason to arrive late — the whole point of them is to be there before
+    /// you have finished looking.
+    @Published var latency: LatencyBand {
+        didSet { LatencyBand.stored = latency }
     }
 
     @Published private(set) var session: ChessSession?
@@ -34,6 +86,7 @@ final class ChessController: ObservableObject {
     private init() {
         mode = UserDefaults.standard.string(forKey: Self.modeKey)
             .flatMap(ChessMode.init(rawValue:)) ?? .advising
+        latency = LatencyBand.stored
     }
 
     var isWatching: Bool { session != nil }
@@ -190,7 +243,8 @@ final class ChessController: ObservableObject {
         let session = ChessSession(mode: mode,
                                    geometry: result.geometry,
                                    ourColour: result.ourColour,
-                                   position: position)
+                                   position: position,
+                                   latency: latency)
         self.session = session
         Task {
             do {

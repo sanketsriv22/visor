@@ -51,6 +51,7 @@ final class ChessSession: ObservableObject {
     private let mode: ChessMode
     private let geometry: BoardGeometry
     private let ourColour: PieceColor
+    private let latency: LatencyBand
 
     private var oracle: ChessOracle?
     private var watcher: ChessWatcher?
@@ -88,11 +89,12 @@ final class ChessSession: ObservableObject {
     private var resolving = false
 
     init(mode: ChessMode, geometry: BoardGeometry, ourColour: PieceColor,
-         position: ChessPosition = .start) {
+         position: ChessPosition = .start, latency: LatencyBand = .default) {
         self.mode = mode
         self.geometry = geometry
         self.ourColour = ourColour
         self.position = position
+        self.latency = latency
     }
 
     // ── lifecycle ─────────────────────────────────────────────────────
@@ -249,9 +251,29 @@ final class ChessSession: ObservableObject {
                 ? await oracle.replies(to: moves[0], from: before)
                 : await oracle.analyse(position)
             suggestions = replies
-            if let began = changeBegan { lastLatency = Date().timeIntervalSince(began) }
+            // Measured before the wait, not after: this is how fast the answer
+            // was actually found, which is the number worth knowing. The wait
+            // is a choice about when to use it.
+            let began = changeBegan
+            if let began { lastLatency = Date().timeIntervalSince(began) }
             changeBegan = nil
             tableHitRate = await oracle.hitRate
+
+            if mode == .playing {
+                // Counted from when the opponent's move appeared rather than
+                // from now, so the band means total response time — otherwise
+                // the search would be added on top of it and the shortest
+                // setting could never be reached.
+                let target = latency.sample()
+                let spent = began.map { Date().timeIntervalSince($0) } ?? 0
+                if target > spent {
+                    try? await Task.sleep(nanoseconds: UInt64((target - spent) * 1_000_000_000))
+                }
+                // The board can move while we wait — the opponent premoved, or
+                // the game ended. Acting on a stale answer would play into a
+                // position that no longer exists.
+                guard state == .watching, position.turn == ourColour else { return }
+            }
             await actuator?.present(replies, on: geometry)
         } else {
             suggestions = []
