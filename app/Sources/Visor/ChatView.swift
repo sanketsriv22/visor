@@ -1591,79 +1591,58 @@ private struct HUDComposer: View {
 /// continuous curve is a wobbling line you can't read, where lit and unlit
 /// cells are legible at a glance and match the dot-matrix indicator's
 /// language.
-/// A dot matrix that shows a voice travelling across it.
+/// One wave, drawn in dots, passing right to left behind the notch.
 ///
-/// Two things this deliberately does not do, both learned the hard way.
+/// Each column is a moment: the newest sample enters at the right of the right
+/// meter, travels left, disappears behind the notch, and comes out the left
+/// meter still moving. Both sides read the same buffer, which is why they line
+/// up — a mic icon on one side and a meter on the other was two things where
+/// one continuous thing was available.
 ///
-/// It never animates layout. An earlier version resized a row of bars on every
-/// sample, twenty-four times a second — SwiftUI re-laid-out the stack each time
-/// and the result juddered. The grid here is fixed: every dot occupies the same
-/// point forever and only its opacity changes, which is a property animation
-/// and costs nothing.
+/// Never animates layout. An earlier attempt resized bars on every sample,
+/// twenty-four times a second, and SwiftUI re-laid-out the row each frame. The
+/// grid is fixed; only opacity changes.
 ///
-/// And every column is a different moment. Before, all five showed the same
-/// instant, so they rose and fell in lockstep and said one thing five times.
-/// The newest sample enters at the right and the older ones shift left, so what
-/// you see is the last half-second of your voice moving across the meter. Dots
-/// light from the middle outwards, the way a waveform sits around its zero
-/// line, rather than filling up from the floor like a VU meter.
+/// Dots fade rather than switch. Four rows lighting on a threshold gave three
+/// visible states, so the middle pair was on for anything above a murmur and
+/// the meter looked stuck. Six rows, smaller, with each dot ramping through its
+/// own band gives a gradient instead of a staircase.
 struct AudioLevelMeter: View {
-    var level: Float
-    var columns = 5
-    var rows = 4
-    var cell: CGFloat = 2.5
+    /// Oldest first. One per column.
+    var samples: [Float]
+    var rows = 6
+    var cell: CGFloat = 2
 
-    /// One sample per column, oldest first.
-    @State private var history: [Float] = []
+    private var spacing: CGFloat { cell * 0.85 }
 
     var body: some View {
-        // Circles, and a gap as wide as the dot itself.
-        //
-        // They were rounded squares 1.25pt apart, which at this size is not a
-        // gap — three lit ones in a column merged into a bar, so the "matrix"
-        // read as a row of vertical lines. A dot has to be round and has to
-        // have air around it, or it stops being a dot.
-        HStack(spacing: cell) {
-            ForEach(0..<columns, id: \.self) { column in
-                VStack(spacing: cell) {
+        HStack(spacing: spacing) {
+            ForEach(Array(samples.enumerated()), id: \.offset) { _, sample in
+                VStack(spacing: spacing) {
                     ForEach(0..<rows, id: \.self) { row in
                         Circle()
                             .fill(Color.white)
-                            .opacity(opacity(column: column, row: row))
+                            .opacity(opacity(sample: sample, row: row))
                             .frame(width: cell, height: cell)
-                            // Per dot, so the animation is opacity alone. A
-                            // single animation over the whole array made
-                            // SwiftUI diff twenty dots at once every frame.
-                            .animation(.easeOut(duration: 0.12),
-                                       value: sample(column))
+                            .animation(.easeOut(duration: 0.13), value: sample)
                     }
                 }
             }
         }
-        .onAppear { history = Array(repeating: 0, count: columns) }
-        .onChange(of: level) { latest in
-            guard history.count == columns else {
-                history = Array(repeating: latest, count: columns)
-                return
-            }
-            history.removeFirst()
-            history.append(latest)
-        }
         .accessibilityLabel("Microphone level")
     }
 
-    private func sample(_ column: Int) -> Float {
-        history.indices.contains(column) ? history[column] : 0
-    }
-
-    /// How far this row sits from the centre, as a fraction — so a dot lights
-    /// once the sample reaches out that far.
-    private func opacity(column: Int, row: Int) -> Double {
+    /// Rows light from the middle outwards, the way a waveform sits around its
+    /// zero line. Each has a band it fades across rather than a point it snaps
+    /// at, so a rising voice sweeps the dots instead of stepping them.
+    private func opacity(sample: Float, row: Int) -> Double {
         let centre = Double(rows - 1) / 2
         let distance = abs(Double(row) - centre)
-        // Normalised so the outermost row needs a full-scale sample.
-        let threshold = (distance + 0.5) / (centre + 1)
-        return Double(sample(column)) >= threshold ? 0.9 : 0.1
+        let reach = (distance + 0.5) / (centre + 1)
+        let band = 1.0 / Double(rows)
+        let value = Double(max(0, min(1, sample)))
+        let lit = (value - (reach - band)) / band
+        return 0.08 + 0.85 * max(0, min(1, lit))
     }
 }
 
@@ -1680,7 +1659,7 @@ struct DictationControl: View {
     var body: some View {
         HStack(spacing: 6) {
             if voice.state == .recording {
-                AudioLevelMeter(level: voice.level)
+                AudioLevelMeter(samples: Array(voice.levels.suffix(14)))
             } else if voice.state == .transcribing {
                 // Matched to the level meter it replaces, so the control
                 // doesn't shrink when recording stops and processing starts.
@@ -1770,24 +1749,22 @@ struct ListeningPill: View {
 
     @ViewBuilder
     private var content: some View {
-        // The left side says what's happening; the right side shows it
-        // happening. Two meters would be a mirror rather than information, and
-        // a mic on both sides says nothing twice.
-        if side == .leading {
-            // No symbol animation: those arrived in macOS 14 and Visor
-            // targets 13. The colour carries the state, and the meter on the
-            // other side is already doing the moving.
-            Image(systemName: voice.state == .recording ? "mic.fill" : "waveform")
-                .font(.system(size: 13))
-                .foregroundStyle(voice.state == .recording
-                                 ? Color.red.opacity(0.85) : Design.Ink.secondary)
-        } else {
-            trailingContent
+        // Both sides are the same wave at different ages: the right meter holds
+        // the newest samples, the left the ones that have already passed behind
+        // the notch. Reading one buffer is what makes the halves line up, so a
+        // peak appears to travel across rather than to happen twice.
+        switch voice.state {
+        case .recording:
+            AudioLevelMeter(samples: side == .trailing
+                            ? Array(voice.levels.suffix(14))
+                            : Array(voice.levels.prefix(voice.levels.count - 14).suffix(14)))
+        default:
+            statusContent
         }
     }
 
     @ViewBuilder
-    private var trailingContent: some View {
+    private var statusContent: some View {
         switch voice.state {
         case .transcribing:
             // Sized to the pill rather than tucked inside it. This is the only
@@ -1795,8 +1772,6 @@ struct ListeningPill: View {
             // it read as a detail in an empty space instead of the answer to
             // "is it still working".
             DotMatrixIndicator(size: 22)
-        case .recording:
-            AudioLevelMeter(level: voice.level, columns: 9, rows: 4, cell: 3)
         case .denied:
             Image(systemName: "mic.slash")
                 .font(.system(size: 10))

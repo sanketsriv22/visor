@@ -29,6 +29,12 @@ final class VoiceInput: NSObject, ObservableObject {
     @Published private(set) var state: State = .idle
     /// Smoothed 0…1 input level, for the meter.
     @Published private(set) var level: Float = 0
+    /// The recent past of that level, oldest first.
+    ///
+    /// Held here rather than in the view because two views draw it: the meter
+    /// on each side of the notch is one wave, and they have to be reading the
+    /// same samples or the halves won't line up as it passes behind.
+    @Published private(set) var levels: [Float] = Array(repeating: 0, count: 28)
 
     private var recorder: AVAudioRecorder?
     private var meterTimer: Timer?
@@ -303,6 +309,7 @@ final class VoiceInput: NSObject, ObservableObject {
         meterTimer?.invalidate()
         meterTimer = nil
         level = 0
+        levels = Array(repeating: 0, count: levels.count)
     }
 
     private func sampleLevel() {
@@ -328,6 +335,8 @@ final class VoiceInput: NSObject, ObservableObject {
         // Rise instantly, fall slowly: a meter that decays reads as a voice,
         // one that tracks exactly reads as a flicker.
         level = normalised > level ? normalised : level * 0.78 + normalised * 0.22
+        levels.removeFirst()
+        levels.append(level)
     }
 
     // MARK: - Transcription
