@@ -3,8 +3,9 @@ import SwiftUI
 /// A dot matrix around the whole screen that moves with your voice.
 ///
 /// Coloured spikes read as a hi-fi display bolted to the desktop's edge; a
-/// continuous glow read as a smear. Dots are what the rest of Visor speaks, and
-/// they hold their shape at any height because each one is either on or off.
+/// continuous glow read as a smear. White dots on black is what the notch
+/// already is, and they hold their shape at any height because each one is
+/// either on or off.
 ///
 /// It sits at the notch's own height all the way round, so at rest the screen
 /// looks framed rather than decorated, and grows to two and a half times that.
@@ -59,12 +60,43 @@ struct EdgeVisualiser: View {
         let time = now.timeIntervalSinceReferenceDate
         let source = spectrum.stereo ? (Double(spectrum.balance) + 1) / 2 : 0.5
 
+        // The black the dots stand on, following the wave.
+        //
+        // White dots floating over the desktop would be confetti. Backing them
+        // with black is what makes this read as the notch itself stretched
+        // around the screen, which was the idea — the notch is black with white
+        // dots on it, and so is this. The backing follows the same height the
+        // dots do, so the black undulates with them rather than sitting behind
+        // them as a fixed frame.
+        for mirrored in [false, true] {
+            var edge = Path()
+            var inner: [CGPoint] = []
+            for index in 0...columns {
+                let distance = CGFloat(index) * step
+                let (point, normal) = place(distance: distance, size: size,
+                                            mirrored: mirrored)
+                if index == 0 { edge.move(to: point) } else { edge.addLine(to: point) }
+
+                let along = Double(index) / Double(columns)
+                let lift = height(along: along, point: point, size: size,
+                                  bands: bands, time: time, source: source)
+                let lit = min(rows, baseRows + Int((CGFloat(rows - baseRows)
+                                                    * CGFloat(lift)).rounded()))
+                let depth = CGFloat(lit) * Self.pitch
+                inner.append(CGPoint(x: point.x + normal.x * depth,
+                                     y: point.y + normal.y * depth))
+            }
+            for point in inner.reversed() { edge.addLine(to: point) }
+            edge.closeSubpath()
+            context.fill(edge, with: .color(.black.opacity(0.93)))
+        }
+
         // One path per row rather than one per dot.
         //
         // Five thousand individual fills is a frame budget spent on function
-        // calls; five thousand ellipses collected into eleven paths is eleven
+        // calls; the same ellipses collected into a dozen paths is a dozen
         // fills. Grouping by row works because a row is exactly the set of dots
-        // that share a colour — depth is what the gradient runs on.
+        // that share a colour — depth is what the fade runs on.
         var paths = Array(repeating: Path(), count: rows)
 
         for mirrored in [false, true] {
@@ -95,15 +127,15 @@ struct EdgeVisualiser: View {
         }
     }
 
-    /// Purple at the screen's edge, fading to nothing inward — an outer edge
-    /// and no inner one, which is the difference between a border and a stripe.
+    /// White, dimming with depth.
+    ///
+    /// Purple dots on black were a third thing, belonging to neither the notch
+    /// nor the desktop. The notch is white on black and this is the notch, so it
+    /// is white on black. The fade inward gives the band some depth without
+    /// introducing a colour that has to be explained.
     private func colour(row: Int, of rows: Int) -> Color {
         let depth = Double(row) / Double(max(1, rows - 1))
-        let fade = pow(1 - depth, 1.6)
-        return Color(red: 0.45 - 0.14 * depth,
-                     green: 0.14 - 0.08 * depth,
-                     blue: 0.74 - 0.20 * depth,
-                     opacity: 0.12 + 0.85 * fade)
+        return .white.opacity(0.30 + 0.62 * pow(1 - depth, 1.2))
     }
 
     /// How high the band stands at this point: 0 at rest, 1 at a full crest.

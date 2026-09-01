@@ -332,8 +332,14 @@ final class NotchController {
                 // size, expanded it tells the note card's band to make room.
                 self.showEdgeVisualiser(listening)
 
+                // Two indicators for one microphone is one too many. With the
+                // border on it is doing the whole job, and a second animation
+                // playing inside the notch at the same time is noise competing
+                // with the thing it duplicates.
+                let inNotch = listening && !VoiceInput.edgeVisualiser
+
                 let needsResize = !self.ui.expanded
-                if listening && needsResize {
+                if inNotch && needsResize {
                     self.ui.listening = true
                     self.applyFrame(expanded: false)
                 }
@@ -343,8 +349,8 @@ final class NotchController {
                 // dictation flashed the whole card in chat mode and flickered
                 // the task count in notes mode. The pill scopes its own
                 // animation to this value instead.
-                self.ui.listening = listening
-                if !listening && needsResize {
+                self.ui.listening = inNotch
+                if !inNotch && needsResize {
                     // Long enough for the spring to settle. Shrinking the
                     // window while the extension is still retracting clips it
                     // mid-flight, which is what made closing feel abrupt where
