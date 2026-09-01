@@ -69,16 +69,6 @@ final class ChessSession: ObservableObject {
     /// When the current change first appeared — the latency figure, and the
     /// clock on how long we've been unable to explain what we're looking at.
     private var changeBegan: Date?
-    /// What an empty square looks like, per colour, learned from the opening
-    /// position where the middle four ranks are known to be bare.
-    ///
-    /// This is what makes a candidate move checkable. Knowing which squares
-    /// *should* be occupied after a move, and being able to see which ones
-    /// actually are, turns "which of these legal moves changed the most
-    /// pixels" — a guess — into "which of these legal moves produces the board
-    /// I am looking at".
-    private var emptyLook: [Bool: ChessWatcher.Signature] = [:]
-
     /// When the tracked position was last checked against the screen, and how
     /// many checks in a row have disagreed.
     private var lastVerified = Date.distantPast
@@ -169,7 +159,6 @@ final class ChessSession: ObservableObject {
         }
         if baseline.isEmpty {
             baseline = current
-            learnEmptySquares(from: current)
             return
         }
 
@@ -265,11 +254,15 @@ final class ChessSession: ObservableObject {
         playAttempts = 0
         for move in moves { position.apply(move) }
 
-        // Never suggest into a position the screen disagrees with. An illegal
-        // move offered confidently is worse than no move at all, and this is
-        // the last place to catch one.
+        // Never suggest into a position the screen plainly disagrees with. An
+        // illegal move offered confidently is worse than no move at all, and
+        // this is the last place to catch one. Gross disagreement only — the
+        // move was just resolved against this same screen, so a square or two
+        // is the highlight settling, not a wrong position.
         let observed = observedOccupancy(current)
-        if !observed.isEmpty, agreement(position, with: observed) < 60 {
+        let wrong = 64 - agreement(position, with: observed)
+        if wrong >= 6 {
+            ChessDiagnostics.trace("suggest: withheld, \(wrong) squares disagree")
             suggestions = []
             actuator?.clear()
             state = .recovering("The board stopped matching what Visor is tracking")
@@ -361,15 +354,22 @@ final class ChessSession: ObservableObject {
     /// three in a row — a piece mid-animation or a square under the cursor
     /// should not be able to stop a game.
     private func verifyStillInSync(_ current: [Square: ChessWatcher.Signature]) {
-        guard case .watching = state, !emptyLook.isEmpty else { return }
+        guard case .watching = state else { return }
         guard Date().timeIntervalSince(lastVerified) > 1 else { return }
         lastVerified = Date()
 
         let observed = observedOccupancy(current)
         guard !observed.isEmpty else { return }
-        guard agreement(position, with: observed) < 61 else { mismatches = 0; return }
+        // Only a gross mismatch is worth acting on. A square or two adrift is
+        // an animation frame or a piece being dragged; five or more is a
+        // position that has genuinely diverged, and only then is it worth
+        // throwing away what we have. Believed after three such frames running,
+        // so a transient can't trip it.
+        let wrong = 64 - agreement(position, with: observed)
+        guard wrong >= 5 else { mismatches = 0; return }
 
         mismatches += 1
+        ChessDiagnostics.trace("verify: \(wrong) squares disagree (\(mismatches)/3)")
         guard mismatches >= 3 else { return }
         mismatches = 0
         suggestions = []
@@ -405,44 +405,10 @@ final class ChessSession: ObservableObject {
         }
     }
 
-    /// Learn the two empty-square colours from the position we are starting
-    /// from, whatever it is.
-    ///
-    /// This used to assume the middle four ranks were bare, which is true of a
-    /// fresh game and of nothing else — and became wrong the moment a game
-    /// could be joined midway. Asking the position which squares are empty
-    /// works for both and is no harder.
-    private func learnEmptySquares(from current: [Square: ChessWatcher.Signature]) {
-        var sums: [Bool: (r: Int, g: Int, b: Int, n: Int)] = [:]
-        for (square, signature) in current where position[square] == nil {
-            let isLight = (square.file + square.rank) % 2 == 1
-            var bucket = sums[isLight] ?? (0, 0, 0, 0)
-            bucket.r += Int(signature.r); bucket.g += Int(signature.g)
-            bucket.b += Int(signature.b); bucket.n += 1
-            sums[isLight] = bucket
-        }
-        for (isLight, bucket) in sums where bucket.n > 0 {
-            emptyLook[isLight] = ChessWatcher.Signature(
-                r: UInt8(bucket.r / bucket.n),
-                g: UInt8(bucket.g / bucket.n),
-                b: UInt8(bucket.b / bucket.n))
-        }
-    }
-
     /// Which squares currently have something standing on them.
     private func observedOccupancy(_ current: [Square: ChessWatcher.Signature]) -> [Square: Bool] {
-        guard !emptyLook.isEmpty else { return [:] }
         var out: [Square: Bool] = [:]
-        for (square, signature) in current {
-            let isLight = (square.file + square.rank) % 2 == 1
-            guard let empty = emptyLook[isLight] else { continue }
-            let distance = abs(Int(signature.r) - Int(empty.r))
-                         + abs(Int(signature.g) - Int(empty.g))
-                         + abs(Int(signature.b) - Int(empty.b))
-            // Generous, because a last-move highlight is a real wash over an
-            // empty square and must not read as a piece.
-            out[square] = distance > 90
-        }
+        for (square, signature) in current { out[square] = signature.occupied }
         return out
     }
 

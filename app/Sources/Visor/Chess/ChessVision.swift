@@ -47,7 +47,7 @@ enum ChessVision {
     }
 
     static func read(board: CGImage, occupancy: [Square: PieceColor?],
-                     flipped: Bool) async throws -> Reading {
+                     flipped: Bool, tolerance: Int = 1) async throws -> Reading {
         guard let key = OpenRouterClient.key else { throw ReadError.noKey }
 
         let rep = NSBitmapImageRep(cgImage: board)
@@ -119,7 +119,11 @@ enum ChessVision {
             if (seen == nil) != (read == nil) { disagreements += 1 }
             else if let seen, let read, seen != read.color { disagreements += 1 }
         }
-        // One square of slack, for a piece caught mid-animation. No more.
+        // Slack for a piece caught mid-animation. On a first join this is one
+        // square — there is no game to protect, so a clean read or none. On a
+        // resync it is looser, because the game is already under way and the
+        // alternative to a slightly-off read is being stuck forever; the
+        // continuous check will catch it afterwards if it is grossly wrong.
         //
         // This was five, on the reasoning that a few squares could legitimately
         // differ. That was the wrong way to think about it: a disagreement here
@@ -130,7 +134,7 @@ enum ChessVision {
         // complete confidence, which is the worst thing this can do. The engine
         // is never wrong about legality; it can only be wrong about the
         // position, and this is where the position comes from.
-        guard disagreements <= 1 else { throw ReadError.disagreesWithScreen(disagreements) }
+        guard disagreements <= tolerance else { throw ReadError.disagreesWithScreen(disagreements) }
 
         // And it has to be a position at all. Stockfish's behaviour on an
         // impossible one is undefined, which is another way to get a confident

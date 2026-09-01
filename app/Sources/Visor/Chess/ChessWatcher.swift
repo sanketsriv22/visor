@@ -20,17 +20,36 @@ final class ChessWatcher: NSObject, SCStreamOutput, @unchecked Sendable {
     /// A square's appearance, packed small enough to compare 64 of them without
     /// thinking about it.
     struct Signature: Equatable {
+        /// The square's average colour, for noticing that *something* changed.
         let r: UInt8, g: UInt8, b: UInt8
+        /// How far the middle of the square is from its own corners.
+        ///
+        /// This is the occupancy signal, and it is the whole reason a piece can
+        /// be told from a highlight. A last-move highlight is a flat wash over
+        /// the entire square — it moves the middle and the corners by the same
+        /// amount, so the *difference* between them barely changes and an empty
+        /// highlighted square still reads as empty. A piece sits in the middle
+        /// and leaves the square's colour showing at the corners, so the
+        /// difference is large. Comparing the square to a remembered "empty
+        /// colour" instead — which is what this used to do — could not tell the
+        /// two apart, and every move's highlight became a phantom piece on the
+        /// square just vacated.
+        let centreOffset: UInt8
 
-        /// Whether two readings of the same square are different enough to
-        /// call it a change. Generous: JPEG-ish compression in the capture
-        /// path, subpixel antialiasing and the board's own hover states all
+        var occupied: Bool { centreOffset > 34 }
+
+        /// Whether two readings of the same square differ enough to call it a
+        /// change. Generous: compression, antialiasing and hover states all
         /// move a channel or two, and a false positive costs a wasted resolve
         /// while a false negative loses the move entirely.
         func differs(from other: Signature, tolerance: Int = 12) -> Bool {
             abs(Int(r) - Int(other.r)) > tolerance
                 || abs(Int(g) - Int(other.g)) > tolerance
                 || abs(Int(b) - Int(other.b)) > tolerance
+                // A square whose occupancy flipped has changed even if its
+                // average happens to match — a dark piece leaving a dark
+                // square, say.
+                || occupied != other.occupied
         }
     }
 
@@ -169,27 +188,35 @@ final class ChessWatcher: NSObject, SCStreamOutput, @unchecked Sendable {
                 ? (7 - square.file, square.rank)
                 : (square.file, 7 - square.rank)
 
-            // Nine samples spread over the middle of the square. One pixel is
-            // hostage to whatever happens to be under it — a piece's outline, a
-            // coordinate label in the corner, the dot chess.com draws on a legal
-            // destination. Nine averaged is stable without being a blur.
-            var rSum = 0, gSum = 0, bSum = 0, taken = 0
-            for dy in 0..<3 {
-                for dx in 0..<3 {
-                    let x = Int((Double(col) + 0.3 + Double(dx) * 0.2) * squareW)
-                    let y = Int((Double(row) + 0.3 + Double(dy) * 0.2) * squareH)
-                    guard x >= 0, x < width, y >= 0, y < height else { continue }
-                    let offset = y * stride + x * 4          // BGRA
-                    bSum += Int(bytes[offset])
-                    gSum += Int(bytes[offset + 1])
-                    rSum += Int(bytes[offset + 2])
-                    taken += 1
-                }
+            func sample(_ fx: Double, _ fy: Double) -> (r: Int, g: Int, b: Int)? {
+                let x = Int((Double(col) + fx) * squareW)
+                let y = Int((Double(row) + fy) * squareH)
+                guard x >= 0, x < width, y >= 0, y < height else { return nil }
+                let offset = y * stride + x * 4              // BGRA
+                return (Int(bytes[offset + 2]), Int(bytes[offset + 1]), Int(bytes[offset]))
             }
-            guard taken > 0 else { continue }
-            let signature = Signature(r: UInt8(rSum / taken),
-                                      g: UInt8(gSum / taken),
-                                      b: UInt8(bSum / taken))
+
+            // The middle, and the four corners. The middle is the piece if
+            // there is one; the corners are the square itself, which a piece
+            // does not cover and a highlight covers along with everything else.
+            var cr = 0, cg = 0, cb = 0, cN = 0
+            for (fx, fy) in [(0.42, 0.42), (0.5, 0.5), (0.58, 0.58), (0.5, 0.42), (0.5, 0.58)] {
+                if let p = sample(fx, fy) { cr += p.r; cg += p.g; cb += p.b; cN += 1 }
+            }
+            var er = 0, eg = 0, eb = 0, eN = 0
+            for (fx, fy) in [(0.14, 0.14), (0.86, 0.14), (0.14, 0.86), (0.86, 0.86)] {
+                if let p = sample(fx, fy) { er += p.r; eg += p.g; eb += p.b; eN += 1 }
+            }
+            guard cN > 0, eN > 0 else { continue }
+            let centre = (r: cr / cN, g: cg / cN, b: cb / cN)
+            let corner = (r: er / eN, g: eg / eN, b: eb / eN)
+            let offset = (abs(centre.r - corner.r) + abs(centre.g - corner.g)
+                        + abs(centre.b - corner.b)) / 3
+            let signature = Signature(
+                r: UInt8((centre.r + corner.r) / 2),
+                g: UInt8((centre.g + corner.g) / 2),
+                b: UInt8((centre.b + corner.b) / 2),
+                centreOffset: UInt8(min(255, offset)))
             current[square] = signature
             if let was = previous[square], signature.differs(from: was) {
                 changed.append(square)
