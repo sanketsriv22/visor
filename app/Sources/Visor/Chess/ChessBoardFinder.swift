@@ -29,6 +29,19 @@ import Foundation
 /// and the drag picker is still there for when this declines.
 enum ChessBoardFinder {
 
+    /// Set to have the finder narrate why it declined. Off in the app; the
+    /// diagnostics dump turns it on when something needs explaining.
+    static var explain = false
+    /// What the last run thought, kept so a failure can be looked at after the
+    /// fact instead of reproduced. Debugging this blind — over SSH, against a
+    /// board on someone else's screen — is otherwise guesswork.
+    private(set) static var reasoning: [String] = []
+    private static func say(_ what: @autoclosure () -> String) {
+        let line = what()
+        reasoning.append(line)
+        if explain { FileHandle.standardError.write(Data((line + "\n").utf8)) }
+    }
+
     struct Found {
         let geometry: BoardGeometry
         /// How cleanly the checkerboard test separated. 0…1.
@@ -39,59 +52,87 @@ enum ChessBoardFinder {
 
     /// Squares smaller than this are unreadable anyway; larger than this and
     /// the board wouldn't fit on a screen.
-    private static let minSquare = 12
-    private static let maxSquare = 90        // in the downscaled image
+    private static let minSquare = 14
+    private static let maxSquare = 120       // in the downscaled image
 
     /// `image` is a screenshot of one display; `origin` is that display's
     /// top-left in global CoreGraphics screen points, so the result comes back
     /// in the coordinates everything else uses.
     static func find(in image: CGImage, displayOrigin origin: CGPoint) -> Found? {
-        guard let sample = Raster(image, targetWidth: 900) else { return nil }
+        reasoning.removeAll()
+        guard let sample = Raster(image, targetWidth: 1500) else {
+            say("image too small to work with"); return nil
+        }
+        say("image \(image.width)×\(image.height), working at \(sample.width)×\(sample.height)")
 
         // Gradient energy per column and per row. A vertical grid line shows up
         // as a column where the horizontal gradient is large all the way down.
         let columns = sample.columnEdgeEnergy()
         let rows = sample.rowEdgeEnergy()
 
-        guard let x = bestComb(in: columns), let y = bestComb(in: rows) else { return nil }
+        // Candidates on each axis, not a single winner.
+        //
+        // Taking the top comb per axis independently loses to any periodic UI
+        // that happens to out-shout the board on one axis — a list of rows, a
+        // table, a column of text — because the strongest vertical period and
+        // the strongest horizontal one then describe two different objects and
+        // the "squares are square" check rejects the pair. Enumerating instead
+        // and letting the checkerboard test say which pair is a board fixes
+        // that, and dissolves the harmonic problem too: sampled at twice the
+        // real square size every square has the same parity, so the two colour
+        // groups collapse into one and the test throws it out by itself.
+        let xs = combCandidates(in: columns)
+        let ys = combCandidates(in: rows)
+        guard !xs.isEmpty, !ys.isEmpty else { say("no comb candidates"); return nil }
 
-        // Squares are square. If the two axes disagree on the period, whatever
-        // was found has rows and columns but isn't a chess board.
-        let period = Double(x.period + y.period) / 2
-        guard abs(Double(x.period - y.period)) / period < 0.06 else { return nil }
+        var pairs: [(x: Comb, y: Comb)] = []
+        for x in xs {
+            for y in ys {
+                let period = Double(x.period + y.period) / 2
+                guard abs(Double(x.period - y.period)) / period < 0.06 else { continue }
+                pairs.append((x, y))
+            }
+        }
+        guard !pairs.isEmpty else { say("no pair agreed on a period"); return nil }
+        pairs.sort { $0.x.score + $0.y.score > $1.x.score + $1.y.score }
 
-        let rect = CGRect(x: Double(x.phase), y: Double(y.phase),
-                          width: period * 8, height: period * 8)
-        guard rect.maxX <= Double(sample.width), rect.maxY <= Double(sample.height)
-        else { return nil }
+        for pair in pairs.prefix(24) {
+            let period = Double(pair.x.period + pair.y.period) / 2
+            let rect = CGRect(x: Double(pair.x.phase), y: Double(pair.y.phase),
+                              width: period * 8, height: period * 8)
+            guard rect.maxX <= Double(sample.width), rect.maxY <= Double(sample.height)
+            else { continue }
+            guard let check = sample.checkerboard(in: rect), check.confidence > 0.55
+            else { continue }
 
-        guard let check = sample.checkerboard(in: rect) else { return nil }
-        // Two clearly separated colour groups, or it isn't a board.
-        guard check.confidence > 0.55 else { return nil }
+            say("board at \(rect) period \(period) confidence \(String(format: "%.2f", check.confidence))")
+            let scale = sample.scale
+            let onScreen = CGRect(x: origin.x + rect.minX * scale,
+                                  y: origin.y + rect.minY * scale,
+                                  width: rect.width * scale, height: rect.height * scale)
+            let flipped = check.darkOnBottom
+            let geometry = BoardGeometry(boundingBox: onScreen, flipped: flipped)
+            return Found(geometry: geometry,
+                         confidence: check.confidence,
+                         occupancy: occupancy(from: check, flipped: flipped))
+        }
+        say("\(pairs.count) candidate pairs, none passed the checkerboard test")
+        return nil
+    }
 
-        // Back to screen points: undo the downscale, then offset by the display.
-        let scale = sample.scale
-        let onScreen = CGRect(x: origin.x + rect.minX * scale,
-                              y: origin.y + rect.minY * scale,
-                              width: rect.width * scale, height: rect.height * scale)
-
-        // Orientation comes from where the pieces are, so it never has to be
-        // asked for: at the start of a game the near two ranks are yours.
-        let flipped = check.darkOnBottom
-        let geometry = BoardGeometry(boundingBox: onScreen, flipped: flipped)
-
+    /// Turn the board-as-drawn readings into squares, which depends on which
+    /// way round the board is.
+    private static func occupancy(from check: Raster.Checkerboard,
+                                  flipped: Bool) -> [Square: PieceColor?] {
         var occupancy: [Square: PieceColor?] = [:]
         for (index, occupant) in check.occupancy.enumerated() {
-            // `check` walks the board as drawn, top-left first. Turn that into
-            // a square, which depends on which way round the board is.
             let column = index % 8, row = index / 8
             guard let square = flipped ? Square(file: 7 - column, rank: row)
                                        : Square(file: column, rank: 7 - row)
             else { continue }
             occupancy[square] = occupant
         }
-
-        return Found(geometry: geometry, confidence: check.confidence, occupancy: occupancy)
+        return occupancy
     }
 
     // ── the comb ──────────────────────────────────────────────────────
@@ -104,32 +145,56 @@ enum ChessBoardFinder {
     /// a bright window and one in a dark window have wildly different edge
     /// energy, and only the *contrast* between the grid lines and their
     /// surroundings is common to both.
-    private static func bestComb(in signal: [Double]) -> Comb? {
-        guard signal.count > minSquare * 8 else { return nil }
+    private static func combCandidates(in signal: [Double]) -> [Comb] {
+        guard signal.count > minSquare * 8 else { return [] }
         let mean = signal.reduce(0, +) / Double(signal.count)
-        guard mean > 0 else { return nil }
+        guard mean > 0 else { return [] }
 
-        var best: Comb?
+        // Best phase for every period, kept rather than reduced, because the
+        // winner on score alone is the wrong answer — see below.
+        var byPeriod: [Int: Comb] = [:]
         for period in minSquare...min(maxSquare, signal.count / 8) {
             let span = period * 8
             guard span < signal.count else { break }
+            var best: Comb?
             for phase in 0...(signal.count - span - 1) {
                 var total = 0.0
-                for tooth in 0...8 {
-                    let at = phase + tooth * period
-                    total += signal[at]
-                }
-                // Nine teeth, normalised, and biased towards larger boards:
-                // a real board's grid lines beat a coincidental alignment of
-                // nine columns of text, but only once size is accounted for.
-                let score = total / 9 / mean * (1 + Double(period) / 400)
+                for tooth in 0...8 { total += signal[phase + tooth * period] }
+                let score = total / 9 / mean
                 if score > (best?.score ?? 0) {
                     best = Comb(period: period, phase: phase, score: score)
                 }
             }
+            byPeriod[period] = best
         }
-        guard let best, best.score > 1.6 else { return nil }
-        return best
+
+        guard let peak = byPeriod.values.map(\.score).max(), peak > 1.6 else {
+            say("no comb above threshold (best \(String(format: "%.2f", byPeriod.values.map(\.score).max() ?? 0)))")
+            return []
+        }
+
+        // The smallest period that explains the signal, not the strongest.
+        //
+        // A comb of period 2p lands every tooth on a real grid line of a
+        // period-p board — every *other* line — so it scores just as well as
+        // the truth, and a comb of 4p does too. An earlier version broke the
+        // tie by preferring larger periods, on the theory that a big board
+        // beats a coincidence, which meant it reliably locked onto double the
+        // real square size. The two axes then picked different harmonics, the
+        // "squares are square" check caught the disagreement, and a perfectly
+        // ordinary board was declined.
+        //
+        // The fundamental is the smallest period that scores near the peak.
+        // Harmonics can equal it but never beat it by much, so a generous
+        // margin still lands on the truth.
+        // Everything within half the peak is worth offering; the checkerboard
+        // test is cheap and is the only opinion that actually knows what a
+        // board looks like.
+        return byPeriod.values
+            .filter { $0.score >= max(1.6, peak * 0.45) }
+            .sorted { $0.score > $1.score }
+            .prefix(10)
+            .map { $0 }
     }
 }
 
@@ -220,16 +285,35 @@ private struct Raster {
         var squareLuma = [Double](repeating: 0, count: 64)
         var squareRGB = [(Double, Double, Double)](repeating: (0, 0, 0), count: 64)
 
-        // The corner, because a piece occupies the middle. Inset far enough to
-        // clear the square's own border and any highlight ring.
+        // All four corners, and take the median.
+        //
+        // One corner is not enough, and this is the bug that made a fresh game
+        // read as one already under way. Chess.com prints its coordinates
+        // *inside* the board — rank numbers in the top-left of the a-file
+        // squares, file letters in the bottom-right of the first rank — drawn
+        // in the opposite square's colour. Sampling a single top-left corner
+        // landed exactly on the rank numbers, so eight squares reported the
+        // wrong board colour, their centres then looked nothing like it, and
+        // eight empty squares were confidently occupied. Four corners with a
+        // label in at most one of them is a median away from correct.
         for row in 0..<8 {
             for column in 0..<8 {
-                let x = Int(rect.minX + (Double(column) + 0.16) * side)
-                let y = Int(rect.minY + (Double(row) + 0.16) * side)
-                guard x >= 0, x < width, y >= 0, y < height else { return nil }
-                let value = luminance(x, y)
+                var samples: [(Double, (Double, Double, Double))] = []
+                for (dx, dy) in [(0.12, 0.12), (0.88, 0.12), (0.12, 0.88), (0.88, 0.88)] {
+                    let x = Int(rect.minX + (Double(column) + dx) * side)
+                    let y = Int(rect.minY + (Double(row) + dy) * side)
+                    guard x >= 0, x < width, y >= 0, y < height else { return nil }
+                    samples.append((luminance(x, y), rgb(x, y)))
+                }
+                samples.sort { $0.0 < $1.0 }
+                // Mean of the middle two: the median of an even count, and it
+                // survives one poisoned corner at either end.
+                let value = (samples[1].0 + samples[2].0) / 2
+                let colour = ((samples[1].1.0 + samples[2].1.0) / 2,
+                              (samples[1].1.1 + samples[2].1.1) / 2,
+                              (samples[1].1.2 + samples[2].1.2) / 2)
                 squareLuma[row * 8 + column] = value
-                squareRGB[row * 8 + column] = rgb(x, y)
+                squareRGB[row * 8 + column] = colour
                 if (row + column) % 2 == 0 { light.append(value) } else { dark.append(value) }
             }
         }

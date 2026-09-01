@@ -56,10 +56,18 @@ struct ComputerUsePane: View {
             requirements
 
             if let notice = chess.notice {
-                Text(notice)
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .firstTextBaseline, spacing: Design.Space.normal) {
+                    Text(notice)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    // Every attempt leaves a screenshot and the finder's own
+                    // reasoning behind. Without them, "it didn't find my board"
+                    // is a symptom with a dozen causes and no way to tell them
+                    // apart from the outside.
+                    PaneButton(title: "Show what it saw") { chess.revealDiagnostics() }
+                }
             }
 
             controls

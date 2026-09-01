@@ -26,6 +26,7 @@ final class ChessController: ObservableObject {
     @Published private(set) var notice: String?
 
     private let calibrator = ChessCalibrator()
+    private let badge = ChessStatusBadge()
     private static let modeKey = "visor.chess.mode"
 
     private init() {
@@ -96,25 +97,30 @@ final class ChessController: ObservableObject {
             return
         }
         notice = "Looking for a board…"
+        badge.show("Looking for a board…")
 
         Task {
             let shot = try? await ChessScreen.capture()
             guard let shot else {
-                self.notice = "Couldn't take a picture of the screen."
+                self.fail("Couldn't take a picture of the screen.")
                 return
             }
 
-            if let found = ChessBoardFinder.find(in: shot.image, displayOrigin: shot.origin) {
+            let found = ChessBoardFinder.find(in: shot.image, displayOrigin: shot.origin)
+            if let found {
                 // A position that isn't the starting one can be *seen* but not
                 // *read* — occupancy says a square is busy, never what is
                 // standing on it. Starting anyway would track a position that
                 // isn't the one on screen and put confident arrows on it, so
                 // this says no rather than guessing.
                 guard Self.looksLikeAFreshGame(found.occupancy) else {
-                    self.notice = "Found a board, but the game is already under way — "
-                                + "Visor can only start from move one for now."
+                    ChessDiagnostics.record(shot: shot, found: found,
+                                            verdict: "board found, but not a fresh game")
+                    self.fail("Found a board, but the game looks under way — "
+                            + "Visor can only start from move one for now.")
                     return
                 }
+                ChessDiagnostics.record(shot: shot, found: found, verdict: "started")
                 self.notice = nil
                 self.begin(with: ChessCalibrator.Result(
                     geometry: found.geometry,
@@ -122,9 +128,11 @@ final class ChessController: ObservableObject {
                 return
             }
 
+            ChessDiagnostics.record(shot: shot, found: nil, verdict: "no board found")
             self.notice = "Couldn't find a board on that screen — draw a box around it."
+            self.badge.show("No board found — draw a box around it", fadingAfter: 4)
             self.calibrator.run { [weak self] result in
-                guard let self, let result else { self?.notice = nil; return }
+                guard let self, let result else { self?.notice = nil; self?.badge.hide(); return }
                 self.notice = nil
                 self.begin(with: result)
             }
@@ -140,7 +148,13 @@ final class ChessController: ObservableObject {
     private static func looksLikeAFreshGame(_ occupancy: [Square: PieceColor?]) -> Bool {
         let occupied = occupancy.compactMap { $0.value == nil ? nil : $0.key }
         guard occupied.count >= 30 else { return false }
-        return occupied.allSatisfy { $0.rank <= 1 || $0.rank >= 6 }
+        // Two strays forgiven. A square under the cursor picks up a hover
+        // tint, a piece can be mid-animation, and a legal-move dot is a real
+        // mark on an empty square — none of which mean the game has started,
+        // and demanding a perfect read makes a fresh board fail for reasons
+        // nobody can see.
+        let strays = occupied.filter { !($0.rank <= 1 || $0.rank >= 6) }
+        return strays.count <= 2
     }
 
     private func begin(with result: ChessCalibrator.Result) {
@@ -155,16 +169,32 @@ final class ChessController: ObservableObject {
         Task {
             do {
                 try await session.start()
+                let colour = result.ourColour == .white ? "White" : "Black"
+                let what = self.mode == .advising ? "showing best moves" : "playing"
+                self.badge.show("Visor · \(what) as \(colour)", near: result.geometry)
             } catch {
-                self.notice = error.localizedDescription
+                self.fail(error.localizedDescription)
                 self.session = nil
             }
         }
+    }
+
+    /// Say it in both places. Settings explains; the badge is what gets seen,
+    /// because Settings is usually not the window being looked at.
+    private func fail(_ reason: String) {
+        notice = reason
+        badge.show(reason, fadingAfter: 5)
+    }
+
+    /// Where the screenshots and reasoning from the last few attempts went.
+    func revealDiagnostics() {
+        NSWorkspace.shared.open(ChessDiagnostics.directory)
     }
 
     func stop() {
         session?.stop()
         session = nil
         notice = nil
+        badge.hide()
     }
 }
