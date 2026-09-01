@@ -74,9 +74,13 @@ final class ChessSession: ObservableObject {
     private var lastVerified = Date.distantPast
     private var mismatches = 0
 
-    /// How many times the current move has been clicked at the board without
-    /// the board changing.
-    private var playAttempts = 0
+    /// The most recent frame from the watcher, settled or not, so a move we
+    /// played ourselves can be confirmed against the live board.
+    private var latestFrame: [Square: ChessWatcher.Signature] = [:]
+    /// True from the moment we click one of our own moves until we have seen it
+    /// land. While set, the watcher's changes are our own move arriving, not
+    /// the opponent's, and must not be resolved as such.
+    private var playingOwnMove = false
 
     /// One resolve at a time.
     ///
@@ -124,11 +128,11 @@ final class ChessSession: ObservableObject {
             ChessDiagnostics.trace("session: our move first; engine offered "
                                  + best.map { "\($0.move.uci) \($0.score.display)" }.joined(separator: ", "))
             suggestions = best
-            await actuator?.present(best, on: geometry)
-            // The same watch-and-retry a mid-game click gets. Without it a
-            // click that didn't take on the very first move failed silently
-            // and the session sat waiting for a board that never changed.
-            if mode == .playing { confirmPlayed(best) }
+            if mode == .playing {
+                await playOurMove(best)
+            } else {
+                await actuator?.present(best, on: geometry)
+            }
         } else {
             await oracle.prime(after: position)
         }
@@ -152,7 +156,8 @@ final class ChessSession: ObservableObject {
     // ── the loop ──────────────────────────────────────────────────────
 
     private func saw(changed: [Square], current: [Square: ChessWatcher.Signature]) {
-        guard !resolving else { return }
+        latestFrame = current
+        guard !resolving, !playingOwnMove else { return }
         switch state {
         case .watching, .recovering: break
         case .idle, .lost: return
@@ -251,7 +256,6 @@ final class ChessSession: ObservableObject {
         if case .recovering = state { state = .watching }
         baseline = current
         settling = []
-        playAttempts = 0
         for move in moves { position.apply(move) }
 
         // Never suggest into a position the screen plainly disagrees with. An
@@ -299,23 +303,11 @@ final class ChessSession: ObservableObject {
                 // position that no longer exists.
                 guard state == .watching, position.turn == ourColour else { return }
             }
-            // Never click a piece that isn't there.
-            //
-            // If the move we mean to play starts from a square the screen says
-            // is empty, the tracked position is wrong, and clicking would send
-            // the cursor to an empty square and select nothing — the phantom
-            // move that looked like "it moved a piece that wasn't on the
-            // board". Re-read instead of playing into a fiction.
-            if mode == .playing, let best = replies.first,
-               observedOccupancy(current)[best.move.from] == false {
-                ChessDiagnostics.trace("play: \(best.move.uci) from an empty square — re-reading")
-                suggestions = []
-                actuator?.clear()
-                state = .recovering("The board doesn't match — re-reading")
-                return
+            if mode == .playing {
+                await playOurMove(replies)
+            } else {
+                await actuator?.present(replies, on: geometry)
             }
-            await actuator?.present(replies, on: geometry)
-            if mode == .playing { confirmPlayed(replies) }
         } else {
             suggestions = []
             actuator?.clear()
@@ -401,24 +393,60 @@ final class ChessSession: ObservableObject {
     /// take left the session waiting for a change that was never coming, and
     /// the game simply stopped. Watching for the board to move is the only
     /// honest confirmation available.
-    private func confirmPlayed(_ replies: [ScoredMove]) {
-        playAttempts += 1
-        let expected = position.fen
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 1_100_000_000)
-            guard let self, self.mode == .playing, self.state == .watching else { return }
-            // Anything moved means it landed — `commit` resets the count.
-            guard self.position.fen == expected, self.position.turn == self.ourColour else { return }
-            guard self.playAttempts < 3 else {
-                ChessDiagnostics.trace("session: gave up on \(replies.first?.move.uci ?? "?") after 3 tries")
-                self.fail("Played \(replies.first?.move.uci ?? "a move") three times "
-                        + "and the board didn't change — " + TextInsertion.staleGrantAdvice)
-                return
-            }
-            ChessDiagnostics.trace("session: board unchanged after \(replies.first?.move.uci ?? "?"), retrying (\(self.playAttempts))")
-            await self.actuator?.present(replies, on: self.geometry)
-            self.confirmPlayed(replies)
+    private func playOurMove(_ replies: [ScoredMove]) async {
+        guard let best = replies.first else { return }
+        let move = best.move
+
+        // Never click a piece that isn't there. If the from-square reads empty,
+        // the tracked position is wrong; re-read rather than selecting nothing.
+        if !latestFrame.isEmpty, observedOccupancy(latestFrame)[move.from] == false {
+            ChessDiagnostics.trace("play: \(move.uci) from an empty square — re-reading")
+            suggestions = []
+            actuator?.clear()
+            state = .recovering("The board doesn't match — re-reading")
+            return
         }
+
+        suggestions = replies
+        playingOwnMove = true
+        position.apply(move)                 // it is the opponent's turn now
+        await confirmOwnMove(move, attempt: 1)
+    }
+
+    /// Click our move and check the board actually took it, up to three times.
+    ///
+    /// The old path clicked, then waited for the *watcher* to notice the move
+    /// land and treat it as a detected move — which raced the retry timer,
+    /// double-counted the move, flipped the turn back to us, and had Visor play
+    /// White's whole opening by itself and premove into the opponent's clock.
+    /// We made the move; we don't rediscover it. Apply it, click it, confirm it
+    /// against the live board, and absorb it into the baseline so the next
+    /// change the watcher reports is the opponent's reply.
+    private func confirmOwnMove(_ move: Move, attempt: Int) async {
+        await actuator?.present([ScoredMove(move: move, score: .centipawns(0))], on: geometry)
+        try? await Task.sleep(nanoseconds: 900_000_000)
+        switch state { case .watching, .recovering: break; default: playingOwnMove = false; return }
+
+        let occ = observedOccupancy(latestFrame)
+        let landed = occ[move.from] == false && occ[move.to] == true
+        if landed {
+            ChessDiagnostics.trace("play: \(move.uci) landed")
+            baseline = latestFrame            // absorb our move; next change is theirs
+            settling = []
+            changeBegan = nil
+            playingOwnMove = false
+            if case .recovering = state { state = .watching }
+            await oracle?.prime(after: position)
+            return
+        }
+        guard attempt < 3 else {
+            ChessDiagnostics.trace("play: gave up on \(move.uci) after 3 tries")
+            playingOwnMove = false
+            fail("Played \(move.uci) three times and the board didn't take it")
+            return
+        }
+        ChessDiagnostics.trace("play: \(move.uci) not landed, retry \(attempt)")
+        await confirmOwnMove(move, attempt: attempt + 1)
     }
 
     /// Which squares currently have something standing on them.

@@ -43,8 +43,13 @@ enum ChessVision {
     /// not something this file should be the authority on.
     static var model: String {
         UserDefaults.standard.string(forKey: "visor.chess.visionModel")
-            ?? "anthropic/claude-opus-5"
+            ?? "google/gemini-2.5-flash"
     }
+    // A fast vision model, deliberately. Reading a board is a simple visual
+    // task, the answer is cross-checked against pixel occupancy before it is
+    // trusted, and a wrong read is refused rather than played — so the money
+    // and the seconds of a frontier model buy nothing here, and the wait was
+    // the whole complaint. Overridable for anyone who wants a heavier reader.
 
     static func read(board: CGImage, occupancy: [Square: PieceColor?],
                      flipped: Bool, tolerance: Int = 1) async throws -> Reading {
