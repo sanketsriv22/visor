@@ -1,55 +1,57 @@
 import AppKit
 
-/// A black pill in the top-right corner saying computer use is on.
+/// A small floating island saying computer use is on.
 ///
-/// Computer use needed a sign of life outside Settings. Pressing ⌘⌃U and
-/// having the screen do nothing at all is indistinguishable from a shortcut
-/// that isn't bound, which is how it was first reported.
+/// Computer use needed a sign of life outside Settings: pressing ⌘⌃U and having
+/// the screen do nothing at all is indistinguishable from a shortcut that isn't
+/// bound, which is how it was first reported.
 ///
 /// Not the notch's listening pill, though that was the obvious thing to reach
-/// for. That one belongs to dictation: it is driven by microphone level and it
-/// is a game of invaders shot down by talking. Putting it up for something that
-/// isn't listening would be a lie about what Visor is doing — which, for a
-/// feature whose whole proposition is that it watches your screen, is the one
-/// thing it cannot afford to be.
+/// for. That one belongs to dictation — driven by microphone level, and
+/// literally a game of invaders shot down by talking. Putting it up for
+/// something that isn't listening would misreport what Visor is doing, which is
+/// the one thing a feature about watching your screen cannot afford.
 ///
-/// So: its own island, in the corner, out of the way of the board. Solid black
-/// rather than a blur, because it has to read the same over a white chess
-/// board, a dark editor and a photo, and a translucent panel reads differently
-/// over each.
+/// Draggable, because the top-right corner is only the right place until it
+/// isn't — a board, a video call or a second display all move where "out of the
+/// way" is. Where it gets dragged to is remembered.
 @MainActor
 final class ChessStatusBadge {
     private var panel: NSPanel?
     private let label = NSTextField(labelWithString: "")
     private let dot = CALayer()
     private var hideWork: DispatchWorkItem?
+    private var moveObserver: NSObjectProtocol?
 
-    /// Show `text`. `live` gives it the steady green dot; a transient notice
-    /// gets an amber one and fades.
+    private static let originKey = "visor.chess.badgeOrigin"
+
+    /// Show `text`. `live` gives the steady green dot; a notice gets amber.
+    ///
+    /// Keep it short. This sits over someone's game — it reports state, it
+    /// isn't a place to explain anything, and the explanation is in Settings.
     func show(_ text: String, live: Bool = true, fadingAfter seconds: TimeInterval? = nil) {
         let panel = ensurePanel()
         label.stringValue = text
         label.sizeToFit()
 
-        let height: CGFloat = 34
-        let width = min(420, max(180, label.frame.width + 62))
-        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
-            ?? NSScreen.main ?? NSScreen.screens[0]
-        // Clear of the menu bar, and clear of the notch on the machines that
-        // have one — this sits in the corner, not across the top.
-        let frame = CGRect(x: screen.visibleFrame.maxX - width - 16,
-                           y: screen.visibleFrame.maxY - height - 10,
-                           width: width, height: height)
+        let height: CGFloat = 32
+        let width = min(300, max(132, label.frame.width + 54))
+        var frame = CGRect(origin: savedOrigin(width: width, height: height),
+                           size: CGSize(width: width, height: height))
+        // Keep it on a screen: a remembered position from a display that is no
+        // longer attached would otherwise put it nowhere.
+        if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }) {
+            frame.origin = defaultOrigin(width: width, height: height)
+        }
         panel.setFrame(frame, display: true)
 
-        dot.frame = CGRect(x: 16, y: height / 2 - 4, width: 8, height: 8)
+        dot.frame = CGRect(x: 15, y: height / 2 - 4, width: 8, height: 8)
         dot.cornerRadius = 4
         dot.backgroundColor = (live
-            ? NSColor(srgbRed: 0.20, green: 0.84, blue: 0.42, alpha: 1)
+            ? NSColor(srgbRed: 0.22, green: 0.85, blue: 0.44, alpha: 1)
             : NSColor(srgbRed: 0.98, green: 0.71, blue: 0.20, alpha: 1)).cgColor
         dot.removeAllAnimations()
         if live {
-            // Alive rather than merely present. Slow enough not to nag.
             let pulse = CABasicAnimation(keyPath: "opacity")
             pulse.fromValue = 1.0
             pulse.toValue = 0.35
@@ -59,7 +61,14 @@ final class ChessStatusBadge {
             dot.add(pulse, forKey: "pulse")
         }
 
-        label.frame = CGRect(x: 32, y: 0, width: width - 46, height: height)
+        // Centred properly. `sizeToFit` gives the glyph height, and an
+        // NSTextField handed a taller frame sits its baseline near the top of
+        // it rather than in the middle — which is what made this look a couple
+        // of pixels wrong without it being obvious why.
+        let textHeight = label.frame.height
+        label.frame = CGRect(x: 30, y: (height - textHeight) / 2,
+                             width: width - 44, height: textHeight)
+
         panel.alphaValue = 1
         panel.orderFrontRegardless()
 
@@ -85,9 +94,28 @@ final class ChessStatusBadge {
     func close() {
         hideWork?.cancel()
         hideWork = nil
+        if let moveObserver { NotificationCenter.default.removeObserver(moveObserver) }
+        moveObserver = nil
         panel?.orderOut(nil)
         panel?.close()
         panel = nil
+    }
+
+    // ── where it lives ────────────────────────────────────────────────
+
+    private func defaultOrigin(width: CGFloat, height: CGFloat) -> CGPoint {
+        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
+            ?? NSScreen.main ?? NSScreen.screens[0]
+        return CGPoint(x: screen.visibleFrame.maxX - width - 16,
+                       y: screen.visibleFrame.maxY - height - 10)
+    }
+
+    private func savedOrigin(width: CGFloat, height: CGFloat) -> CGPoint {
+        guard let stored = UserDefaults.standard.string(forKey: Self.originKey) else {
+            return defaultOrigin(width: width, height: height)
+        }
+        let point = NSPointFromString(stored)
+        return point == .zero ? defaultOrigin(width: width, height: height) : point
     }
 
     private func ensurePanel() -> NSPanel {
@@ -101,26 +129,43 @@ final class ChessStatusBadge {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        // It reports; it is never in the way.
-        panel.ignoresMouseEvents = true
+        // Draggable from anywhere on it, which for a pill with no title bar is
+        // the only sensible grab area.
+        panel.isMovableByWindowBackground = true
+        panel.ignoresMouseEvents = false
 
-        let view = NSView()
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.88).cgColor
-        view.layer?.cornerRadius = 17
-        view.layer?.borderWidth = 1
-        view.layer?.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
-        view.layer?.addSublayer(dot)
+        // The closest thing to glass that compiles everywhere: a dark HUD
+        // material with a light top edge. macOS 26's `NSGlassEffectView` would
+        // be the real article, but the build runs against an older SDK where
+        // that symbol doesn't exist, so it isn't reachable from here yet.
+        let glass = NSVisualEffectView()
+        glass.material = .hudWindow
+        glass.blendingMode = .behindWindow
+        glass.state = .active
+        glass.wantsLayer = true
+        glass.layer?.cornerRadius = 16
+        glass.layer?.cornerCurve = .continuous
+        glass.layer?.masksToBounds = true
+        glass.layer?.borderWidth = 1
+        glass.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
+        glass.layer?.addSublayer(dot)
 
         label.font = .systemFont(ofSize: 12, weight: .medium)
-        label.textColor = NSColor.white.withAlphaComponent(0.92)
+        label.textColor = NSColor.white.withAlphaComponent(0.94)
         label.alignment = .left
         label.backgroundColor = .clear
         label.isBordered = false
         label.lineBreakMode = .byTruncatingTail
-        view.addSubview(label)
+        glass.addSubview(label)
 
-        panel.contentView = view
+        panel.contentView = glass
+        moveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: panel, queue: .main
+        ) { note in
+            guard let moved = note.object as? NSWindow else { return }
+            UserDefaults.standard.set(NSStringFromPoint(moved.frame.origin),
+                                      forKey: Self.originKey)
+        }
         self.panel = panel
         return panel
     }

@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Combine
 import ScreenCaptureKit
 
 /// Owns the chess session, and everything the user has to be told before one
@@ -27,6 +28,7 @@ final class ChessController: ObservableObject {
 
     private let calibrator = ChessCalibrator()
     private let badge = ChessStatusBadge()
+    private var watchingState: AnyCancellable?
     private static let modeKey = "visor.chess.mode"
 
     private init() {
@@ -97,7 +99,7 @@ final class ChessController: ObservableObject {
             return
         }
         notice = "Looking for a board…"
-        badge.show("Looking for a board…", live: false)
+        badge.show("Finding board…", live: false)
 
         Task {
             let shot = try? await ChessScreen.capture()
@@ -130,7 +132,7 @@ final class ChessController: ObservableObject {
 
             ChessDiagnostics.record(shot: shot, found: nil, verdict: "no board found")
             self.notice = "Couldn't find a board on that screen — draw a box around it."
-            self.badge.show("No board found — draw a box around it", live: false, fadingAfter: 4)
+            self.badge.show("No board found", live: false, fadingAfter: 4)
             self.calibrator.run { [weak self] result in
                 guard let self, let result else { self?.notice = nil; self?.badge.hide(); return }
                 self.notice = nil
@@ -170,8 +172,27 @@ final class ChessController: ObservableObject {
             do {
                 try await session.start()
                 let colour = result.ourColour == .white ? "White" : "Black"
-                let what = self.mode == .advising ? "showing best moves" : "playing"
-                self.badge.show("Visor · \(what) as \(colour)")
+                let what = self.mode == .advising ? "watching" : "playing"
+                self.badge.show("\(what.capitalized) · \(colour)")
+
+                // The island is the only place most of this is ever seen —
+                // Settings is not the window anybody is looking at during a
+                // game.
+                self.watchingState = session.$state
+                    .receive(on: RunLoop.main)
+                    .sink { [weak self] state in
+                        guard let self else { return }
+                        switch state {
+                        case .watching:
+                            self.badge.show("\(what.capitalized) · \(colour)")
+                        case .recovering:
+                            self.badge.show("Catching up…", live: false)
+                        case .lost(let why):
+                            self.badge.show(why, live: false, fadingAfter: 8)
+                        case .idle:
+                            self.badge.hide()
+                        }
+                    }
             } catch {
                 self.fail(error.localizedDescription)
                 self.session = nil
@@ -192,6 +213,7 @@ final class ChessController: ObservableObject {
     }
 
     func stop() {
+        watchingState = nil
         session?.stop()
         session = nil
         notice = nil

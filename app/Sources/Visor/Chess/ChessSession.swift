@@ -30,9 +30,12 @@ final class ChessSession: ObservableObject {
     enum State: Equatable {
         case idle
         case watching
-        /// The board on screen stopped matching the one we were keeping.
-        /// Guessing on from here means playing illegal moves into someone's
-        /// game, so this stops instead.
+        /// Nothing on screen explains the position we were keeping. Not fatal
+        /// and not a reason to make someone start a new game: the watcher stays
+        /// up and keeps trying to find a sequence of moves that gets from the
+        /// last position we were sure of to the one in front of us.
+        case recovering(String)
+        /// Given up. Only reached when recovery has been trying for a while.
         case lost(String)
     }
 
@@ -64,6 +67,16 @@ final class ChessSession: ObservableObject {
     /// When the current change first appeared — the latency figure, and the
     /// clock on how long we've been unable to explain what we're looking at.
     private var changeBegan: Date?
+    /// What an empty square looks like, per colour, learned from the opening
+    /// position where the middle four ranks are known to be bare.
+    ///
+    /// This is what makes a candidate move checkable. Knowing which squares
+    /// *should* be occupied after a move, and being able to see which ones
+    /// actually are, turns "which of these legal moves changed the most
+    /// pixels" — a guess — into "which of these legal moves produces the board
+    /// I am looking at".
+    private var emptyLook: [Bool: ChessWatcher.Signature] = [:]
+
     /// One resolve at a time.
     ///
     /// `resolve` awaits the engine, and frames keep arriving at 120Hz while it
@@ -130,8 +143,16 @@ final class ChessSession: ObservableObject {
     // ── the loop ──────────────────────────────────────────────────────
 
     private func saw(changed: [Square], current: [Square: ChessWatcher.Signature]) {
-        guard state == .watching, !resolving else { return }
-        if baseline.isEmpty { baseline = current; return }
+        guard !resolving else { return }
+        switch state {
+        case .watching, .recovering: break
+        case .idle, .lost: return
+        }
+        if baseline.isEmpty {
+            baseline = current
+            learnEmptySquares(from: current)
+            return
+        }
 
         let delta = Set(current.compactMap { square, signature -> Square? in
             guard let was = baseline[square], signature.differs(from: was) else { return nil }
@@ -198,8 +219,16 @@ final class ChessSession: ObservableObject {
         // Still nothing. Say so rather than sitting quietly: a session that has
         // lost the thread looks exactly like one waiting for a slow opponent,
         // and there is no way to tell them apart from outside.
-        if let began = changeBegan, Date().timeIntervalSince(began) > 4 {
-            fail("Lost track of the game — stop and start again from a fresh board")
+        if let began = changeBegan, Date().timeIntervalSince(began) > 3 {
+            switch state {
+            case .recovering:
+                // Been trying a while. Say so plainly rather than looking busy.
+                if Date().timeIntervalSince(began) > 40 {
+                    fail("Lost track of the game — stop and start again from a fresh board")
+                }
+            default:
+                state = .recovering("Lost the thread — watching for something it recognises")
+            }
         }
     }
 
@@ -207,6 +236,8 @@ final class ChessSession: ObservableObject {
     private func commit(_ moves: [Move], from before: ChessPosition,
                         current: [Square: ChessWatcher.Signature]) async {
         guard let oracle else { return }
+        // Whatever it was, it is understood again.
+        if case .recovering = state { state = .watching }
         baseline = current
         settling = []
         for move in moves { position.apply(move) }
@@ -258,6 +289,57 @@ final class ChessSession: ObservableObject {
         return best?.pair
     }
 
+    /// Learn the two empty-square colours from the opening position.
+    ///
+    /// Only valid at the start of a game, which is the only place a session
+    /// begins. The middle four ranks are bare, and they contain both colours,
+    /// so one frame is enough.
+    private func learnEmptySquares(from current: [Square: ChessWatcher.Signature]) {
+        var sums: [Bool: (r: Int, g: Int, b: Int, n: Int)] = [:]
+        for (square, signature) in current where (2...5).contains(square.rank) {
+            let isLight = (square.file + square.rank) % 2 == 1
+            var bucket = sums[isLight] ?? (0, 0, 0, 0)
+            bucket.r += Int(signature.r); bucket.g += Int(signature.g)
+            bucket.b += Int(signature.b); bucket.n += 1
+            sums[isLight] = bucket
+        }
+        for (isLight, bucket) in sums where bucket.n > 0 {
+            emptyLook[isLight] = ChessWatcher.Signature(
+                r: UInt8(bucket.r / bucket.n),
+                g: UInt8(bucket.g / bucket.n),
+                b: UInt8(bucket.b / bucket.n))
+        }
+    }
+
+    /// Which squares currently have something standing on them.
+    private func observedOccupancy(_ current: [Square: ChessWatcher.Signature]) -> [Square: Bool] {
+        guard !emptyLook.isEmpty else { return [:] }
+        var out: [Square: Bool] = [:]
+        for (square, signature) in current {
+            let isLight = (square.file + square.rank) % 2 == 1
+            guard let empty = emptyLook[isLight] else { continue }
+            let distance = abs(Int(signature.r) - Int(empty.r))
+                         + abs(Int(signature.g) - Int(empty.g))
+                         + abs(Int(signature.b) - Int(empty.b))
+            // Generous, because a last-move highlight is a real wash over an
+            // empty square and must not read as a piece.
+            out[square] = distance > 90
+        }
+        return out
+    }
+
+    /// How many of the 64 squares a candidate position agrees with the screen
+    /// about. 64 is a perfect match.
+    private func agreement(_ candidate: ChessPosition, with observed: [Square: Bool]) -> Int {
+        guard !observed.isEmpty else { return 0 }
+        var score = 0
+        for index in 0..<64 {
+            guard let square = Square(index: index), let seen = observed[square] else { continue }
+            if (candidate[square] != nil) == seen { score += 1 }
+        }
+        return score
+    }
+
     /// Which legal move the changed squares describe.
     ///
     /// Usually exactly one move has both its ends in the delta and there is
@@ -279,23 +361,35 @@ final class ChessSession: ObservableObject {
         let matches = legal.filter { delta.contains($0.from) && delta.contains($0.to) }
         guard !matches.isEmpty else { return nil }
 
-        // Promotion variants share both squares, so they all match equally and
-        // no amount of looking at pixels separates them. Queen: it is the right
-        // answer often enough that the exceptions are a curiosity, and the
-        // async check below catches it if a bot ever does otherwise.
+        // Promotion variants share both squares, so no amount of looking at
+        // pixels separates them. Queen: right often enough that the exceptions
+        // are a curiosity.
         let endpoints = Set(matches.map { [$0.from, $0.to] })
         if matches.count > 1, endpoints.count == 1 {
             return matches.first { $0.promotion == .queen } ?? matches[0]
         }
+        if matches.count == 1 { return matches[0] }
 
+        // Rank by whether the move produces the board actually on screen.
+        //
+        // This replaced ranking by how much the two squares changed, which is
+        // only a proxy and picks wrong whenever two legal moves both have their
+        // ends inside the delta — which a last-move highlight makes common. One
+        // wrong pick was unrecoverable: the tracked position diverged, every
+        // later move failed to match, and the session sat waiting. Comparing
+        // against the screen is the difference between a guess and a check.
+        let observed = observedOccupancy(current)
         func upheaval(_ square: Square) -> Int {
             guard let now = current[square], let was = baseline[square] else { return 0 }
-            return abs(Int(now.r) - Int(was.r))
-                 + abs(Int(now.g) - Int(was.g))
+            return abs(Int(now.r) - Int(was.r)) + abs(Int(now.g) - Int(was.g))
                  + abs(Int(now.b) - Int(was.b))
         }
-        return matches.max { upheaval($0.from) + upheaval($0.to)
-                           < upheaval($1.from) + upheaval($1.to) }
+        return matches.max { a, b in
+            let sa = agreement(position.applying(a), with: observed)
+            let sb = agreement(position.applying(b), with: observed)
+            if sa != sb { return sa < sb }
+            return upheaval(a.from) + upheaval(a.to) < upheaval(b.from) + upheaval(b.to)
+        }
     }
 
     private func fail(_ reason: String) {

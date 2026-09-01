@@ -241,6 +241,10 @@ private struct WatchingReadout: View {
             switch session.state {
             case .idle:
                 Text("Stopped.").font(.caption).foregroundStyle(.secondary)
+            case .recovering(let why):
+                Text(why + " — it will pick the game back up on its own.")
+                    .font(.caption).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             case .lost(let why):
                 Text(why).font(.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
