@@ -37,18 +37,37 @@ final class ChessStatusBadge {
         let panel = ensurePanel()
         resting = text
         label.stringValue = text
-        label.sizeToFit()
 
-        let height: CGFloat = 32
-        let width = min(300, max(132, label.frame.width + 54))
-        var frame = CGRect(origin: savedOrigin(width: width, height: height),
-                           size: CGSize(width: width, height: height))
+        // Size to what it has to say. It was capped at 300 points and
+        // truncated with an ellipsis, which for a status pill whose only job is
+        // to be read is the one failure that defeats the object. Grow to fit
+        // up to a sensible width, and wrap onto a second line past that rather
+        // than cut off — a second line is still glanceable; a "…" is not.
+        let maxTextWidth: CGFloat = 440
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 2
+        label.preferredMaxLayoutWidth = maxTextWidth
+        let measured = label.sizeThatFits(NSSize(width: maxTextWidth, height: 200))
+        let textWidth = min(maxTextWidth, measured.width)
+        let textHeight = measured.height
+
+        let height = max(32, textHeight + 14)
+        let width = max(132, textWidth + 54)
+
+        // Keep the same top-right corner as it grows, so a longer message
+        // extends leftwards and downwards rather than marching off the screen.
+        let saved = savedOrigin(width: width, height: height)
+        var frame = CGRect(origin: saved, size: CGSize(width: width, height: height))
+        if let previous = panel.frame.isEmpty ? nil : panel.frame {
+            frame.origin = CGPoint(x: previous.maxX - width, y: previous.maxY - height)
+        }
         // Keep it on a screen: a remembered position from a display that is no
         // longer attached would otherwise put it nowhere.
         if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }) {
             frame.origin = defaultOrigin(width: width, height: height)
         }
         panel.setFrame(frame, display: true)
+        island?.layer?.cornerRadius = min(16, height / 2)
 
         dot.frame = CGRect(x: 15, y: height / 2 - 4, width: 8, height: 8)
         dot.cornerRadius = 4
@@ -70,9 +89,8 @@ final class ChessStatusBadge {
         // NSTextField handed a taller frame sits its baseline near the top of
         // it rather than in the middle — which is what made this look a couple
         // of pixels wrong without it being obvious why.
-        let textHeight = label.frame.height
         label.frame = CGRect(x: 30, y: (height - textHeight) / 2,
-                             width: width - 44, height: textHeight)
+                             width: textWidth + 4, height: textHeight)
 
         panel.alphaValue = 1
         panel.orderFrontRegardless()
@@ -145,7 +163,7 @@ final class ChessStatusBadge {
         // board, a dark editor and a photograph, and a translucent panel reads
         // differently over each.
         island.layer?.backgroundColor = NSColor.black.cgColor
-        island.layer?.cornerRadius = 16
+        island.layer?.cornerRadius = 16   // reset per show() for two-line pills
         island.layer?.cornerCurve = .continuous
         island.layer?.borderWidth = 1
         island.layer?.borderColor = NSColor.white.withAlphaComponent(0.16).cgColor

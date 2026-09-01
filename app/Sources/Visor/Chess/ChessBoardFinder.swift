@@ -84,6 +84,8 @@ enum ChessBoardFinder {
         let xs = combCandidates(in: columns)
         let ys = combCandidates(in: rows)
         guard !xs.isEmpty, !ys.isEmpty else { say("no comb candidates"); return nil }
+        say("x candidates: " + xs.prefix(12).map { "p\($0.period)@\($0.phase)=\(String(format: "%.1f", $0.score))" }.joined(separator: " "))
+        say("y candidates: " + ys.prefix(12).map { "p\($0.period)@\($0.phase)=\(String(format: "%.1f", $0.score))" }.joined(separator: " "))
 
         var pairs: [(x: Comb, y: Comb)] = []
         for x in xs {
@@ -93,10 +95,28 @@ enum ChessBoardFinder {
                 pairs.append((x, y))
             }
         }
+
+        // Let each axis tell the other where to look.
+        //
+        // Searching the two axes independently and then pairing up loses a
+        // board whenever one axis is noisier than the other: a list of text
+        // rows fills the row-axis shortlist with its own harmonics, and the
+        // board's row period — plainly there, just outscored — never gets
+        // offered. But squares are square. If the column axis has found a
+        // strong period, the row axis doesn't need to rediscover it, only to
+        // say where along it the board starts. So the strongest candidates on
+        // each axis are used to run a fixed-period phase search on the other,
+        // and those pairs go into the same pile.
+        for x in xs.prefix(8) {
+            for y in phases(in: rows, period: x.period) { pairs.append((x, y)) }
+        }
+        for y in ys.prefix(8) {
+            for x in phases(in: columns, period: y.period) { pairs.append((x, y)) }
+        }
         guard !pairs.isEmpty else { say("no pair agreed on a period"); return nil }
         pairs.sort { $0.x.score + $0.y.score > $1.x.score + $1.y.score }
 
-        for pair in pairs.prefix(24) {
+        for pair in pairs.prefix(240) {
             let period = Double(pair.x.period + pair.y.period) / 2
             let rect = CGRect(x: Double(pair.x.phase), y: Double(pair.y.phase),
                               width: period * 8, height: period * 8)
@@ -139,6 +159,26 @@ enum ChessBoardFinder {
 
     private struct Comb { let period: Int; let phase: Int; let score: Double }
 
+    /// The best few well-separated phases for one known period.
+    private static func phases(in signal: [Double], period: Int) -> [Comb] {
+        let span = period * 8
+        guard span < signal.count else { return [] }
+        let mean = signal.reduce(0, +) / Double(signal.count)
+        guard mean > 0 else { return [] }
+        var scored: [Comb] = []
+        for phase in 0...(signal.count - span - 1) {
+            var total = 0.0
+            for tooth in 0...8 { total += signal[phase + tooth * period] }
+            scored.append(Comb(period: period, phase: phase, score: total / 9 / mean))
+        }
+        scored.sort { $0.score > $1.score }
+        var kept: [Comb] = []
+        for comb in scored where kept.count < 4 {
+            if kept.allSatisfy({ abs($0.phase - comb.phase) > period / 2 }) { kept.append(comb) }
+        }
+        return kept
+    }
+
     /// The nine evenly spaced peaks that a board's grid lines make.
     ///
     /// Scored against the local mean rather than in absolute terms: a board in
@@ -150,26 +190,40 @@ enum ChessBoardFinder {
         let mean = signal.reduce(0, +) / Double(signal.count)
         guard mean > 0 else { return [] }
 
-        // Best phase for every period, kept rather than reduced, because the
-        // winner on score alone is the wrong answer — see below.
-        var byPeriod: [Int: Comb] = [:]
+        // Several phases per period, not one.
+        //
+        // Keeping only the best phase for each period lost a real board: on
+        // the row axis, a list of bright text rows happened to line up with a
+        // comb of the board's period at a different phase and outscored it,
+        // and the board's own phase was thrown away before pairing ever
+        // happened. Keeping the top few well-separated phases per period costs
+        // nothing and means the board is still in the room when the
+        // checkerboard test is asked.
+        var byPeriod: [Int: [Comb]] = [:]
         for period in minSquare...min(maxSquare, signal.count / 8) {
             let span = period * 8
             guard span < signal.count else { break }
-            var best: Comb?
+            var scored: [Comb] = []
             for phase in 0...(signal.count - span - 1) {
                 var total = 0.0
                 for tooth in 0...8 { total += signal[phase + tooth * period] }
-                let score = total / 9 / mean
-                if score > (best?.score ?? 0) {
-                    best = Comb(period: period, phase: phase, score: score)
+                scored.append(Comb(period: period, phase: phase, score: total / 9 / mean))
+            }
+            scored.sort { $0.score > $1.score }
+            var kept: [Comb] = []
+            for comb in scored where kept.count < 3 {
+                // Well separated: neighbouring phases describe the same board
+                // a pixel over, not a different candidate.
+                if kept.allSatisfy({ abs($0.phase - comb.phase) > period / 2 }) {
+                    kept.append(comb)
                 }
             }
-            byPeriod[period] = best
+            byPeriod[period] = kept
         }
+        let all = byPeriod.values.flatMap { $0 }
 
-        guard let peak = byPeriod.values.map(\.score).max(), peak > 1.6 else {
-            say("no comb above threshold (best \(String(format: "%.2f", byPeriod.values.map(\.score).max() ?? 0)))")
+        guard let peak = all.map(\.score).max(), peak > 1.6 else {
+            say("no comb above threshold (best \(String(format: "%.2f", all.map(\.score).max() ?? 0)))")
             return []
         }
 
@@ -187,13 +241,15 @@ enum ChessBoardFinder {
         // The fundamental is the smallest period that scores near the peak.
         // Harmonics can equal it but never beat it by much, so a generous
         // margin still lands on the truth.
-        // Everything within half the peak is worth offering; the checkerboard
-        // test is cheap and is the only opinion that actually knows what a
-        // board looks like.
-        return byPeriod.values
-            .filter { $0.score >= max(1.6, peak * 0.45) }
+        // Generous. A dark, low-contrast board next to a bright list of text
+        // has weaker grid lines than the list has rows, and a shortlist of ten
+        // left it out entirely. The checkerboard test is cheap and is the only
+        // opinion that actually knows what a board looks like, so the right
+        // number of candidates to offer it is "more than seems necessary".
+        return all
+            .filter { $0.score >= max(1.6, peak * 0.3) }
             .sorted { $0.score > $1.score }
-            .prefix(10)
+            .prefix(40)
             .map { $0 }
     }
 }
@@ -332,40 +388,88 @@ private struct Raster {
         let confidence = min(1, separation / (noise * 4))
         guard separation > 12 else { return nil }
 
-        // Occupancy: a square whose middle is a different colour from its own
-        // corner has something standing on it.
+        // Occupancy and colour, from the majority of the square — not one pixel.
         //
-        // Measured as distance in RGB rather than in luminance, which is the
-        // difference between finding thirty-two pieces and finding twenty-four.
-        // A white piece on a light square is the awkward case — cream squares
-        // and ivory pieces are within about nine of each other in luminance,
-        // under any threshold that isn't also triggered by a highlight — but
-        // they are thirty apart in blue, because the square is warm and the
-        // piece is not. Throwing away the colour channels throws away the only
-        // signal that case has.
-        var occupancy = [PieceColor?](repeating: nil, count: 64)
-        var topDark = 0.0, bottomDark = 0.0
+        // The first version read the single pixel at the dead centre and asked
+        // whether it was lighter than the square's own corner. That misread
+        // white as black on chess.com constantly, because their white pieces
+        // have dark outlines and dark internal strokes, and the exact centre
+        // of a knight is as likely to land on one of those as on ivory. It was
+        // also tied to the theme: "lighter than the square" is a nine-point
+        // margin for ivory on cream and means nothing on a board where the
+        // light squares are darker than the pieces.
+        //
+        // So: a 7×7 grid across the middle of each square. Pixels that differ
+        // from the board colour are the piece; enough of them and the square is
+        // occupied. The piece's brightness is the 70th percentile of those
+        // pixels — not the median. A white piece drawn with a dark outline and
+        // dark detail strokes can have *more* dark pixels than light ones in
+        // the sample, and the median then says black; the question that
+        // actually separates the colours is whether the piece has a bright
+        // body anywhere, which a high percentile finds and a black piece
+        // cannot fake. Then, rather than comparing to the board, the occupied
+        // squares are split into two groups by their own brightness — the
+        // pieces on a board are always two colours, and that split works on
+        // Lichess, on chess.com, on a dark theme where every square is darker
+        // than a white piece, without knowing anything about any of them.
+        var brightness = [Double?](repeating: nil, count: 64)
         for row in 0..<8 {
             for column in 0..<8 {
-                let cx = Int(rect.minX + (Double(column) + 0.5) * side)
-                let cy = Int(rect.minY + (Double(row) + 0.5) * side)
-                guard cx >= 0, cx < width, cy >= 0, cy < height else { continue }
                 let index = row * 8 + column
-                let (r, g, b) = rgb(cx, cy)
                 let (br, bg, bb) = squareRGB[index]
-                let distance = ((r - br) * (r - br) + (g - bg) * (g - bg)
-                              + (b - bb) * (b - bb)).squareRoot()
-                guard distance > max(24, noise * 1.5) else { continue }
-
-                // Which colour it is stays a luminance question: a piece is
-                // lighter or darker than what it stands on, and that is the
-                // one thing every piece set in the world agrees about.
-                let centre = 0.299 * r + 0.587 * g + 0.114 * b
-                let isLightPiece = centre > squareLuma[index]
-                occupancy[index] = isLightPiece ? .white : .black
-                if !isLightPiece {
-                    if row < 4 { topDark += 1 } else { bottomDark += 1 }
+                var piece: [Double] = []
+                var sampled = 0
+                for dy in 0..<7 {
+                    for dx in 0..<7 {
+                        // Inset past where an outline sits.
+                        let fx = 0.24 + Double(dx) * (0.52 / 6)
+                        let fy = 0.24 + Double(dy) * (0.52 / 6)
+                        let x = Int(rect.minX + (Double(column) + fx) * side)
+                        let y = Int(rect.minY + (Double(row) + fy) * side)
+                        guard x >= 0, x < width, y >= 0, y < height else { continue }
+                        sampled += 1
+                        let (r, g, b) = rgb(x, y)
+                        let distance = ((r - br) * (r - br) + (g - bg) * (g - bg)
+                                      + (b - bb) * (b - bb)).squareRoot()
+                        // RGB rather than luminance, still: ivory on cream is
+                        // nine apart in luminance and thirty apart in blue.
+                        if distance > max(24, noise * 1.5) {
+                            piece.append(0.299 * r + 0.587 * g + 0.114 * b)
+                        }
+                    }
                 }
+                guard sampled > 0, piece.count * 100 / sampled >= 12 else { continue }
+                piece.sort()
+                brightness[index] = piece[min(piece.count - 1, piece.count * 7 / 10)]
+            }
+        }
+
+        // Two clusters, found from the data. If everything on the board is one
+        // brightness — an endgame with only one side's pieces in view — there is
+        // no split to find, and "brighter than mid-grey" is the fallback that
+        // is right for every piece set anyone has drawn.
+        let present = brightness.compactMap { $0 }.sorted()
+        var threshold = 128.0
+        if let low = present.first, let high = present.last, high - low > 50 {
+            var lo = low, hi = high
+            for _ in 0..<8 {
+                let mid = (lo + hi) / 2
+                let below = present.filter { $0 < mid }, above = present.filter { $0 >= mid }
+                guard !below.isEmpty, !above.isEmpty else { break }
+                lo = below.reduce(0, +) / Double(below.count)
+                hi = above.reduce(0, +) / Double(above.count)
+            }
+            threshold = (lo + hi) / 2
+        }
+
+        var occupancy = [PieceColor?](repeating: nil, count: 64)
+        var topDark = 0.0, bottomDark = 0.0
+        for index in 0..<64 {
+            guard let value = brightness[index] else { continue }
+            let isLightPiece = value >= threshold
+            occupancy[index] = isLightPiece ? .white : .black
+            if !isLightPiece {
+                if index / 8 < 4 { topDark += 1 } else { bottomDark += 1 }
             }
         }
 
