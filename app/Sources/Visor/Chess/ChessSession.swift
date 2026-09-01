@@ -385,6 +385,7 @@ final class ChessSession: ObservableObject {
 
         mismatches += 1
         ChessDiagnostics.trace("verify: \(wrong) squares disagree (\(mismatches)/3)")
+        if mismatches == 1 { dumpMismatch(observed) }
         guard mismatches >= 3 else { return }
         mismatches = 0
         suggestions = []
@@ -504,6 +505,27 @@ final class ChessSession: ObservableObject {
         let pool = moved.isEmpty ? scored : moved
         if let queen = pool.first(where: { $0.0.promotion == .queen }) { return queen.0 }
         return pool.max { $0.1 < $1.1 }?.0
+    }
+
+    /// Draw what the screen says next to what we think, so a disagreement can
+    /// be read rather than guessed. Occupancy only — that is the thing in
+    /// question.
+    private func dumpMismatch(_ observed: [Square: Bool]) {
+        var out = "occupancy — tracked | screen (X piece, . empty, ? unseen)\n"
+        for rank in stride(from: 7, through: 0, by: -1) {
+            var tracked = "  ", screen = ""
+            for file in 0..<8 {
+                guard let sq = Square(file: file, rank: rank) else { continue }
+                tracked += position[sq] != nil ? "X " : ". "
+                switch observed[sq] {
+                case true?:  screen += "X "
+                case false?: screen += ". "
+                case nil:    screen += "? "
+                }
+            }
+            out += tracked + "   " + screen + "\n"
+        }
+        ChessDiagnostics.trace(out)
     }
 
     private func fail(_ reason: String) {

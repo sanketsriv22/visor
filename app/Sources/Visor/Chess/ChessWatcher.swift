@@ -36,7 +36,17 @@ final class ChessWatcher: NSObject, SCStreamOutput, @unchecked Sendable {
         /// square just vacated.
         let centreOffset: UInt8
 
-        var occupied: Bool { centreOffset > 34 }
+        /// The board *finder* reads this board correctly and the live watcher
+        /// did not, and the whole of the difference was this number. The finder
+        /// measures centre-to-corner as a Euclidean distance in RGB; the
+        /// watcher averaged the three channel differences, which divides the
+        /// signal by three and buries the one channel that matters. A white
+        /// piece on a cream square differs by about forty in blue and fifteen
+        /// in red and green — Euclidean keeps the forty, the average flattens
+        /// it to twenty-three and calls the square empty. Eight white pieces
+        /// vanishing off the board every frame is most of how a near-start
+        /// position came to disagree by seventeen squares.
+        var occupied: Bool { centreOffset > 30 }
 
         /// Whether two readings of the same square differ enough to call it a
         /// change. Generous: compression, antialiasing and hover states all
@@ -221,8 +231,8 @@ final class ChessWatcher: NSObject, SCStreamOutput, @unchecked Sendable {
             guard cN > 0, eN > 0 else { continue }
             let centre = (r: cr / cN, g: cg / cN, b: cb / cN)
             let corner = (r: er / eN, g: eg / eN, b: eb / eN)
-            let offset = (abs(centre.r - corner.r) + abs(centre.g - corner.g)
-                        + abs(centre.b - corner.b)) / 3
+            let dr = centre.r - corner.r, dg = centre.g - corner.g, db = centre.b - corner.b
+            let offset = Int(Double(dr * dr + dg * dg + db * db).squareRoot())
             let signature = Signature(
                 r: UInt8((centre.r + corner.r) / 2),
                 g: UInt8((centre.g + corner.g) / 2),
