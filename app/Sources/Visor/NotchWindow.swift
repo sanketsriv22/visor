@@ -170,6 +170,8 @@ final class NotchController {
     /// off the menu bar, and the HUD's is created at full size and never
     /// resized.
     private var hudPanel: NotchPanel?
+    /// The full-width strip along the top edge, when that mode is on.
+    private var edgePanel: NotchPanel?
     /// Pending show/hide of the two windows. Cancelled on every mode change:
     /// switching quickly used to leave a stale timer from the previous switch
     /// still due, which then ordered a window away mid-animation.
@@ -328,6 +330,8 @@ final class NotchController {
                 // can flash.
                 // Tracked in both states: collapsed it drives the window
                 // size, expanded it tells the note card's band to make room.
+                self.showEdgeVisualiser(listening)
+
                 let needsResize = !self.ui.expanded
                 if listening && needsResize {
                     self.ui.listening = true
@@ -646,6 +650,58 @@ final class NotchController {
 
     /// End a hold-to-talk recording and transcribe it.
     func endDictation() { chat.voice.finish() }
+
+    /// Raise or lower the full-width strip.
+    ///
+    /// Its own window, like the HUD, for the same reason: the notch panel is
+    /// sized to the notch, and stretching it across the screen to hold a
+    /// decoration would put a transparent full-width window over everything
+    /// permanently. Built on first use and kept, since it is shown and hidden
+    /// on every dictation.
+    private func showEdgeVisualiser(_ showing: Bool) {
+        guard VoiceInput.edgeVisualiser else {
+            edgePanel?.orderOut(nil)
+            return
+        }
+        guard showing else {
+            // Ordered out only after the fade, or the last frames are cut.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self, !self.ui.listening else { return }
+                self.edgePanel?.orderOut(nil)
+            }
+            return
+        }
+        guard let screen = targetScreen else { return }
+
+        if edgePanel == nil {
+            let panel = NotchPanel(
+                contentRect: .zero,
+                styleMask: [.borderless, .nonactivatingPanel],
+                backing: .buffered, defer: false)
+            panel.level = .statusBar
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary,
+                                        .stationary, .ignoresCycle]
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.hasShadow = false
+            panel.isMovable = false
+            panel.hidesOnDeactivate = false
+            // Decorative and nothing else: it must never take a click meant for
+            // whatever is underneath it.
+            panel.ignoresMouseEvents = true
+            panel.contentView = NSHostingView(
+                rootView: EdgeVisualiserHost(voice: chat.voice, ui: ui))
+            edgePanel = panel
+        }
+
+        let height = EdgeVisualiser.height
+        edgePanel?.setFrame(NSRect(x: screen.frame.minX,
+                                   y: screen.frame.maxY - height,
+                                   width: screen.frame.width,
+                                   height: height),
+                            display: false)
+        edgePanel?.orderFront(nil)
+    }
 
     /// Show the HUD's window, built at full size before it is ever displayed.
     private func showHUD() {
