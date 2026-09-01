@@ -99,8 +99,7 @@ final class ChessStatusBadge {
     func close() {
         hideWork?.cancel()
         hideWork = nil
-        if let moveObserver { NotificationCenter.default.removeObserver(moveObserver) }
-        moveObserver = nil
+        island = nil
         panel?.orderOut(nil)
         panel?.close()
         panel = nil
