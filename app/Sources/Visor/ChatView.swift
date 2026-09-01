@@ -1637,12 +1637,24 @@ struct DotGrid: View {
 struct AudioLevelMeter: View {
     /// Oldest first. One per column.
     var samples: [Float]
+    /// How old the first sample here is, in columns, counting back from the
+    /// newest in the whole buffer. The right meter starts at 13, the left at 27.
+    var oldestAge: Int
     var rows = 6
     var cell: CGFloat = 2
 
     var body: some View {
-        DotGrid(columns: samples.map { sample in
-            (0..<rows).map { opacity(sample: sample, row: $0) }
+        DotGrid(columns: samples.enumerated().map { index, sample in
+            // Sounds fade as they travel.
+            //
+            // Without this a single syllable stayed at full height for the
+            // entire crossing — which is by definition however long the buffer
+            // is, so one word occupied the whole meter for the best part of a
+            // second and it felt like it would never leave. Now it enters
+            // bright and trails off, which is also what an echo does.
+            let age = Double(oldestAge - index)
+            let faded = Float(Double(sample) * pow(0.87, age))
+            return (0..<rows).map { opacity(sample: faded, row: $0) }
         }, cell: cell)
         .accessibilityLabel("Microphone level")
     }
@@ -1661,75 +1673,73 @@ struct AudioLevelMeter: View {
     }
 }
 
-/// What the notch does while it's thinking.
+/// What the notch does while it's thinking: Pong, with the notch as the net.
 ///
-/// It was the same spinner in both pills — one idea drawn twice, saying
-/// "working" and nothing else. Then it was a pulse, which was better but still
-/// abstract: a thing sliding past is not obviously a thing being done.
+/// Three attempts got here. A spinner in each pill was one idea drawn twice. A
+/// pulse sliding past was abstract — a thing moving is not a thing being done.
+/// A marching sprite was better but needed a second and a third to read, and
+/// transcription now finishes in about half of one, so nobody ever saw it.
 ///
-/// It's a sprite now, marching across the dots. Two frames alternating as it
-/// walks, which is exactly how the arcade machines this borrows from animated
-/// a character on a grid this size — there was no room for anything else, and
-/// it turns out two frames is enough to read as alive. It crosses the whole
-/// notch in a little over a second, because it usually only gets a moment or
-/// two before the words arrive, and an animation you never see finish is a
-/// waste of a good one.
-struct MarchingSprite: View {
+/// That is the actual constraint: it has to be legible in a glance, because a
+/// glance is all it gets. Pong solves it because the paddles are there the
+/// instant it appears — two of them, either side of a gap — so it announces
+/// itself before the ball has moved. And the notch was always going to be the
+/// net; a game that is played across a divide, on a screen with a divide down
+/// the middle of it.
+///
+/// Nothing is simulated. Position is a pair of triangle waves read from the
+/// clock, so both halves agree without sharing state, and it survives being
+/// interrupted at any moment because there is no moment it is part-way
+/// through.
+struct NotchPong: View {
     let side: ListeningPill.Side
 
-    /// Matches the meter's grid so the two states share one surface.
     private static let total = 28
     private static let perSide = 14
     private static let rows = 6
-    /// One crossing per this many seconds.
-    private static let period: Double = 1.3
-    /// Frames per second of the walk cycle. Two frames, swapped this often.
-    private static let step: Double = 0.16
-
-    /// Six rows by five columns, written as it looks. The second frame moves
-    /// the legs — the only part that needs to move for a walk to register.
-    private static let frames: [[String]] = [
-        ["..#..",
-         ".###.",
-         "#####",
-         "#.#.#",
-         "#####",
-         ".#.#."],
-        ["..#..",
-         ".###.",
-         "#####",
-         "#.#.#",
-         "#####",
-         "#...#"],
-    ]
+    /// A full round trip. Fast, because the ball may only get one crossing.
+    private static let rally: Double = 1.1
+    /// Vertical period, deliberately not a multiple of the horizontal one so
+    /// the ball doesn't retrace the same path every rally.
+    private static let bounce: Double = 0.73
+    private static let paddleHeight = 2
 
     var body: some View {
-        // Clock-driven, so both halves compute the same position from the same
-        // instant and the sprite doesn't tear in half at the notch.
         TimelineView(.animation) { context in
             DotGrid(columns: columns(at: context.date))
         }
     }
 
-    private func columns(at date: Date) -> [[Double]] {
-        let now = date.timeIntervalSinceReferenceDate
-        let progress = now.truncatingRemainder(dividingBy: Self.period) / Self.period
-        let frame = Self.frames[
-            Int(now / Self.step) % Self.frames.count]
-        let width = frame[0].count
+    /// 0…span and back again, on `period`.
+    private func triangle(_ t: Double, period: Double, span: Double) -> Double {
+        let phase = t.truncatingRemainder(dividingBy: period) / period
+        return (phase < 0.5 ? phase * 2 : (1 - phase) * 2) * span
+    }
 
-        // Right to left, starting off the right edge and walking off the left.
-        let head = Double(Self.total + width) * (1 - progress) - Double(width)
+    private func columns(at date: Date) -> [[Double]] {
+        let t = date.timeIntervalSinceReferenceDate
+        // Inset by one so the ball turns at the paddles rather than at the wall.
+        let ballX = triangle(t, period: Self.rally, span: Double(Self.total - 3)) + 1
+        let ballY = triangle(t, period: Self.bounce, span: Double(Self.rows - 1))
+
+        // Paddles track the ball, which is what a paddle in an attract mode
+        // does — nobody is playing, and a paddle that misses would need a score.
+        let paddleTop = max(0, min(Self.rows - Self.paddleHeight,
+                                   Int(ballY.rounded()) - Self.paddleHeight / 2))
         let offset = side == .trailing ? Self.perSide : 0
 
         return (0..<Self.perSide).map { index in
-            let column = Int((Double(index + offset) - head).rounded())
-            guard column >= 0, column < width else {
-                return Array(repeating: 0.0, count: Self.rows)
-            }
+            let column = index + offset
             return (0..<Self.rows).map { row in
-                let line = Array(frame[row])
-                return line[column] == "#" ? 1.0 : 0.0
+                if column == 0 || column == Self.total - 1 {
+                    return (row >= paddleTop && row < paddleTop + Self.paddleHeight) ? 1 : 0
+                }
+                // A little tolerance, so the ball reads as a ball crossing dots
+                // rather than a dot switching on and off.
+                let dx = abs(Double(column) - ballX)
+                let dy = abs(Double(row) - ballY)
+                guard dx < 1.2, dy < 1.2 else { return 0 }
+                return max(0, 1 - (dx * dx + dy * dy) / 2)
             }
         }
     }
@@ -1748,7 +1758,7 @@ struct DictationControl: View {
     var body: some View {
         HStack(spacing: 6) {
             if voice.state == .recording {
-                AudioLevelMeter(samples: Array(voice.levels.suffix(14)))
+                AudioLevelMeter(samples: Array(voice.levels.suffix(14)), oldestAge: 13)
             } else if voice.state == .transcribing {
                 // Matched to the level meter it replaces, so the control
                 // doesn't shrink when recording stops and processing starts.
@@ -1844,11 +1854,13 @@ struct ListeningPill: View {
         // peak appears to travel across rather than to happen twice.
         switch voice.state {
         case .recording:
-            AudioLevelMeter(samples: side == .trailing
-                            ? Array(voice.levels.suffix(14))
-                            : Array(voice.levels.prefix(voice.levels.count - 14).suffix(14)))
+            AudioLevelMeter(
+                samples: side == .trailing
+                    ? Array(voice.levels.suffix(14))
+                    : Array(voice.levels.prefix(voice.levels.count - 14).suffix(14)),
+                oldestAge: side == .trailing ? 13 : 27)
         case .transcribing:
-            MarchingSprite(side: side)
+            NotchPong(side: side)
         default:
             statusContent
         }

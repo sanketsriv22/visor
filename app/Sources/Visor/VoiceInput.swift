@@ -304,7 +304,7 @@ final class VoiceInput: NSObject, ObservableObject {
         // Re-measured each time: the room is not the same room it was.
         noiseFloor = -40
         meterTimer?.invalidate()
-        meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 36, repeats: true) { [weak self] _ in
+        meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 50, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.sampleLevel() }
         }
     }
