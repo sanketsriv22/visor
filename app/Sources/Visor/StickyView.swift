@@ -6,6 +6,7 @@ struct StickyRootView: View {
     @ObservedObject var ui: UIState
     @ObservedObject var ai: AIRunner
     @ObservedObject var chat: ChatController
+    @ObservedObject private var visuals = NotchVisuals.shared
     var onToggle: () -> Void
     var onMode: (VisorMode) -> Void
 
@@ -93,7 +94,7 @@ struct StickyRootView: View {
                         // The mirror of the meter: same width, same shape,
                         // rounded on the outer corner instead of the inner one.
                         ListeningPill(voice: chat.voice,
-                                      height: ui.trueNotch.height,
+                                      height: ui.trueNotch.height + visuals.extraHeight,
                                       side: .leading)
                             .transition(.offset(x: Self.pillTravel))
                     }
@@ -101,10 +102,22 @@ struct StickyRootView: View {
                     // it at rest and emerge from beneath it — which is the only
                     // way this reads as the notch widening rather than as two
                     // panels appearing either side of it.
-                    NotchStrip(size: ui.notchSize)
-                        .zIndex(1)
+                    VStack(spacing: 0) {
+                        NotchStrip(size: ui.notchSize)
+                        // The piece under the notch itself, for the game that
+                        // grows downward. Without it the pills got taller and
+                        // the strip between them didn't, which left a hole
+                        // under the camera and read as two pillars.
+                        if ui.listening, visuals.extraHeight > 0 {
+                            Rectangle()
+                                .fill(Color.black)
+                                .frame(width: ui.notchSize.width, height: visuals.extraHeight)
+                        }
+                    }
+                    .zIndex(1)
                     if ui.listening {
-                        ListeningPill(voice: chat.voice, height: ui.trueNotch.height)
+                        ListeningPill(voice: chat.voice,
+                                      height: ui.trueNotch.height + visuals.extraHeight)
                             .transition(.offset(x: -Self.pillTravel))
                     }
                 }

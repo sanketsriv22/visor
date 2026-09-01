@@ -1785,17 +1785,40 @@ struct NotchPong: View {
         let ballX = triangle(t, period: Self.rally, span: Double(Self.total - 3)) + 1
         let ballY = triangle(t, period: Self.bounce, span: Double(Self.rows - 1))
 
-        // Paddles track the ball, which is what a paddle in an attract mode
-        // does — nobody is playing, and a paddle that misses would need a score.
-        let paddleTop = max(0, min(Self.rows - Self.paddleHeight,
-                                   Int(ballY.rounded()) - Self.paddleHeight / 2))
+        // Each paddle tracks the ball only as it comes towards it, and drifts
+        // on a slow wave of its own the rest of the time.
+        //
+        // They used to share one number — both sat on the ball's row all the
+        // time — so they rose and fell together, in step, like a single paddle
+        // drawn twice. That reads as mechanism, not play. A paddle only needs
+        // to be under the ball at the moment it arrives; the rest of the rally
+        // is its own business. So how much each one follows the ball scales
+        // with how near the ball is to its wall, squared: at contact it is
+        // exactly there — nobody is playing, and a miss would need a score —
+        // and mid-court it is off doing something else. Both are still read
+        // off the clock, so the halves agree without sharing state.
+        func paddleTop(nearWallAt wallX: Double, wander period: Double, phase: Double) -> Int {
+            let travel = Double(Self.total - 3)
+            let nearness = 1 - min(1, abs(ballX - wallX) / travel)
+            let follow = nearness * nearness
+            let idle = triangle(t + phase, period: period,
+                                span: Double(Self.rows - Self.paddleHeight))
+            let centre = ballY - Double(Self.paddleHeight) / 2
+            let top = idle + (centre - idle) * follow
+            return max(0, min(Self.rows - Self.paddleHeight, Int(top.rounded())))
+        }
+        let leadingTop = paddleTop(nearWallAt: 1, wander: 1.9, phase: 0.4)
+        let trailingTop = paddleTop(nearWallAt: Double(Self.total - 2), wander: 2.7, phase: 1.3)
         let offset = side == .trailing ? Self.perSide : 0
 
         return (0..<Self.perSide).map { index in
             let column = index + offset
             return (0..<Self.rows).map { row in
-                if column == 0 || column == Self.total - 1 {
-                    return (row >= paddleTop && row < paddleTop + Self.paddleHeight) ? 1 : 0
+                if column == 0 {
+                    return (row >= leadingTop && row < leadingTop + Self.paddleHeight) ? 1 : 0
+                }
+                if column == Self.total - 1 {
+                    return (row >= trailingTop && row < trailingTop + Self.paddleHeight) ? 1 : 0
                 }
                 // A little tolerance, so the ball reads as a ball crossing dots
                 // rather than a dot switching on and off.
@@ -2253,6 +2276,19 @@ struct ListeningPillHost: View {
     var body: some View {
         ZStack(alignment: .top) {
             if showing {
+                // The piece under the notch itself, for the game that grows
+                // downward. Without it the two pills got taller and the
+                // hardware notch between them didn't, which left a hole under
+                // the camera and read as two pillars rather than one shape.
+                // This is the bit that makes the three read as one section.
+                if visuals.extraHeight > 0 {
+                    Rectangle()
+                        .fill(Color.black)
+                        .frame(width: notch.width + NotchController.listeningPillOverlap * 2,
+                               height: visuals.extraHeight + 1)
+                        .offset(y: notch.height - 1)
+                        .transition(.opacity)
+                }
                 // Taller for the game that needs it; the pill hangs from the
                 // notch, so extra height goes downwards.
                 ListeningPill(voice: voice, height: notch.height + visuals.extraHeight)

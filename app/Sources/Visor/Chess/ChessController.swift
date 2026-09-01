@@ -190,13 +190,20 @@ final class ChessController: ObservableObject {
                         let reading = try await ChessVision.read(
                             board: board, occupancy: found.occupancy,
                             flipped: found.geometry.flipped)
+                        guard let turn = self.askWhoseTurn(suggested: reading.position.turn) else {
+                            self.notice = nil
+                            self.badge.hide()
+                            return
+                        }
+                        var position = reading.position
+                        position.turn = turn
                         ChessDiagnostics.record(shot: shot, found: found,
-                                                verdict: "joined mid-game: \(reading.position.fen)")
+                                                verdict: "joined mid-game: \(position.fen)")
                         self.notice = nil
                         self.begin(with: ChessCalibrator.Result(
                             geometry: found.geometry,
                             ourColour: found.geometry.flipped ? .black : .white),
-                                   position: reading.position)
+                                   position: position)
                     } catch {
                         ChessDiagnostics.record(shot: shot, found: found,
                                                 verdict: "mid-game read failed: \(error.localizedDescription)")
@@ -334,8 +341,14 @@ final class ChessController: ObservableObject {
         do {
             let reading = try await ChessVision.read(board: board, occupancy: found.occupancy,
                                                      flipped: found.geometry.flipped)
+            guard let turn = askWhoseTurn(suggested: reading.position.turn) else {
+                stop()
+                return
+            }
+            var position = reading.position
+            position.turn = turn
             ChessDiagnostics.record(shot: shot, found: found,
-                                    verdict: "resynced to \(reading.position.fen)")
+                                    verdict: "resynced to \(position.fen)")
             // A fresh session rather than a position swap: the watcher has to
             // relearn its baseline and what an empty square looks like, and
             // half-updating a running one is how you get a third kind of drift.
@@ -343,11 +356,38 @@ final class ChessController: ObservableObject {
             begin(with: ChessCalibrator.Result(
                 geometry: found.geometry,
                 ourColour: found.geometry.flipped ? .black : .white),
-                  position: reading.position)
+                  position: position)
         } catch {
             ChessDiagnostics.record(shot: shot, found: found,
                                     verdict: "resync failed: \(error.localizedDescription)")
             fail("Couldn't re-read the board — \(error.localizedDescription)")
+        }
+    }
+
+    /// Whose move it is, from the one source that knows.
+    ///
+    /// A still picture of a board does not say whose turn it is. The model
+    /// guesses, and the guess is right about as often as a coin — which meant
+    /// joining a game as White and being told what Black should play. Nothing
+    /// downstream can recover from that: every suggestion is for the wrong
+    /// side and every one of them is legal. So it is asked, once, with the
+    /// guess offered as the default. Nil means they changed their mind.
+    private func askWhoseTurn(suggested: PieceColor) -> PieceColor? {
+        let alert = NSAlert()
+        alert.messageText = "Who moves next?"
+        alert.informativeText = "Visor read the board, but a picture doesn't say whose turn "
+                              + "it is. Its guess is \(suggested == .white ? "White" : "Black")."
+        // The guess goes first, so Return accepts it.
+        let first: PieceColor = suggested
+        let second: PieceColor = suggested.opposite
+        alert.addButton(withTitle: first == .white ? "White" : "Black")
+        alert.addButton(withTitle: second == .white ? "White" : "Black")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:  return first
+        case .alertSecondButtonReturn: return second
+        default:                       return nil
         }
     }
 
