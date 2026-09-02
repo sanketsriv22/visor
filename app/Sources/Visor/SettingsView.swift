@@ -1551,6 +1551,7 @@ private struct CLIAccountRow: View {
 private struct HUDPane: View {
     @AppStorage("visor.hudOpacity") private var glass: Double = 0.8
     @AppStorage("visor.hudScale") private var scale: Double = 1.0
+    @AppStorage("visor.hudOnlyMode") private var hudOnly: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -1558,6 +1559,16 @@ private struct HUDPane: View {
                 Text("HUD").font(.title3).bold()
                 Text("The full-screen overlay — \(ShortcutSettings.hint(.hud)) from a chat. Changes here apply the next time it's on screen, and while it's open you'll see them as you drag.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle(isOn: $hudOnly) {
+                    Text("HUD-only mode").font(.callout)
+                }
+                .toggleStyle(.switch)
+                Text("When on, \(ShortcutSettings.hint(.toggle)) opens and closes the HUD directly, with no notes or chat card in between. When off, that key opens the notch card as before and the HUD stays on \(ShortcutSettings.hint(.hud)).")
+                    .font(.caption2).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -1592,7 +1603,7 @@ private struct HUDPane: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Button("Reset to defaults") { glass = 0.8; scale = 1.0 }
+            Button("Reset to defaults") { glass = 0.8; scale = 1.0; hudOnly = false }
                 .font(.caption)
 
             Spacer()

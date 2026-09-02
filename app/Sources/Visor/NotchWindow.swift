@@ -160,6 +160,10 @@ final class NotchController {
     /// Whether the notch was showing the HUD when it was last put away, so
     /// reopening returns you to where you were rather than one level below it.
     private let hudResumeKey = "visor.resumeHUD"
+    /// When set, the primary macro opens the HUD directly rather than the notch
+    /// card. A Settings switch, off by default. Read live from UserDefaults so
+    /// the toggle takes effect on the next keypress without any wiring.
+    private let hudOnlyKey = "visor.hudOnlyMode"
     /// The HUD gets its own window.
     ///
     /// Making the card's panel screen-sized fixed the transition — nothing
@@ -666,7 +670,7 @@ final class NotchController {
             panel.contentView = FirstMouseHostingView(
                 rootView: HUDRootView(
                     chat: chat, store: store, ui: ui,
-                    onExit: { [weak self] in self?.collapseFromHUD() },
+                    onExit: { [weak self] in self?.exitHUD() },
                     onClose: { [weak self] in self?.toggle() }))
             hudPanel = panel
             watchForNotchClicks()
@@ -818,14 +822,19 @@ final class NotchController {
         toggle()
     }
 
-    /// The primary macro (⌘⌃K), HUD-only.
+    /// The primary macro (⌘⌃K).
     ///
-    /// Opening Visor lands on the HUD and nothing else — there's no notes or
-    /// chat face to switch away from first, which is the whole ask: one key
-    /// that shows the HUD and puts it away again. The card faces are still
-    /// reachable from the menu bar, from a re-launch, and from a task sent to
-    /// an agent; they're just not what the top-level key opens.
+    /// In HUD-only mode (a Settings switch, off by default) opening Visor lands
+    /// on the HUD and nothing else — one key that shows the HUD and puts it
+    /// away again, no notes or chat face to switch through first. With the
+    /// switch off it behaves the way it always did: the key opens the notch
+    /// card, and the HUD keeps its own key. The card faces stay reachable
+    /// either way — from the menu bar, a re-launch, or a task sent to an agent.
     func macroToggle() {
+        guard UserDefaults.standard.bool(forKey: hudOnlyKey) else {
+            toggle()
+            return
+        }
         if ui.expanded {
             if ui.mode.isFullScreen {
                 collapseFromHUD()
@@ -836,6 +845,17 @@ final class NotchController {
             }
         } else {
             expandIntoHUD()
+        }
+    }
+
+    /// Leave the HUD via its own "back" affordance. In HUD-only mode that means
+    /// all the way to the notch; otherwise it steps back to the chat card it
+    /// came from, as it used to.
+    func exitHUD() {
+        if UserDefaults.standard.bool(forKey: hudOnlyKey) {
+            collapseFromHUD()
+        } else {
+            setMode(.chat)
         }
     }
 
