@@ -462,16 +462,38 @@ final class ChessSession: ObservableObject {
     /// be read directly. There is nothing to resolve: the page says where every
     /// piece is, and the colour of the piece that moved says whose turn it now
     /// is. A move is a difference between two readings.
+    /// When the game last visibly advanced, for the watchdog below.
+    private var lastProgress = Date()
+
     private func followPage() async {
         while !Task.isCancelled {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled else { return }
             switch state { case .watching, .recovering: break; default: continue }
             guard !playingOwnMove, let oracle else { continue }
-            guard let reading = try? await ChessDOM.read() else { continue }
+            guard let reading = try? await ChessDOM.read() else {
+                ChessDiagnostics.trace("page: read failed")
+                continue
+            }
 
             let seen = reading.position
-            guard seen.placement != position.placement else { continue }
+            if seen.placement == position.placement {
+                // Nothing changed. Usually that's right — we're waiting for the
+                // opponent. But if it's our turn and stays our turn, we failed
+                // to play and would wait forever; a fresh ⌘⌃U was fixing that
+                // by hand. The watchdog does it instead: after a few seconds
+                // stuck on our own turn, play again.
+                if position.turn == ourColour, Date().timeIntervalSince(lastProgress) > 4 {
+                    ChessDiagnostics.trace("page: watchdog — our turn stalled, replaying")
+                    lastProgress = Date()
+                    let best = await oracle.analyse(position)
+                    suggestions = best
+                    if mode == .playing { await playOurMove(best) }
+                    else { await actuator?.present(best, on: geometry) }
+                }
+                continue
+            }
+            lastProgress = Date()
 
             // Whose turn it is comes from the page's own move list — the ply
             // count is unambiguous however many moves passed between two polls,
@@ -603,6 +625,7 @@ final class ChessSession: ObservableObject {
         }
         if landed {
             ChessDiagnostics.trace("play: \(move.uci) landed")
+            lastProgress = Date()
             baseline = latestFrame            // absorb our move; next change is theirs
             settling = []
             changeBegan = nil
