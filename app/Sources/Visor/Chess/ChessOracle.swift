@@ -144,8 +144,11 @@ actor ChessOracle {
     /// Analyse a position nobody predicted — used when watching starts
     /// mid-game, so there are arrows up before the opponent's next move rather
     /// than after it.
-    func analyse(_ position: ChessPosition) async -> ChessEngine.Analysis {
-        (try? await scout.analyse(fen: position.fen, depth: depth, lines: lines, skill: skill))
+    func analyse(_ position: ChessPosition,
+                 depthOverride: Int? = nil, skillOverride: Int? = nil) async -> ChessEngine.Analysis {
+        (try? await scout.analyse(fen: position.fen,
+                                  depth: depthOverride ?? depth, lines: lines,
+                                  skill: skillOverride ?? skill))
             ?? ChessEngine.Analysis(lines: [], played: nil)
     }
 

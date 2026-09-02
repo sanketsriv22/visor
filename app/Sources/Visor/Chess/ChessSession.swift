@@ -537,7 +537,8 @@ final class ChessSession: ObservableObject {
             if next.turn == ourColour {
                 // Where the opponent's move landed, for spotting a recapture.
                 let oppTo = Self.movedToSquare(from: position, to: next, mover: ourColour.opposite)
-                let a = await oracle.analyse(next)
+                let (pd, ps) = pressured(clock: reading.clockSeconds)
+                let a = await oracle.analyse(next, depthOverride: pd, skillOverride: ps)
                 // Confirm the board is still what we analysed before acting on
                 // it. The engine only ever returns a legal move for the
                 // position it was given, so a move that "doesn't get out of
@@ -552,9 +553,10 @@ final class ChessSession: ObservableObject {
                     ChessDiagnostics.trace("page: board moved while thinking — re-reading")
                     continue
                 }
-                ChessDiagnostics.trace("page: our turn \(next.fen)  clock="
+                ChessDiagnostics.trace("page: our turn  clock="
                                      + (reading.clockSeconds.map { String(format: "%.0fs", $0) } ?? "none")
-                                     + " → " + a.lines.map { $0.move.uci }.prefix(3).joined(separator: ","))
+                                     + " depth=\(pd) skill=\(ps) → "
+                                     + a.lines.map { $0.move.uci }.prefix(3).joined(separator: ","))
                 suggestions = a.lines
                 if mode == .playing { await playOurMove(a.lines, played: a.played, recaptureOn: oppTo, clock: reading.clockSeconds) }
                 else { await actuator?.present(Array(a.lines.prefix(3)), on: geometry) }
@@ -613,6 +615,20 @@ final class ChessSession: ObservableObject {
             base *= urgency
         }
         return base
+    }
+
+    /// Strength eased down under time pressure — a fast, low-clock scramble is
+    /// a worse game than a slow one, for a person and now for this. Above about
+    /// half a minute nothing changes; below it the search shortens and the
+    /// skill randomness grows in proportion to how near the flag is, so at 2000
+    /// Elo flagging, the moves come out closer to a blitz-scramble 1500.
+    private func pressured(clock: Double?) -> (depth: Int, skill: Int) {
+        let baseSkill = skill ?? 20
+        guard let clock, clock < 30 else { return (searchDepth, baseSkill) }
+        let urgency = 1.0 - clock / 30.0                       // 0 at 30s, 1 at the flag
+        let d = Int((Double(searchDepth) - urgency * Double(searchDepth - 2)).rounded())
+        let sk = Int((Double(baseSkill) - urgency * Double(baseSkill - 3)).rounded())
+        return (max(2, d), max(1, sk))
     }
 
     /// The square a move of `mover`'s colour landed on, between two positions —
