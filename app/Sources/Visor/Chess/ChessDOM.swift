@@ -121,14 +121,29 @@ enum ChessDOM {
     })()
     """#
 
-    /// Ask each browser that's running, front-most first.
+    /// Read the board on the tab the user is actually looking at.
+    ///
+    /// The frontmost browser's front window's active tab, and only that — not
+    /// every tab of every window. Reading all of them returned whichever board
+    /// came first in the list, which meant a chess.com game left open in a
+    /// background tab got played while the user was on Lichess in front, its
+    /// moves dragged onto wherever the visible board happened to be. The board
+    /// you play is the board you see.
     static func read() async throws -> Reading {
-        let running = NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)
-        var candidates: [(app: String, kind: Browser)] = []
-        if running.contains("com.apple.Safari") { candidates.append(("Safari", .safari)) }
-        if running.contains("com.google.Chrome") { candidates.append(("Google Chrome", .chrome)) }
-        if running.contains("com.brave.Browser") { candidates.append(("Brave Browser", .chrome)) }
-        if running.contains("company.thebrowser.Browser") { candidates.append(("Arc", .chrome)) }
+        let running = NSWorkspace.shared.runningApplications
+        let frontBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let known: [(bundle: String, app: String, kind: Browser)] = [
+            ("com.apple.Safari", "Safari", .safari),
+            ("com.google.Chrome", "Google Chrome", .chrome),
+            ("com.brave.Browser", "Brave Browser", .chrome),
+            ("company.thebrowser.Browser", "Arc", .chrome),
+        ]
+        let live = Set(running.compactMap(\.bundleIdentifier))
+        var candidates = known.filter { live.contains($0.bundle) }
+        // Whichever browser is in front gets asked first.
+        if let front = frontBundle, let i = candidates.firstIndex(where: { $0.bundle == front }), i != 0 {
+            candidates.swapAt(0, i)
+        }
         guard !candidates.isEmpty else { throw ReadError.noBrowser }
 
         var lastError = ""
@@ -147,9 +162,8 @@ enum ChessDOM {
     private enum Browser { case safari, chrome }
 
     private static func run(in app: String, kind: Browser) async throws -> String {
-        // Every tab of every window, so it's found wherever it is — including
-        // a background tab, which is exactly where it goes when you switch to
-        // another app to type.
+        // The active tab of the front window only — the board the user is
+        // looking at, never a background tab.
         let js = script.replacingOccurrences(of: "\\", with: "\\\\")
                        .replacingOccurrences(of: "\"", with: "\\\"")
         let source: String
@@ -157,28 +171,18 @@ enum ChessDOM {
         case .safari:
             source = """
             tell application "\(app)"
-              repeat with w in windows
-                repeat with t in tabs of w
-                  try
-                    set r to do JavaScript "\(js)" in t
-                    if r does not contain "\\"site\\":\\"none\\"" then return r
-                  end try
-                end repeat
-              end repeat
+              try
+                return do JavaScript "\(js)" in current tab of front window
+              end try
             end tell
             return "{\\"site\\":\\"none\\"}"
             """
         case .chrome:
             source = """
             tell application "\(app)"
-              repeat with w in windows
-                repeat with t in tabs of w
-                  try
-                    set r to execute t javascript "\(js)"
-                    if r does not contain "\\"site\\":\\"none\\"" then return r
-                  end try
-                end repeat
-              end repeat
+              try
+                return execute (active tab of front window) javascript "\(js)"
+              end try
             end tell
             return "{\\"site\\":\\"none\\"}"
             """
