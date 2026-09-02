@@ -329,6 +329,64 @@ struct ChessPosition: Equatable {
         return next
     }
 
+    /// Whether `color`'s king is under attack — check, without an engine.
+    ///
+    /// Deterministic and selector-free, which is the point: on a site with no
+    /// readable move list, whose turn it is can't always be read, but a
+    /// position where the side NOT to move is in check is illegal, so a check
+    /// forces the turn. This is how that gets decided.
+    func isInCheck(_ color: PieceColor) -> Bool {
+        guard let kingIndex = board.firstIndex(where: { $0 == Piece(color, .king) }),
+              let king = Square(index: kingIndex) else { return false }
+        let enemy = color.opposite
+
+        // Pawns: an enemy pawn attacks diagonally towards this colour.
+        let pawnDir = color == .white ? 1 : -1     // where an enemy pawn comes from
+        for df in [-1, 1] {
+            if let s = Square(file: king.file + df, rank: king.rank + pawnDir),
+               self[s] == Piece(enemy, .pawn) { return true }
+        }
+        // Knights.
+        for (df, dr) in [(1,2),(2,1),(2,-1),(1,-2),(-1,-2),(-2,-1),(-2,1),(-1,2)] {
+            if let s = Square(file: king.file + df, rank: king.rank + dr),
+               self[s] == Piece(enemy, .knight) { return true }
+        }
+        // Enemy king adjacent.
+        for df in -1...1 { for dr in -1...1 where !(df == 0 && dr == 0) {
+            if let s = Square(file: king.file + df, rank: king.rank + dr),
+               self[s] == Piece(enemy, .king) { return true }
+        } }
+        // Sliding pieces along each ray until a blocker.
+        let straights = [(1,0),(-1,0),(0,1),(0,-1)]
+        let diagonals = [(1,1),(1,-1),(-1,1),(-1,-1)]
+        func scan(_ rays: [(Int, Int)], _ kinds: Set<PieceKind>) -> Bool {
+            for (df, dr) in rays {
+                var f = king.file + df, r = king.rank + dr
+                while let s = Square(file: f, rank: r) {
+                    if let p = self[s] {
+                        if p.color == enemy && kinds.contains(p.kind) { return true }
+                        break
+                    }
+                    f += df; r += dr
+                }
+            }
+            return false
+        }
+        if scan(straights, [.rook, .queen]) { return true }
+        if scan(diagonals, [.bishop, .queen]) { return true }
+        return false
+    }
+
+    /// The side to move that keeps the position legal, when it can be told from
+    /// the position alone: a check forces the checked side to move. Returns nil
+    /// when neither side is in check and the turn is genuinely ambiguous.
+    var forcedTurn: PieceColor? {
+        let w = isInCheck(.white), b = isInCheck(.black)
+        if w && !b { return .white }
+        if b && !w { return .black }
+        return nil
+    }
+
     /// Where the pieces are, ignoring whose turn it is and every clock.
     ///
     /// The watcher can see this much and no more, so it's the only thing worth

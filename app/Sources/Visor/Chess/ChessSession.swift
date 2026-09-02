@@ -507,11 +507,15 @@ final class ChessSession: ObservableObject {
             // restart; the highlight is gone.
             var next = seen
             next.turn = position.turn.opposite
+            var how = "flip"
             if reading.plies > 0 {
                 next.turn = reading.plies % 2 == 0 ? .white : .black
+                how = "plies"
             }
-            ChessDiagnostics.trace("page: turn \(next.turn == ourColour ? "ours" : "theirs")"
-                + (reading.plies > 0 ? " (plies=\(reading.plies))" : " (flip)"))
+            // A check has the last word: the checked side must be to move, so
+            // it overrides a flip that drifted or a stale ply count.
+            if let forced = next.forcedTurn { next.turn = forced; how = "check" }
+            ChessDiagnostics.trace("page: turn " + (next.turn == ourColour ? "ours" : "theirs") + " (" + how + ")")
             // Rights are only ever lost. Keep ours, minus whatever the page
             // shows has moved off its home square.
             next.castling = position.castling.intersection(next.castling)

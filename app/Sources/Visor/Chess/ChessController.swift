@@ -195,7 +195,20 @@ final class ChessController: ObservableObject {
             if let page = try? await ChessDOM.read(), let rect = page.boardRect {
                 var position = page.position
                 let fresh = position.placement == ChessPosition.start.placement
-                if page.lastMove.isEmpty && page.plies == 0 && !fresh {
+                // Whose turn at the join, as reliably as a single snapshot
+                // allows, in order: the starting position is White's; a check
+                // forces the checked side to move; the page's move count, when
+                // it can be read, gives it; otherwise ask, because guessing
+                // wrong makes us wait forever for a move already made — which is
+                // exactly what "as black it never moved from the start" was, the
+                // move count reading zero after White's first move.
+                if fresh {
+                    position.turn = .white
+                } else if let forced = position.forcedTurn {
+                    position.turn = forced
+                } else if page.plies > 0 {
+                    position.turn = page.plies % 2 == 0 ? .white : .black
+                } else {
                     guard let turn = await self.askWhoseTurn(suggested: position.turn) else {
                         self.notice = nil; self.badge.hide(); return
                     }
