@@ -65,6 +65,7 @@ final class ChessSession: ObservableObject {
     private let latency: LatencyBand
     private let elo: Int?
     private let searchDepth: Int
+    private let skill: Int?
 
     private var oracle: ChessOracle?
     private var watcher: ChessWatcher?
@@ -109,9 +110,11 @@ final class ChessSession: ObservableObject {
 
     init(mode: ChessMode, geometry: BoardGeometry, ourColour: PieceColor,
          position: ChessPosition = .start, latency: LatencyBand = .default,
-         source: ChessSource = .pixels, elo: Int? = nil, searchDepth: Int = 14) {
+         source: ChessSource = .pixels, elo: Int? = nil, searchDepth: Int = 14,
+         skill: Int? = nil) {
         self.elo = elo
         self.searchDepth = searchDepth
+        self.skill = skill
         self.mode = mode
         self.source = source
         self.geometry = geometry
@@ -123,7 +126,12 @@ final class ChessSession: ObservableObject {
     // ── lifecycle ─────────────────────────────────────────────────────
 
     func start() async throws {
-        let oracle = try ChessOracle(depth: searchDepth, elo: elo)
+        // A wider shortlist when the strength is turned down, so Skill Level
+        // has genuinely worse moves to pick from — three candidates are all
+        // decent and would never yield a real blunder. Only the top three are
+        // ever drawn as arrows regardless.
+        let searchLines = (mode == .playing && skill != nil) ? 6 : 3
+        let oracle = try ChessOracle(depth: searchDepth, lines: searchLines, elo: elo, skill: skill)
         self.oracle = oracle
         self.actuator = mode == .advising ? AdvisingActuator() : ClickingActuator()
 
@@ -132,12 +140,12 @@ final class ChessSession: ObservableObject {
             ChessDiagnostics.trace("session: started \(mode) as \(ourColour) from the page — \(position.fen)")
             domTask = Task { [weak self] in await self?.followPage() }
             if position.turn == ourColour {
-                let best = await oracle.analyse(position)
+                let a = await oracle.analyse(position)
                 ChessDiagnostics.trace("session: our move first; engine offered "
-                                     + best.map { "\($0.move.uci) \($0.score.display)" }.joined(separator: ", "))
-                suggestions = best
-                if mode == .playing { await playOurMove(best) }
-                else { await actuator?.present(best, on: geometry) }
+                                     + a.lines.map { "\($0.move.uci) \($0.score.display)" }.joined(separator: ", "))
+                suggestions = a.lines
+                if mode == .playing { await playOurMove(a.lines, played: a.played) }
+                else { await actuator?.present(Array(a.lines.prefix(3)), on: geometry) }
             }
             return
         }
@@ -158,14 +166,14 @@ final class ChessSession: ObservableObject {
         // indistinguishable from being broken.
         ChessDiagnostics.trace("session: started \(mode) as \(ourColour) — \(position.fen)")
         if position.turn == ourColour {
-            let best = await oracle.analyse(position)
+            let a = await oracle.analyse(position)
             ChessDiagnostics.trace("session: our move first; engine offered "
-                                 + best.map { "\($0.move.uci) \($0.score.display)" }.joined(separator: ", "))
-            suggestions = best
+                                 + a.lines.map { "\($0.move.uci) \($0.score.display)" }.joined(separator: ", "))
+            suggestions = a.lines
             if mode == .playing {
-                await playOurMove(best)
+                await playOurMove(a.lines, played: a.played)
             } else {
-                await actuator?.present(best, on: geometry)
+                await actuator?.present(Array(a.lines.prefix(3)), on: geometry)
             }
         } else {
             await oracle.prime(after: position)
@@ -341,7 +349,7 @@ final class ChessSession: ObservableObject {
             // table; a two-ply recovery lands on a position nobody predicted.
             let replies = moves.count == 1
                 ? await oracle.replies(to: moves[0], from: before)
-                : await oracle.analyse(position)
+                : await oracle.analyse(position).lines
             suggestions = replies
             // Measured before the wait, not after: this is how fast the answer
             // was actually found, which is the number worth knowing. The wait
@@ -490,10 +498,10 @@ final class ChessSession: ObservableObject {
                 if position.turn == ourColour, Date().timeIntervalSince(lastProgress) > 4 {
                     ChessDiagnostics.trace("page: watchdog — our turn stalled, replaying")
                     lastProgress = Date()
-                    let best = await oracle.analyse(position)
-                    suggestions = best
-                    if mode == .playing { await playOurMove(best) }
-                    else { await actuator?.present(best, on: geometry) }
+                    let a = await oracle.analyse(position)
+                    suggestions = a.lines
+                    if mode == .playing { await playOurMove(a.lines, played: a.played) }
+                    else { await actuator?.present(Array(a.lines.prefix(3)), on: geometry) }
                 }
                 continue
             }
@@ -527,7 +535,9 @@ final class ChessSession: ObservableObject {
             ChessDiagnostics.trace("page: changed → \(next.turn == ourColour ? "our" : "their") turn — \(next.fen)")
 
             if next.turn == ourColour {
-                let best = await oracle.analyse(next)
+                // Where the opponent's move landed, for spotting a recapture.
+                let oppTo = Self.movedToSquare(from: position, to: next, mover: ourColour.opposite)
+                let a = await oracle.analyse(next)
                 // Confirm the board is still what we analysed before acting on
                 // it. The engine only ever returns a legal move for the
                 // position it was given, so a move that "doesn't get out of
@@ -543,10 +553,10 @@ final class ChessSession: ObservableObject {
                     continue
                 }
                 ChessDiagnostics.trace("page: our turn \(next.fen) → "
-                                     + best.map { $0.move.uci }.prefix(3).joined(separator: ","))
-                suggestions = best
-                if mode == .playing { await playOurMove(best) }
-                else { await actuator?.present(best, on: geometry) }
+                                     + a.lines.map { $0.move.uci }.prefix(3).joined(separator: ","))
+                suggestions = a.lines
+                if mode == .playing { await playOurMove(a.lines, played: a.played, recaptureOn: oppTo) }
+                else { await actuator?.present(Array(a.lines.prefix(3)), on: geometry) }
             } else if wasOurs {
                 // Our move (made by hand, in advise mode) has landed.
                 suggestions = []
@@ -565,12 +575,43 @@ final class ChessSession: ObservableObject {
         return nil
     }
 
-    private func playOurMove(_ replies: [ScoredMove]) async {
-        guard let best = replies.first else { return }
-        let move = best.move
+    /// How long to wait before playing — fast when obvious, slow on a real
+    /// decision. Forced is instant, a recapture near-instant; otherwise the
+    /// clearer the best move stands above the next best, the sooner it comes,
+    /// and a position where several moves are close drifts to the slow end of
+    /// the band, the way a person lingers over a hard choice. Jittered so it is
+    /// never mechanical.
+    private func smartDelay(_ replies: [ScoredMove], forced: Bool, recapture: Bool) -> TimeInterval {
+        let lo = min(latency.shortest, latency.longest)
+        let hi = max(latency.shortest, latency.longest)
+        if forced { return 0 }
+        if recapture { return lo }
+        guard replies.count >= 2 else { return lo }
+        let gap = abs(replies[0].score.centipawns - replies[1].score.centipawns)
+        let closeness = 1.0 - min(1.0, max(0.0, Double(gap - 25) / Double(200 - 25)))
+        let base = lo + closeness * (hi - lo)
+        let jitter = (hi - lo) * 0.12
+        return max(lo, min(hi, base + Double.random(in: -jitter...jitter)))
+    }
 
-        // Never click a piece that isn't there. If the from-square reads empty,
-        // the tracked position is wrong; re-read rather than selecting nothing.
+    /// The square a move of `mover`'s colour landed on, between two positions —
+    /// the opponent's destination, for spotting a recapture.
+    private static func movedToSquare(from a: ChessPosition, to b: ChessPosition,
+                                      mover: PieceColor) -> Square? {
+        for index in 0..<64 {
+            guard let sq = Square(index: index), let now = b[sq], now.color == mover else { continue }
+            if a[sq] == nil || a[sq]?.color != mover { return sq }
+        }
+        return nil
+    }
+
+    private func playOurMove(_ replies: [ScoredMove], played: Move? = nil,
+                            recaptureOn: Square? = nil) async {
+        // The move to play is the engine's own choice — skill-noised when the
+        // strength is turned down, so a weak setting can pick a genuinely worse
+        // move than the top line the arrow shows.
+        guard let move = played ?? replies.first?.move else { return }
+
         if !latestFrame.isEmpty, observedOccupancy(latestFrame)[move.from] == false {
             ChessDiagnostics.trace("play: \(move.uci) from an empty square — re-reading")
             suggestions = []
@@ -582,22 +623,13 @@ final class ChessSession: ObservableObject {
         suggestions = replies
         playingOwnMove = true
 
-        // Pace the reply, when the mode moves pieces. Random inside the band,
-        // so it isn't the same instant every move and never lands during the
-        // opponent's animation. The engine already has the answer; this is only
-        // when to use it. Advise mode never waits — an arrow late is worse than
-        // useless.
         if mode == .playing {
-            // A forced move — the opponent left us exactly one legal reply, a
-            // recapture or a check evasion — is played at full speed. Nobody
-            // deliberates over the only move on the board, and waiting out the
-            // band on it just looks like lag.
             let forced = (await oracle?.legalMoves(from: position)?.count ?? 2) <= 1
-            let wait = forced ? 0 : latency.sample()
-            if forced { ChessDiagnostics.trace("play: \(move.uci) forced — no wait") }
+            let recapture = recaptureOn != nil && move.to == recaptureOn
+            let wait = smartDelay(replies, forced: forced, recapture: recapture)
+            ChessDiagnostics.trace(String(format: "play: %@ wait %.2fs (%@)", move.uci, wait,
+                forced ? "forced" : recapture ? "recapture" : "paced"))
             if wait > 0.01 { try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
-            // The board may have moved while we waited (opponent premoved, game
-            // ended); if it's no longer our move, drop it.
             if source == .dom, let r = try? await ChessDOM.read(),
                r.position.placement != position.placement {
                 playingOwnMove = false

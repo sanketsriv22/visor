@@ -54,9 +54,12 @@ actor ChessOracle {
         return total == 0 ? nil : Double(hits) / Double(total)
     }
 
-    init(poolSize: Int = 6, depth: Int = 12, lines: Int = 3, elo: Int? = nil) throws {
+    private let skill: Int?
+
+    init(poolSize: Int = 6, depth: Int = 12, lines: Int = 3, elo: Int? = nil, skill: Int? = nil) throws {
         self.depth = depth
         self.lines = lines
+        self.skill = skill
         self.scout = try ChessEngine(threads: 1, hashMB: 16, elo: elo)
         // One thread each. We're already running as many searches as there are
         // cores, and Stockfish threads within a search fight each other for the
@@ -87,6 +90,7 @@ actor ChessOracle {
         let pool = self.pool
         let depth = self.depth
         let lines = self.lines
+        let skill = self.skill
         let stride = max(1, Int((Double(moves.count) / Double(pool.count)).rounded(.up)))
         // Each engine gets its own slice rather than pulling from a shared
         // queue. The slices cost near enough the same, and a queue would need
@@ -101,10 +105,10 @@ actor ChessOracle {
                         var answers: [(Move, [ScoredMove])] = []
                         for move in chunk {
                             if Task.isCancelled { return answers }
-                            guard let best = try? await engine.analyse(
-                                fen: position.applying(move).fen, depth: depth, lines: lines)
+                            guard let a = try? await engine.analyse(
+                                fen: position.applying(move).fen, depth: depth, lines: lines, skill: skill)
                             else { continue }
-                            answers.append((move, best))
+                            answers.append((move, a.lines))
                         }
                         return answers
                     }
@@ -134,14 +138,15 @@ actor ChessOracle {
         misses += 1
         priming?.cancel()
         return (try? await scout.analyse(fen: position.applying(move).fen,
-                                         depth: depth, lines: lines)) ?? []
+                                         depth: depth, lines: lines, skill: skill))?.lines ?? []
     }
 
     /// Analyse a position nobody predicted — used when watching starts
     /// mid-game, so there are arrows up before the opponent's next move rather
     /// than after it.
-    func analyse(_ position: ChessPosition) async -> [ScoredMove] {
-        (try? await scout.analyse(fen: position.fen, depth: depth, lines: lines)) ?? []
+    func analyse(_ position: ChessPosition) async -> ChessEngine.Analysis {
+        (try? await scout.analyse(fen: position.fen, depth: depth, lines: lines, skill: skill))
+            ?? ChessEngine.Analysis(lines: [], played: nil)
     }
 
     func stop() async {

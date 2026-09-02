@@ -40,6 +40,15 @@ struct ChessStrength: Equatable {
         return Int((4.0 + t * 10.0).rounded())             // 4 … 14
     }
 
+    /// Stockfish Skill Level (0–20). Below 20 it randomly plays a worse move —
+    /// the source of the occasional real blunder a weak human makes, which the
+    /// Elo limiter alone never produces. Low ratings get a low level.
+    var skillLevel: Int? {
+        guard let elo else { return nil }              // full strength: no skill cap
+        let t = Double(elo - 1320) / Double(3000 - 1320)
+        return Int((1.0 + t * 19.0).rounded())         // 1 … 20
+    }
+
     private static let key = "visor.chess.elo"
     static var stored: ChessStrength {
         get {
@@ -324,7 +333,8 @@ final class ChessController: ObservableObject {
                                    latency: latency,
                                    source: source,
                                    elo: strength.elo,
-                                   searchDepth: strength.searchDepth)
+                                   searchDepth: strength.searchDepth,
+                                   skill: strength.skillLevel)
         self.session = session
         Task {
             do {

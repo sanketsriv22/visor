@@ -23,6 +23,15 @@ enum Score: Equatable, Comparable {
 
     /// What to draw next to an arrow. Pawns, signed, the way every chess UI
     /// in the world shows it.
+    /// A single signed number for comparing how far apart two moves are.
+    /// Mate is worth more than any material, nearer mate more than far.
+    var centipawns: Int {
+        switch self {
+        case .centipawns(let cp): return cp
+        case .mate(let n): return n > 0 ? 100_000 - n * 100 : -100_000 - n * 100
+        }
+    }
+
     var display: String {
         switch self {
         case .mate(let n): return n > 0 ? "M\(n)" : "-M\(abs(n))"
@@ -291,14 +300,27 @@ actor ChessEngine {
     }
 
     /// The best `lines` moves, deepest evaluation first.
-    func analyse(fen: String, depth: Int, lines count: Int) async throws -> [ScoredMove] {
+    /// The result of a search: the top lines by evaluation, and the move the
+    /// engine would actually make — which differs from the best line when Skill
+    /// Level is turned down, because Stockfish then picks a worse move at random
+    /// from across every legal move, not just the shortlist. That difference is
+    /// the whole of "plays like a weaker human": real, occasional blunders.
+    struct Analysis {
+        let lines: [ScoredMove]     // eval-sorted, for the arrows and the gap
+        let played: Move?           // what the engine would play (skill-chosen)
+        var best: ScoredMove? { lines.first }
+    }
+
+    func analyse(fen: String, depth: Int, lines count: Int,
+                 skill: Int? = nil) async throws -> Analysis {
         write("setoption name MultiPV value \(count)")
+        // Skill Level 20 is full strength. Below it, Stockfish adds noise to
+        // every root move's score and plays the noisiest-best — the lower the
+        // level, the bigger the noise and the worse the move it will accept.
+        write("setoption name Skill Level value \(skill ?? 20)")
         let output = try await ask("position fen \(fen)\ngo depth \(depth)",
                                    what: "search", timeout: 20) { $0.hasPrefix("bestmove") }
 
-        // Keep the last `info` line for each multipv slot: Stockfish reports
-        // every iteration of the deepening loop and only the final one is at
-        // the depth we asked for.
         var best: [Int: ScoredMove] = [:]
         for line in output where line.hasPrefix("info ") {
             let fields = line.split(separator: " ").map(String.init)
@@ -313,7 +335,11 @@ actor ChessEngine {
             let score: Score = kind == "mate" ? .mate(value) : .centipawns(value)
             best[slot] = ScoredMove(move: move, score: score)
         }
-        return best.sorted { $0.key < $1.key }.map(\.value)
+        // The final "bestmove <uci>" line is the engine's actual choice — the
+        // skill-noised one when Skill Level is down.
+        let played = output.first { $0.hasPrefix("bestmove") }
+            .flatMap { Move(uci: $0.split(separator: " ").dropFirst().first.map(String.init) ?? "") }
+        return Analysis(lines: best.sorted { $0.key < $1.key }.map(\.value), played: played)
     }
 
     /// Stop whatever search is running. The engine still emits a `bestmove`,
