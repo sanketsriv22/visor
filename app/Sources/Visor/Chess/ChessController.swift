@@ -28,6 +28,18 @@ struct ChessStrength: Equatable {
 
     var display: String { elo.map { "\($0) Elo" } ?? "Full strength" }
 
+    /// How deep the engine searches. This, more than UCI_Elo, is what makes it
+    /// play like the rating rather than a strong engine picking quiet moves:
+    /// Stockfish's Elo limiter avoids blunders even at its 1320 floor, so it
+    /// still scores ~99% accuracy. A shallow search misses the tactics a player
+    /// of that level would miss, which is what "weaker" actually looks like.
+    /// Full strength searches deep; 1320 searches only a few ply.
+    var searchDepth: Int {
+        guard let elo else { return 14 }
+        let t = Double(elo - 1320) / Double(3000 - 1320)   // 0 at floor, 1 at top
+        return Int((4.0 + t * 10.0).rounded())             // 4 … 14
+    }
+
     private static let key = "visor.chess.elo"
     static var stored: ChessStrength {
         get {
@@ -311,7 +323,8 @@ final class ChessController: ObservableObject {
                                    position: position,
                                    latency: latency,
                                    source: source,
-                                   elo: strength.elo)
+                                   elo: strength.elo,
+                                   searchDepth: strength.searchDepth)
         self.session = session
         Task {
             do {
