@@ -495,32 +495,21 @@ final class ChessSession: ObservableObject {
             }
             lastProgress = Date()
 
-            // Whose turn it is comes from the page's own move list — the ply
-            // count is unambiguous however many moves passed between two polls,
-            // where a piece diff assumes exactly one and mis-assigns the turn
-            // when a fast bot and a fast reply both land inside 250ms. That was
-            // the "suggested a move that doesn't escape check": wrong side to
-            // move, so the engine answered for the wrong colour and its move was
-            // illegal on the real board. The diff is the fallback only when the
-            // move list can't be read.
-            // Whose turn, in order of trust:
-            //   1. the last-move highlight — the piece on the highlighted
-            //      destination is who just moved, whatever the move list says
-            //      and however many plies passed;
-            //   2. the move-list ply count, when the highlight isn't there;
-            //   3. a piece diff, only when neither is.
+            // Whose turn it is, the simple and reliable way: it was one
+            // colour's turn, the board changed, so it's the other colour's now.
+            // Flipping from the turn we already knew needs no move-list selector
+            // and no highlight — both of which are per-site, fragile, and were
+            // producing garbage (playing as black never moved because the
+            // highlight read wrong). The move-list ply count, when it can be
+            // read, is an absolute cross-check that corrects a missed ply or a
+            // restart; the highlight is gone.
             var next = seen
-            if let dest = reading.lastMove.first(where: { seen[$0] != nil }),
-               let mover = seen[dest]?.color {
-                next.turn = mover.opposite
-            } else if reading.plies > 0 {
+            next.turn = position.turn.opposite
+            if reading.plies > 0 {
                 next.turn = reading.plies % 2 == 0 ? .white : .black
-            } else if let mover = Self.colourThatMoved(from: position, to: seen) {
-                next.turn = mover.opposite
             }
-            ChessDiagnostics.trace("page: turn from "
-                + (reading.lastMove.isEmpty ? (reading.plies > 0 ? "plies=\(reading.plies)" : "diff")
-                   : "highlight \(reading.lastMove.map(\.name).joined(separator: ","))"))
+            ChessDiagnostics.trace("page: turn \(next.turn == ourColour ? "ours" : "theirs")"
+                + (reading.plies > 0 ? " (plies=\(reading.plies))" : " (flip)"))
             // Rights are only ever lost. Keep ours, minus whatever the page
             // shows has moved off its home square.
             next.castling = position.castling.intersection(next.castling)

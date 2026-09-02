@@ -104,6 +104,22 @@ final class ClickingActuator: MoveActuator {
                        to: geometry.center(of: move.to), source: source)
         ChessDiagnostics.trace("play: dragged \(move.uci)")
 
+        // A promotion leaves a picker to answer.
+        //
+        // Dragging a pawn to the last rank doesn't finish the move — the site
+        // asks which piece. chess.com stacks the choices on the promotion file
+        // starting at the promotion square, queen first; Lichess does the same.
+        // We only ever want a queen (nothing else is the engine's pick against
+        // these opponents), and the queen is the top choice, on the promotion
+        // square itself — so a click there takes it. Without this the pawn sits
+        // half-promoted, the move never completes, and the game stalls with a
+        // picker open that only a human closes.
+        if move.promotion != nil {
+            try await Task.sleep(nanoseconds: 90_000_000)
+            try await click(geometry.center(of: move.to), source: source)
+            ChessDiagnostics.trace("play: took promotion queen on \(move.to.name)")
+        }
+
         // The one place in this subsystem that knows which website it is
         // looking at. A promotion opens a picker over the promotion square with
         // the queen nearest the back rank — which is the destination square
