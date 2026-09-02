@@ -1136,6 +1136,7 @@ struct InlineModelPicker: View {
     var body: some View {
         Button { showing = true } label: {
             HStack(spacing: 4) {
+                Circle().fill(vendorColor(chat.conversation.model)).frame(width: 5, height: 5)
                 Text(chat.shortModelName)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -1186,49 +1187,58 @@ struct InlineModelPicker: View {
                 // grabbed, covering it entirely. Hidden, with the list inset
                 // from the edge so nothing needs to share that column.
                 .scrollIndicators(.hidden)
-                .frame(height: showingPinned ? 150 : 220)
+                .frame(height: showingPinned ? 170 : 260)
             }
-            .frame(width: 340)
+            .frame(width: 384)
         }
     }
 
     private func row(_ id: String) -> some View {
         let selected = id == chat.conversation.model
-        return HStack(spacing: 4) {
+        let model = chat.catalog.model(for: id)
+        return HStack(spacing: 2) {
             Button {
                 chat.useModel(id)
                 showing = false
                 query = ""
             } label: {
-                HStack(spacing: 6) {
-                    // Vendor dimmed, model name normal: the prefix repeats down
-                    // dozens of rows and shouldn't compete with what differs.
-                    Text(vendor(of: id)).foregroundStyle(.secondary)
+                HStack(spacing: 7) {
+                    // A vendor dot, not the repeated "anthropic /" prefix that
+                    // used to open every row: colour carries the vendor and the
+                    // name gets the line to itself.
+                    Circle().fill(vendorColor(id)).frame(width: 6, height: 6)
                     Text(shortName(of: id))
-                    Spacer(minLength: 0)
-                    if selected {
-                        Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
+                        .font(.system(size: 11, weight: selected ? .semibold : .regular))
+                        .lineLimit(1).truncationMode(.middle)
+                    capabilityChips(model)
+                    Spacer(minLength: 6)
+                    // What the row is actually for: how much it holds and what
+                    // it costs, which is how you choose between two names you
+                    // half-recognise. Both hidden until the catalogue loads.
+                    if let ctx = contextLabel(model) {
+                        Text(ctx)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(.secondary)
                     }
+                    if let price = priceLabel(model) {
+                        Text(price)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(.secondary.opacity(0.75))
+                            .frame(width: 60, alignment: .trailing)
+                    }
+                    // Fixed column, so ticking a row never nudges the layout.
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .opacity(selected ? 1 : 0)
+                        .frame(width: 12)
                 }
-                .font(.system(size: 11))
-                .lineLimit(1)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.visor)
 
-            Button {
-                chat.toggleFavourite(id)
-            } label: {
-                Image(systemName: chat.isFavourite(id) ? "star.fill" : "star")
-                    .font(.system(size: 9))
-                    .foregroundStyle(chat.isFavourite(id) ? Color.orange : Color.secondary.opacity(0.45))
-                    .frame(width: 18, height: 18)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.visor)
-            .help(chat.isFavourite(id) ? "Unpin from this agent" : "Pin to this agent")
+            star(id)
         }
-        .padding(.leading, 9).padding(.trailing, 6).padding(.vertical, 4)
+        .padding(.leading, 8).padding(.trailing, 4).padding(.vertical, 3)
         .background(RoundedRectangle(cornerRadius: Design.Radius.control)
             .fill(selected ? Color.accentColor.opacity(0.16) : .clear))
     }
@@ -2177,6 +2187,70 @@ extension InlineModelPicker {
 
     func shortName(of id: String) -> String {
         id.contains("/") ? String(id.split(separator: "/").dropFirst().joined(separator: "/")) : id
+    }
+
+    /// A colour per vendor, so the list groups itself at a glance without the
+    /// name having to spell out who made the model.
+    func vendorColor(_ id: String) -> Color {
+        let vendor = (id.split(separator: "/").first.map { $0.lowercased() }) ?? ""
+        switch vendor {
+        case "anthropic":            return Color(red: 0.83, green: 0.52, blue: 0.30)
+        case "openai":               return Color(red: 0.20, green: 0.72, blue: 0.55)
+        case "google":               return Color(red: 0.36, green: 0.60, blue: 0.96)
+        case "meta-llama", "meta":   return Color(red: 0.30, green: 0.50, blue: 0.95)
+        case "mistralai", "mistral": return Color(red: 0.95, green: 0.50, blue: 0.25)
+        case "deepseek":             return Color(red: 0.52, green: 0.44, blue: 0.92)
+        case "x-ai":                 return Color(white: 0.78)
+        case "qwen", "alibaba":      return Color(red: 0.64, green: 0.42, blue: 0.86)
+        case "cohere":               return Color(red: 0.86, green: 0.44, blue: 0.66)
+        default:                     return Color.white.opacity(0.35)
+        }
+    }
+
+    /// Small capability marks: reasoning, vision, tools — only the ones the
+    /// model actually has, read from what OpenRouter reports.
+    @ViewBuilder
+    func capabilityChips(_ model: ORModel?) -> some View {
+        HStack(spacing: 3) {
+            if model?.supportsReasoning ?? false { chip("brain") }
+            if model?.supportsVision ?? false { chip("eye") }
+            if model?.supportsTools ?? false { chip("wrench.and.screwdriver") }
+        }
+    }
+
+    func chip(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 8))
+            .foregroundStyle(.secondary.opacity(0.7))
+    }
+
+    /// Context window, shortened: 200000 → "200K", 1000000 → "1M".
+    func contextLabel(_ model: ORModel?) -> String? {
+        guard let c = model?.context_length, c > 0 else { return nil }
+        if c >= 1_000_000 { return "\(c / 1_000_000)M" }
+        if c >= 1_000 { return "\(c / 1_000)K" }
+        return "\(c)"
+    }
+
+    /// Prompt / completion price per million tokens, e.g. "$3/$15".
+    func priceLabel(_ model: ORModel?) -> String? {
+        guard let p = model?.promptPerMillion, let c = model?.completionPerMillion else { return nil }
+        func f(_ v: Double) -> String {
+            v == 0 ? "0" : (v < 1 ? String(format: "%.2f", v) : String(format: "%.0f", v))
+        }
+        return "$\(f(p))/\(f(c))"
+    }
+
+    func star(_ id: String) -> some View {
+        Button { chat.toggleFavourite(id) } label: {
+            Image(systemName: chat.isFavourite(id) ? "star.fill" : "star")
+                .font(.system(size: 9))
+                .foregroundStyle(chat.isFavourite(id) ? Color.orange : Color.secondary.opacity(0.45))
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.visor)
+        .help(chat.isFavourite(id) ? "Unpin from this agent" : "Pin to this agent")
     }
 }
 

@@ -51,6 +51,12 @@ final class ModelCatalog: ObservableObject {
         models.first { $0.id == id }?.label ?? id
     }
 
+    /// The full catalogue entry for an id, when the list has loaded — so the
+    /// picker can show context window, pricing and capabilities per row.
+    func model(for id: String) -> ORModel? {
+        models.first { $0.id == id }
+    }
+
     /// Whether a model takes a reasoning-effort setting.
     ///
     /// Unknown models return true: the list may not have loaded yet, and

@@ -83,9 +83,17 @@ struct ORModel: Codable, Identifiable, Hashable {
     /// on. OpenRouter publishes this per model, which is how the composer can
     /// hide controls a model can't use instead of showing dead ones.
     var supported_parameters: [String]?
+    /// What the model can take in — OpenRouter reports "text", "image", etc.
+    /// under architecture.input_modalities. Optional so models without it (and
+    /// older cached decodes) decode unchanged.
+    struct Architecture: Codable, Hashable {
+        var input_modalities: [String]?
+    }
+    var architecture: Architecture?
 
     var supportsReasoning: Bool { supported_parameters?.contains("reasoning") ?? false }
     var supportsTools: Bool { supported_parameters?.contains("tools") ?? false }
+    var supportsVision: Bool { architecture?.input_modalities?.contains("image") ?? false }
 
     /// What to show in a picker.
     var label: String { name ?? id }
@@ -94,6 +102,12 @@ struct ORModel: Codable, Identifiable, Hashable {
     /// The API gives dollars per *token* as a string.
     var promptPerMillion: Double? {
         guard let p = pricing?.prompt, let v = Double(p) else { return nil }
+        return v * 1_000_000
+    }
+
+    /// Completion price in dollars per million tokens, same source and units.
+    var completionPerMillion: Double? {
+        guard let c = pricing?.completion, let v = Double(c) else { return nil }
         return v * 1_000_000
     }
 }
