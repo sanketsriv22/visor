@@ -420,7 +420,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
                 guard let controller = self?.controller else { return }
                 switch action {
-                case .toggle:   controller.toggle()
+                case .toggle:   controller.macroToggle()
                 case .swapMode: controller.swapMode()
                 case .hud:      controller.toggleHUD()
                 case .dictate:  controller.toggleDictation()

@@ -924,6 +924,10 @@ struct ComposerField: NSViewRepresentable {
     /// so the field stayed one line tall and everything past the first line
     /// was invisible. Only the layout manager knows how tall the text is.
     var onHeightChange: ((CGFloat) -> Void)?
+    /// Point size of the typed text. Defaults to the notch card's 12; the HUD
+    /// passes a larger value, since at full-screen the 12pt field read as a
+    /// caption next to everything around it.
+    var fontSize: CGFloat = 12
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -962,7 +966,7 @@ struct ComposerField: NSViewRepresentable {
         // reason this isn't a SwiftUI TextField.
         view.isEditable = true
         view.isSelectable = true
-        view.font = .systemFont(ofSize: 12)
+        view.font = .systemFont(ofSize: fontSize)
         view.textColor = NSColor.white.withAlphaComponent(0.92)
         view.insertionPointColor = NSColor.white.withAlphaComponent(0.8)
         view.textContainerInset = NSSize(width: 0, height: 1)
@@ -1383,7 +1387,7 @@ struct HUDView: View {
     private func panelContent(_ panel: HUDPanel) -> some View {
         switch panel {
         case .agents:    agentsPanel
-        case .tasks:     HUDTasksPanel(store: store, scale: scale)
+        case .tasks:     HUDTasksPanel(store: store, chat: chat, scale: scale)
         case .chats:     HUDChatsPanel(chat: chat, scale: scale)
         case .memory:    memoryPanel
         case .dictation: dictationPanel
@@ -1537,17 +1541,26 @@ private struct HUDComposer: View {
     @ObservedObject var chat: ChatController
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             ZStack(alignment: .topLeading) {
                 if chat.draft.isEmpty {
                     Text("Message \(chat.agent?.name ?? "your agent")…")
-                        .font(.system(size: 13))
+                        // Matches the field's own point size — at full screen the
+                        // old 13pt read as a caption against everything else.
+                        .font(.system(size: 15))
                         .foregroundStyle(.white.opacity(0.3))
                         .allowsHitTesting(false)
                 }
-                ComposerField(text: $chat.draft, onSubmit: chat.send)
+                ComposerField(text: $chat.draft, onSubmit: chat.send, fontSize: 15)
             }
-            .frame(height: 62)
+            .frame(height: 66)
+
+            // A hairline between the message and its controls, so the row of
+            // pickers reads as a toolbar for the field above rather than a
+            // second thing floating in the same box.
+            Rectangle()
+                .fill(.white.opacity(0.07))
+                .frame(height: 1)
 
             HStack(spacing: 8) {
                 // Gated exactly as the notch composer is. Ungated, the HUD
@@ -1571,17 +1584,27 @@ private struct HUDComposer: View {
                 Button(action: chat.isStreaming ? chat.stop : chat.send) {
                     Image(systemName: chat.isStreaming
                           ? "stop.circle.fill" : "arrow.up.circle.fill")
-                        .font(.system(size: 19))
-                        .foregroundStyle(chat.isStreaming ? Color.orange : Color.white.opacity(0.9))
+                        .font(.system(size: 24))
+                        .foregroundStyle(chat.isStreaming ? Color.orange
+                                         : (canSend ? Color.white : Color.white.opacity(0.25)))
                 }
                 .buttonStyle(.visorBare)
+                .disabled(!chat.isStreaming && !canSend)
+                // No ⌘↩ here: the field already sends on Return, and the notch
+                // composer (mounted at the same time) owns that chord — two
+                // views claiming it is how you get a shortcut that fires twice.
             }
         }
-        .padding(14)
+        .padding(16)
         .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
             .fill(Design.Surface.raised))
         .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
             .stroke(.white.opacity(0.09), lineWidth: 1))
+    }
+
+    private var canSend: Bool {
+        !chat.isStreaming
+            && !chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -2314,27 +2337,55 @@ private struct HUDVoiceRow: View {
     let delete: () -> Void
 
     @State private var hovering = false
+    @State private var copied = false
 
     var body: some View {
+        // A log is something you pull a line out of, not one you tidy — so a
+        // click copies the transcript, and deleting is the deliberate act
+        // tucked behind the hover. The trailing slot is a fixed width whether
+        // or not its controls are showing, so the text never reflows when the
+        // pointer arrives — the old version rebuilt the row and nudged every
+        // line sideways on hover.
         HStack(alignment: .top, spacing: 6) {
             Text(entry.text)
                 .font(.system(size: 11 * scale))
                 .foregroundStyle(.white.opacity(0.7))
                 .lineLimit(3)
-                .textSelection(.enabled)
             Spacer(minLength: 0)
-            if hovering {
-                Button(action: delete) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 9 * scale))
-                        .foregroundStyle(.white.opacity(0.4))
-                        .frame(width: 18 * scale, height: 18 * scale)
-                        .contentShape(Rectangle())
+            ZStack(alignment: .topTrailing) {
+                if copied {
+                    Text("Copied")
+                        .font(.system(size: 8 * scale, weight: .semibold))
+                        .foregroundStyle(.green.opacity(0.9))
+                        .frame(height: 18 * scale)
+                        .transition(.opacity)
+                } else {
+                    Button(action: delete) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 9 * scale))
+                            .foregroundStyle(.white.opacity(0.4))
+                            .frame(width: 18 * scale, height: 18 * scale)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.visor)
+                    .help("Delete this entry")
+                    .opacity(hovering ? 1 : 0)
                 }
-                .buttonStyle(.visor)
-                .help("Delete this entry")
             }
+            .frame(width: 40 * scale, alignment: .trailing)
         }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: copy)
         .onHover { hovering = $0 }
+        .help("Click to copy")
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(entry.text, forType: .string)
+        withAnimation(.easeOut(duration: 0.12)) { copied = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
+            withAnimation(.easeIn(duration: 0.2)) { copied = false }
+        }
     }
 }

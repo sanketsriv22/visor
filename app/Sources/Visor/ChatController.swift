@@ -52,6 +52,18 @@ final class ChatController: ObservableObject {
     /// Set by the notch controller: is the composer on screen right now?
     var isComposerVisible: (() -> Bool)?
 
+    /// Send one task line to the default agent — the same thing the notch's
+    /// task rows do, exposed here so the HUD's task rail can reach it without
+    /// threading the AIRunner through every view between them.
+    func sendTaskToDefault(_ text: String, id: UUID) {
+        let t = text.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return }
+        ai.sendToDefault(tasks: [t], taskIDs: [id])
+    }
+
+    /// Whether a task line the rail sent is still running.
+    func isSendingTask(_ id: UUID) -> Bool { ai.isRunning(id) }
+
     /// Recent turns sent verbatim. Older context arrives through recall
     /// instead, which is what keeps a long history from growing the bill on
     /// every single message.

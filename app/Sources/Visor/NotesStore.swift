@@ -274,6 +274,13 @@ final class NotesStore: ObservableObject {
         items.removeAll { $0.id == id }
     }
 
+    /// Set a task's text. Used by editors outside the notch card — the HUD's
+    /// task rail edits the very same items the notch does.
+    func setText(_ text: String, for id: UUID) {
+        guard let i = items.firstIndex(where: { $0.id == id }) else { return }
+        if items[i].text != text { items[i].text = text }
+    }
+
     /// Attach, replace, or clear the browser link for one task.
     func setLink(_ link: String?, for id: UUID) {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }

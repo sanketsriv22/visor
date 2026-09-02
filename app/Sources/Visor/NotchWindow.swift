@@ -666,7 +666,7 @@ final class NotchController {
             panel.contentView = FirstMouseHostingView(
                 rootView: HUDRootView(
                     chat: chat, store: store, ui: ui,
-                    onExit: { [weak self] in self?.setMode(.chat) },
+                    onExit: { [weak self] in self?.collapseFromHUD() },
                     onClose: { [weak self] in self?.toggle() }))
             hudPanel = panel
             watchForNotchClicks()
@@ -816,6 +816,27 @@ final class NotchController {
     func showNote() {
         guard !ui.expanded else { return }
         toggle()
+    }
+
+    /// The primary macro (⌘⌃K), HUD-only.
+    ///
+    /// Opening Visor lands on the HUD and nothing else — there's no notes or
+    /// chat face to switch away from first, which is the whole ask: one key
+    /// that shows the HUD and puts it away again. The card faces are still
+    /// reachable from the menu bar, from a re-launch, and from a task sent to
+    /// an agent; they're just not what the top-level key opens.
+    func macroToggle() {
+        if ui.expanded {
+            if ui.mode.isFullScreen {
+                collapseFromHUD()
+            } else {
+                // On a card that some other path opened — take it up to the
+                // HUD rather than closing, so the key always means "the HUD".
+                setMode(.hud)
+            }
+        } else {
+            expandIntoHUD()
+        }
     }
 
     func toggle() {
