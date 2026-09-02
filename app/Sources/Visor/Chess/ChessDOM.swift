@@ -36,6 +36,10 @@ enum ChessDOM {
         /// itself — so a browser board needs no pixel search for its geometry
         /// and works the same on any site or theme.
         let boardRect: CGRect?
+        /// Our own remaining time in seconds, if the page shows a clock. Lets
+        /// the pacing speed up as the flag approaches, the way a person blitzes
+        /// when low. nil for an untimed game or a clock we can't read.
+        let clockSeconds: Double?
     }
 
     enum ReadError: LocalizedError {
@@ -56,7 +60,14 @@ enum ChessDOM {
     /// bottom. Written to run on either site and to say which it found.
     private static let script = #"""
     (function(){
-      var out={site:'none',pieces:[],plies:0,flipped:false,highlights:[],board:null};
+      var out={site:'none',pieces:[],plies:0,flipped:false,highlights:[],board:null,clock:null};
+      function clockSeconds(sel){
+        var el=document.querySelector(sel); if(!el) return null;
+        var t=(el.textContent||'').trim();
+        var m=/(\d+):(\d+)(?:\.(\d+))?/.exec(t);
+        if(m) return parseInt(m[1])*60+parseInt(m[2])+(m[3]?parseFloat('0.'+m[3]):0);
+        var s=/^(\d+(?:\.\d+)?)$/.exec(t); return s?parseFloat(s[1]):null;
+      }
       function screenRect(el){
         var r=el.getBoundingClientRect();
         var chrome=window.outerHeight-window.innerHeight;
@@ -67,6 +78,7 @@ enum ChessDOM {
       if(cb && cb.querySelector('.piece')){
         out.site='chess.com';
         out.board=screenRect(cb);
+        out.clock=clockSeconds('.clock-bottom, [class*="clock-bottom"]');
         out.flipped=cb.classList.contains('flipped');
         var ps=cb.querySelectorAll('.piece');
         for(var i=0;i<ps.length;i++){
@@ -94,6 +106,7 @@ enum ChessDOM {
       if(cg){
         out.site='lichess';
         out.board=screenRect((cg.closest('cg-container')||cg.closest('.cg-wrap')||cg));
+        out.clock=clockSeconds('.rclock-bottom .time, .rclock-bottom time');
         var wrap=cg.closest('.cg-wrap')||cg.parentElement;
         out.flipped=!!(wrap&&wrap.classList.contains('orientation-black'));
         var r=cg.getBoundingClientRect(),sq=r.width/8;
@@ -261,7 +274,9 @@ enum ChessDOM {
             if at("a8") == Piece(.black, .rook) { rights.insert(.blackQueen) }
         }
         position.castling = rights
+        let clock = obj["clock"] as? Double
         return Reading(position: position, flipped: flipped, site: site,
-                       plies: plies, lastMove: lastMove, boardRect: boardRect)
+                       plies: plies, lastMove: lastMove, boardRect: boardRect,
+                       clockSeconds: (clock ?? 0) > 0 ? clock : nil)
     }
 }

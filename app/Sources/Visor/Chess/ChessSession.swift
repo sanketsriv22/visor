@@ -552,10 +552,11 @@ final class ChessSession: ObservableObject {
                     ChessDiagnostics.trace("page: board moved while thinking — re-reading")
                     continue
                 }
-                ChessDiagnostics.trace("page: our turn \(next.fen) → "
-                                     + a.lines.map { $0.move.uci }.prefix(3).joined(separator: ","))
+                ChessDiagnostics.trace("page: our turn \(next.fen)  clock="
+                                     + (reading.clockSeconds.map { String(format: "%.0fs", $0) } ?? "none")
+                                     + " → " + a.lines.map { $0.move.uci }.prefix(3).joined(separator: ","))
                 suggestions = a.lines
-                if mode == .playing { await playOurMove(a.lines, played: a.played, recaptureOn: oppTo) }
+                if mode == .playing { await playOurMove(a.lines, played: a.played, recaptureOn: oppTo, clock: reading.clockSeconds) }
                 else { await actuator?.present(Array(a.lines.prefix(3)), on: geometry) }
             } else if wasOurs {
                 // Our move (made by hand, in advise mode) has landed.
@@ -581,17 +582,37 @@ final class ChessSession: ObservableObject {
     /// and a position where several moves are close drifts to the slow end of
     /// the band, the way a person lingers over a hard choice. Jittered so it is
     /// never mechanical.
-    private func smartDelay(_ replies: [ScoredMove], forced: Bool, recapture: Bool) -> TimeInterval {
+    private func smartDelay(_ replies: [ScoredMove], forced: Bool, recapture: Bool,
+                           clock: Double?) -> TimeInterval {
         let lo = min(latency.shortest, latency.longest)
         let hi = max(latency.shortest, latency.longest)
         if forced { return 0 }
         if recapture { return lo }
-        guard replies.count >= 2 else { return lo }
-        let gap = abs(replies[0].score.centipawns - replies[1].score.centipawns)
-        let closeness = 1.0 - min(1.0, max(0.0, Double(gap - 25) / Double(200 - 25)))
-        let base = lo + closeness * (hi - lo)
+
+        // Fast by default, slow only for a genuine decision. Most positions
+        // have a clear enough best move, so the gap to the second-best is
+        // usually well over half a pawn — those come quick. Only a near-tie,
+        // where several moves are within a fraction of a pawn, drifts to the
+        // slow end. Squared, so the middle leans fast rather than sitting in
+        // the centre of the band.
+        var closeness = 0.0
+        if replies.count >= 2 {
+            let gap = abs(replies[0].score.centipawns - replies[1].score.centipawns)
+            let raw = min(1.0, max(0.0, Double(60 - gap) / 60.0))   // 0 by 60cp, 1 at a dead tie
+            closeness = raw * raw
+        }
+        var base = lo + closeness * (hi - lo)
         let jitter = (hi - lo) * 0.12
-        return max(lo, min(hi, base + Double.random(in: -jitter...jitter)))
+        base = max(lo, min(hi, base + Double.random(in: -jitter...jitter)))
+
+        // Blitz as the flag approaches. Under a minute the whole delay is
+        // scaled down towards zero in proportion to the time left, the way a
+        // person stops thinking and just moves when low.
+        if let clock, clock < 60 {
+            let urgency = max(0.05, clock / 60.0)
+            base *= urgency
+        }
+        return base
     }
 
     /// The square a move of `mover`'s colour landed on, between two positions —
@@ -606,7 +627,7 @@ final class ChessSession: ObservableObject {
     }
 
     private func playOurMove(_ replies: [ScoredMove], played: Move? = nil,
-                            recaptureOn: Square? = nil) async {
+                            recaptureOn: Square? = nil, clock: Double? = nil) async {
         // The move to play is the engine's own choice — skill-noised when the
         // strength is turned down, so a weak setting can pick a genuinely worse
         // move than the top line the arrow shows.
@@ -626,7 +647,7 @@ final class ChessSession: ObservableObject {
         if mode == .playing {
             let forced = (await oracle?.legalMoves(from: position)?.count ?? 2) <= 1
             let recapture = recaptureOn != nil && move.to == recaptureOn
-            let wait = smartDelay(replies, forced: forced, recapture: recapture)
+            let wait = smartDelay(replies, forced: forced, recapture: recapture, clock: clock)
             ChessDiagnostics.trace(String(format: "play: %@ wait %.2fs (%@)", move.uci, wait,
                 forced ? "forced" : recapture ? "recapture" : "paced"))
             if wait > 0.01 { try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
