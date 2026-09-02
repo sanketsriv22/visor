@@ -123,7 +123,7 @@ struct HUDPanelSlot<Content: View>: View {
     /// some other app. Everything else stays an SF Symbol.
     @ViewBuilder
     static func headerIcon(for panel: HUDPanel, scale: Double) -> some View {
-        if panel == .tasks, let mark = visorMark {
+        if panel == .tasks, let mark = hudVisorMark {
             Image(nsImage: mark)
                 .resizable()
                 .renderingMode(.template)
@@ -134,14 +134,17 @@ struct HUDPanelSlot<Content: View>: View {
                 .font(.system(size: 8 * scale, weight: .semibold))
         }
     }
-
-    /// The bundled trefoil, tinted from its alpha like the notch's own mark.
-    private static let visorMark: NSImage? = {
-        guard let img = NSImage(named: "trefoilTemplate") else { return nil }
-        img.isTemplate = true
-        return img
-    }()
 }
+
+/// The bundled trefoil, tinted from its alpha like the notch's own mark.
+///
+/// A free function's `let` rather than a static on `HUDPanelSlot`: that type is
+/// generic over its content, and generic types can't hold stored statics.
+private let hudVisorMark: NSImage? = {
+    guard let img = NSImage(named: "trefoilTemplate") else { return nil }
+    img.isTemplate = true
+    return img
+}()
 
 /// The task panel — the tasks themselves, not a picture of them.
 ///
@@ -462,7 +465,7 @@ private struct HUDTaskRow: View {
         }
         .padding(.vertical, 1)
         .contentShape(Rectangle())
-        .onHover { withAnimation(.easeInOut(duration: 0.1)) { hovering = $0 } }
+        .onHover { h in withAnimation(.easeInOut(duration: 0.1)) { hovering = h } }
         .contextMenu { menu }
     }
 
