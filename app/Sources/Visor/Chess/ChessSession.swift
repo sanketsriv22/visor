@@ -473,12 +473,16 @@ final class ChessSession: ObservableObject {
             let seen = reading.position
             guard seen.placement != position.placement else { continue }
 
-            // Whose turn: the side that didn't just move. Found from the
-            // reading rather than trusted from a move counter, because the
-            // counter's selector can miss and a wrong parity plays for the
-            // wrong side forever.
-            var next = seen
-            if let mover = Self.colourThatMoved(from: position, to: seen) {
+            // Whose turn it is comes from the page's own move list — the ply
+            // count is unambiguous however many moves passed between two polls,
+            // where a piece diff assumes exactly one and mis-assigns the turn
+            // when a fast bot and a fast reply both land inside 250ms. That was
+            // the "suggested a move that doesn't escape check": wrong side to
+            // move, so the engine answered for the wrong colour and its move was
+            // illegal on the real board. The diff is the fallback only when the
+            // move list can't be read.
+            var next = seen                       // seen.turn already = plies % 2
+            if reading.plies == 0, let mover = Self.colourThatMoved(from: position, to: seen) {
                 next.turn = mover.opposite
             }
             // Rights are only ever lost. Keep ours, minus whatever the page
@@ -491,6 +495,22 @@ final class ChessSession: ObservableObject {
 
             if next.turn == ourColour {
                 let best = await oracle.analyse(next)
+                // Confirm the board is still what we analysed before acting on
+                // it. The engine only ever returns a legal move for the
+                // position it was given, so a move that "doesn't get out of
+                // check" means the position it was given wasn't the one on the
+                // board — the read caught the board a moment from settled, or
+                // the opponent moved again while we thought. A fresh read
+                // settles it: if the board has moved on, drop this and let the
+                // next tick handle the real position rather than play a move
+                // that was legal a moment ago and isn't now.
+                if let fresh = try? await ChessDOM.read(),
+                   fresh.position.placement != next.placement {
+                    ChessDiagnostics.trace("page: board moved while thinking — re-reading")
+                    continue
+                }
+                ChessDiagnostics.trace("page: our turn \(next.fen) → "
+                                     + best.map { $0.move.uci }.prefix(3).joined(separator: ","))
                 suggestions = best
                 if mode == .playing { await playOurMove(best) }
                 else { await actuator?.present(best, on: geometry) }
