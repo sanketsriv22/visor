@@ -59,6 +59,9 @@ final class ChessSession: ObservableObject {
     /// doing; second is the move number, the evaluation from our side, the last
     /// move, and the clock when there is one.
     @Published private(set) var info = ""
+    /// The current evaluation in centipawns, always from White's point of view,
+    /// for the island's eval bar. nil until the engine has said something.
+    @Published private(set) var evalCp: Int?
     private var lastPlayed: Move?
     private var lastClock: Double?
 
@@ -616,7 +619,7 @@ final class ChessSession: ObservableObject {
         var closeness = 0.0
         if replies.count >= 2 {
             let gap = abs(replies[0].score.centipawns - replies[1].score.centipawns)
-            let raw = min(1.0, max(0.0, Double(80 - gap) / 80.0))   // 0 by 80cp, 1 at a dead tie
+            let raw = min(1.0, max(0.0, Double(50 - gap) / 50.0))   // 0 by 50cp, 1 at a dead tie
             closeness = raw * raw * raw
         }
         var base = lo + closeness * (hi - lo)
@@ -640,8 +643,10 @@ final class ChessSession: ObservableObject {
         var bits: [String] = ["move \(position.fullmoveNumber)"]
         if let e = suggestions.first?.score {
             // Evaluations are from the side to move; show it from our side.
-            let cp = position.turn == ourColour ? e.centipawns : -e.centipawns
-            bits.append(Score.centipawns(cp).display)
+            let ourCp = position.turn == ourColour ? e.centipawns : -e.centipawns
+            bits.append(Score.centipawns(ourCp).display)
+            // The bar wants it from White's side.
+            evalCp = ourColour == .white ? ourCp : -ourCp
         }
         if let m = lastPlayed { bits.append(m.uci) }
         if let c = lastClock, c < 3600 {

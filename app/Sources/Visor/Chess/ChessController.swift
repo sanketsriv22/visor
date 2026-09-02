@@ -139,6 +139,13 @@ final class ChessController: ObservableObject {
 
     var isWatching: Bool { session != nil }
 
+    /// White's share of the eval bar, 0…1, from a centipawn score. The usual
+    /// logistic squash so a big edge saturates rather than running off the end.
+    static func evalFill(_ cp: Int?) -> Double? {
+        guard let cp else { return nil }
+        return 1.0 / (1.0 + pow(10.0, Double(-cp) / 400.0))
+    }
+
     /// What ⌘⌃U does. Starting with one key and having to open Settings to
     /// stop is a half-built shortcut.
     func toggle() {
@@ -354,7 +361,8 @@ final class ChessController: ObservableObject {
                         switch state {
                         case .watching:
                             self.badge.show(session.info.isEmpty
-                                ? "\(what.capitalized) · \(colour)" : session.info)
+                                ? "\(what.capitalized) · \(colour)" : session.info,
+                                evalFraction: Self.evalFill(session.evalCp))
                         case .recovering:
                             self.badge.show("Catching up…", live: false)
                             self.scheduleResync()
@@ -369,7 +377,7 @@ final class ChessController: ObservableObject {
                     .receive(on: RunLoop.main)
                     .sink { [weak self] text in
                         guard let self, case .watching = session.state, !text.isEmpty else { return }
-                        self.badge.show(text)
+                        self.badge.show(text, evalFraction: Self.evalFill(session.evalCp))
                     }
                 // Clicking the island stops it, which is the other half of the
                 // shortcut and the only control most people will ever see.

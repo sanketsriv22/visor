@@ -23,6 +23,11 @@ final class ChessStatusBadge: NSObject {
     private var panel: NSPanel?
     private let label = NSTextField(labelWithString: "")
     private let dot = CALayer()
+    /// The eval bar: a black track with a white fill from the left, its split
+    /// where the evaluation sits. Shown once a game is under way; the island
+    /// becomes a little live picture of who's winning.
+    private let evalTrack = CALayer()
+    private let evalFill = CALayer()
     private var hideWork: DispatchWorkItem?
     private var island: Island?
     /// Clicking it stops watching. The other half of ⌘⌃U, and the only control
@@ -39,7 +44,8 @@ final class ChessStatusBadge: NSObject {
     ///
     /// Keep it short. This sits over someone's game — it reports state, it
     /// isn't a place to explain anything, and the explanation is in Settings.
-    func show(_ text: String, live: Bool = true, fadingAfter seconds: TimeInterval? = nil) {
+    func show(_ text: String, live: Bool = true, fadingAfter seconds: TimeInterval? = nil,
+              evalFraction: Double? = nil) {
         let panel = ensurePanel()
         // A question that is still open is withdrawn by whatever comes next.
         clearChoices()
@@ -62,7 +68,7 @@ final class ChessStatusBadge: NSObject {
         let textWidth = min(maxTextWidth, measured.width)
         let textHeight = measured.height
 
-        let height = max(32, textHeight + 14)
+        let height = max(32, textHeight + 14) + (evalFraction == nil ? 0 : 10)
         let width = max(132, textWidth + 54)
 
         // Keep the same top-right corner as it grows, so a longer message
@@ -100,7 +106,19 @@ final class ChessStatusBadge: NSObject {
         // NSTextField handed a taller frame sits its baseline near the top of
         // it rather than in the middle — which is what made this look a couple
         // of pixels wrong without it being obvious why.
-        label.frame = CGRect(x: 30, y: (height - textHeight) / 2,
+        // The eval bar spans the width along the bottom; the text sits above it.
+        let barH: CGFloat = evalFraction == nil ? 0 : 6
+        if let f = evalFraction {
+            evalTrack.isHidden = false
+            let inset: CGFloat = 12
+            let trackW = width - inset * 2
+            evalTrack.frame = CGRect(x: inset, y: 6, width: trackW, height: barH)
+            evalFill.frame = CGRect(x: 0, y: 0,
+                                    width: max(2, trackW * CGFloat(min(1, max(0, f)))), height: barH)
+        } else {
+            evalTrack.isHidden = true
+        }
+        label.frame = CGRect(x: 30, y: (height - textHeight) / 2 + barH / 2 + 3,
                              width: textWidth + 4, height: textHeight)
 
         panel.alphaValue = 1
@@ -273,6 +291,12 @@ final class ChessStatusBadge: NSObject {
         island.layer?.borderWidth = 1
         island.layer?.borderColor = NSColor.white.withAlphaComponent(0.16).cgColor
         island.layer?.addSublayer(dot)
+        evalTrack.backgroundColor = NSColor(white: 0.16, alpha: 1).cgColor
+        evalTrack.cornerRadius = 3
+        evalTrack.masksToBounds = true
+        evalFill.backgroundColor = NSColor(white: 0.96, alpha: 1).cgColor
+        evalTrack.addSublayer(evalFill)
+        island.layer?.addSublayer(evalTrack)
         island.onClick = { [weak self] in
             guard let self else { return }
             if let pending = self.answer {
