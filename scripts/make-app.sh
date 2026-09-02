@@ -86,6 +86,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
          string, and the app is killed on first use if this is missing. -->
     <key>NSMicrophoneUsageDescription</key><string>Visor records your voice so you can dictate into the composer.</string>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSAppleEventsUsageDescription</key><string>Visor reads the chess board straight out of your browser's page, which needs permission to talk to it.</string>
     <key>SUFeedURL</key><string>https://raw.githubusercontent.com/sanketsriv22/visor/main/appcast.xml</string>
     <key>SUPublicEDKey</key><string>${SU_PUBLIC_ED_KEY}</string>
     <key>SUEnableAutomaticChecks</key><true/>

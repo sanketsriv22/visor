@@ -25,6 +25,14 @@ enum ChessMode: String, CaseIterable {
     }
 }
 
+/// Where the position comes from.
+///
+/// `.dom` reads it out of the web page — exact, instant, indifferent to theme,
+/// highlight, animation, Space or window order, and needs no vision model. It
+/// is the truth on any site that has been mapped. `.pixels` is the camera:
+/// the general case, and the fallback when there is no page to read.
+enum ChessSource: String { case dom, pixels }
+
 @MainActor
 final class ChessSession: ObservableObject {
     enum State: Equatable {
@@ -49,9 +57,11 @@ final class ChessSession: ObservableObject {
     @Published private(set) var tableHitRate: Double?
 
     private let mode: ChessMode
+    let source: ChessSource
     /// Readable so a resync can rebuild a session over the same board.
     let geometry: BoardGeometry
     let ourColour: PieceColor
+    private var domTask: Task<Void, Never>?
     private let latency: LatencyBand
 
     private var oracle: ChessOracle?
@@ -96,8 +106,10 @@ final class ChessSession: ObservableObject {
     private var resolving = false
 
     init(mode: ChessMode, geometry: BoardGeometry, ourColour: PieceColor,
-         position: ChessPosition = .start, latency: LatencyBand = .default) {
+         position: ChessPosition = .start, latency: LatencyBand = .default,
+         source: ChessSource = .pixels) {
         self.mode = mode
+        self.source = source
         self.geometry = geometry
         self.ourColour = ourColour
         self.position = position
@@ -110,6 +122,21 @@ final class ChessSession: ObservableObject {
         let oracle = try ChessOracle()
         self.oracle = oracle
         self.actuator = mode == .advising ? AdvisingActuator() : ClickingActuator()
+
+        if source == .dom {
+            state = .watching
+            ChessDiagnostics.trace("session: started \(mode) as \(ourColour) from the page — \(position.fen)")
+            domTask = Task { [weak self] in await self?.followPage() }
+            if position.turn == ourColour {
+                let best = await oracle.analyse(position)
+                ChessDiagnostics.trace("session: our move first; engine offered "
+                                     + best.map { "\($0.move.uci) \($0.score.display)" }.joined(separator: ", "))
+                suggestions = best
+                if mode == .playing { await playOurMove(best) }
+                else { await actuator?.present(best, on: geometry) }
+            }
+            return
+        }
 
         let watcher = ChessWatcher(geometry: geometry) { [weak self] changed, current in
             // Bound to a constant before the inner closure: a `weak self`
@@ -142,6 +169,8 @@ final class ChessSession: ObservableObject {
     }
 
     func stop() {
+        domTask?.cancel()
+        domTask = nil
         watcher?.stop()
         watcher = nil
         actuator?.clear()
@@ -427,6 +456,62 @@ final class ChessSession: ObservableObject {
     /// take left the session waiting for a change that was never coming, and
     /// the game simply stopped. Watching for the board to move is the only
     /// honest confirmation available.
+    /// Read the page every quarter second and act on what changed.
+    ///
+    /// This replaces the whole detect-and-resolve chain when the position can
+    /// be read directly. There is nothing to resolve: the page says where every
+    /// piece is, and the colour of the piece that moved says whose turn it now
+    /// is. A move is a difference between two readings.
+    private func followPage() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            switch state { case .watching, .recovering: break; default: continue }
+            guard !playingOwnMove, let oracle else { continue }
+            guard let reading = try? await ChessDOM.read() else { continue }
+
+            let seen = reading.position
+            guard seen.placement != position.placement else { continue }
+
+            // Whose turn: the side that didn't just move. Found from the
+            // reading rather than trusted from a move counter, because the
+            // counter's selector can miss and a wrong parity plays for the
+            // wrong side forever.
+            var next = seen
+            if let mover = Self.colourThatMoved(from: position, to: seen) {
+                next.turn = mover.opposite
+            }
+            // Rights are only ever lost. Keep ours, minus whatever the page
+            // shows has moved off its home square.
+            next.castling = position.castling.intersection(next.castling)
+            let wasOurs = position.turn == ourColour
+            position = next
+            if case .recovering = state { state = .watching }
+            ChessDiagnostics.trace("page: changed → \(next.turn == ourColour ? "our" : "their") turn — \(next.fen)")
+
+            if next.turn == ourColour {
+                let best = await oracle.analyse(next)
+                suggestions = best
+                if mode == .playing { await playOurMove(best) }
+                else { await actuator?.present(best, on: geometry) }
+            } else if wasOurs {
+                // Our move (made by hand, in advise mode) has landed.
+                suggestions = []
+                actuator?.clear()
+            }
+        }
+    }
+
+    /// The colour of whatever moved between two placements: the piece now on
+    /// a square that was empty or held the other colour.
+    private static func colourThatMoved(from a: ChessPosition, to b: ChessPosition) -> PieceColor? {
+        for index in 0..<64 {
+            guard let sq = Square(index: index) else { continue }
+            if let now = b[sq], a[sq] == nil || a[sq]?.color != now.color { return now.color }
+        }
+        return nil
+    }
+
     private func playOurMove(_ replies: [ScoredMove]) async {
         guard let best = replies.first else { return }
         let move = best.move
@@ -466,8 +551,16 @@ final class ChessSession: ObservableObject {
         for _ in 0..<6 {
             try? await Task.sleep(nanoseconds: 300_000_000)
             switch state { case .watching, .recovering: break; default: playingOwnMove = false; return }
-            let occ = observedOccupancy(latestFrame)
-            if occ[move.from] == false && occ[move.to] == true { landed = true; break }
+            if source == .dom {
+                // The page says whether it took: our applied position should
+                // now be the one on the board.
+                if let r = try? await ChessDOM.read(), r.position.placement == position.placement {
+                    landed = true; break
+                }
+            } else {
+                let occ = observedOccupancy(latestFrame)
+                if occ[move.from] == false && occ[move.to] == true { landed = true; break }
+            }
         }
         if landed {
             ChessDiagnostics.trace("play: \(move.uci) landed")

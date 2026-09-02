@@ -170,6 +170,33 @@ final class ChessController: ObservableObject {
 
             let found = ChessBoardFinder.find(in: shot.image, displayOrigin: shot.origin)
             if let found {
+                // The page first. If the board is in a browser Visor can talk
+                // to, the position comes straight out of the DOM — exact, no
+                // vision model, no "is it a fresh game" question, and the
+                // page keeps answering for the rest of the game. The finder
+                // still supplies the geometry, since dragging needs screen
+                // coordinates and it has those right.
+                if let page = try? await ChessDOM.read() {
+                    var position = page.position
+                    let fresh = position.placement == ChessPosition.start.placement
+                    if page.plies == 0 && !fresh {
+                        // Move list unreadable and it's not move one: ask.
+                        guard let turn = await self.askWhoseTurn(suggested: position.turn) else {
+                            self.notice = nil; self.badge.hide(); return
+                        }
+                        position.turn = turn
+                    }
+                    var geometry = found.geometry
+                    geometry.flipped = page.flipped
+                    ChessDiagnostics.record(shot: shot, found: found,
+                                            verdict: "joined via \(page.site) page: \(position.fen)")
+                    self.notice = nil
+                    self.begin(with: ChessCalibrator.Result(
+                        geometry: geometry, ourColour: page.flipped ? .black : .white),
+                               position: position, source: .dom)
+                    return
+                }
+                ChessDiagnostics.trace("join: no readable page — falling back to pixels")
                 // A position that isn't the starting one can be *seen* but not
                 // *read* — occupancy says a square is busy, never what is
                 // standing on it. Starting anyway would track a position that
@@ -249,7 +276,7 @@ final class ChessController: ObservableObject {
     }
 
     private func begin(with result: ChessCalibrator.Result,
-                       position: ChessPosition = .start) {
+                       position: ChessPosition = .start, source: ChessSource = .pixels) {
         // The position is assumed to be a fresh game. Nothing here reads
         // pieces — only which squares changed — so there is no way to work out
         // a board that was already in progress, and starting mid-game would
@@ -258,7 +285,8 @@ final class ChessController: ObservableObject {
                                    geometry: result.geometry,
                                    ourColour: result.ourColour,
                                    position: position,
-                                   latency: latency)
+                                   latency: latency,
+                                   source: source)
         self.session = session
         Task {
             do {
