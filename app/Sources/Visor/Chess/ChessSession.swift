@@ -552,9 +552,14 @@ final class ChessSession: ObservableObject {
             try? await Task.sleep(nanoseconds: 300_000_000)
             switch state { case .watching, .recovering: break; default: playingOwnMove = false; return }
             if source == .dom {
-                // The page says whether it took: our applied position should
-                // now be the one on the board.
-                if let r = try? await ChessDOM.read(), r.position.placement == position.placement {
+                // Landed once our piece has left its square. The whole board
+                // need not match our applied position — against a bot that
+                // recaptures in the same beat, it usually won't, because the
+                // reply has already landed. Requiring an exact match made a
+                // successful capture read as a failure, retry a pawn that had
+                // already moved, and give up on a game that was fine.
+                if let r = try? await ChessDOM.read(),
+                   r.position[move.from]?.color != ourColour {
                     landed = true; break
                 }
             } else {
@@ -573,9 +578,21 @@ final class ChessSession: ObservableObject {
             return
         }
         guard attempt < 3 else {
-            ChessDiagnostics.trace("play: gave up on \(move.uci) after 3 tries")
+            ChessDiagnostics.trace("play: \(move.uci) didn't take after 3 tries")
             playingOwnMove = false
-            fail("Played \(move.uci) three times and the board didn't take it")
+            if source == .dom {
+                // The page is still the truth; let the poll re-read and decide,
+                // rather than ending a game that may well be fine.
+                if let r = try? await ChessDOM.read() {
+                    position = r.position
+                    if let mover = Self.colourThatMoved(from: position, to: r.position) {
+                        position.turn = mover.opposite
+                    }
+                }
+                state = .watching
+            } else {
+                fail("Played \(move.uci) three times and the board didn't take it")
+            }
             return
         }
         ChessDiagnostics.trace("play: \(move.uci) not landed, retry \(attempt)")
