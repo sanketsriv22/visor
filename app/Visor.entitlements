@@ -5,5 +5,9 @@
     <!-- Dictation. Under the hardened runtime the Info.plist usage string is
          not enough on its own; without this the mic is refused outright. -->
     <key>com.apple.security.device.audio-input</key><true/>
+    <!-- Chess reads the board out of the browser's page over Apple Events. Same
+         rule as the mic: under the hardened runtime, without this the event is
+         refused before macOS ever asks the user — silently, with no prompt. -->
+    <key>com.apple.security.automation.apple-events</key><true/>
 </dict>
 </plist>

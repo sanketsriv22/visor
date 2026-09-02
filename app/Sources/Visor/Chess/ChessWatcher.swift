@@ -131,12 +131,29 @@ final class ChessWatcher: NSObject, SCStreamOutput, @unchecked Sendable {
         // dump showed Slack and a sessions sidebar where the board should be.
         // A window capture follows the window: across Spaces, behind other
         // windows, wherever it goes.
+        // Frontmost first. `SCShareableContent.windows` is in no particular
+        // order, and taking the first window whose bounds contained the board
+        // picked Slack — behind the browser, but overlapping it, and earlier
+        // in the list. `CGWindowListCopyWindowInfo` *is* front-to-back, so it
+        // chooses and the SCWindow is matched by id.
         let centre = CGPoint(x: geometry.rect.midX, y: geometry.rect.midY)
-        let host = content.windows.first { window in
-            window.windowLayer == 0 && window.isOnScreen
-                && window.frame.contains(centre)
-                && window.owningApplication?.bundleIdentifier != Bundle.main.bundleIdentifier
+        var frontmostID: CGWindowID?
+        if let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                 kCGNullWindowID) as? [[String: Any]] {
+            for w in list {
+                guard (w[kCGWindowLayer as String] as? Int) == 0,
+                      (w[kCGWindowAlpha as String] as? Double ?? 0) > 0.05,
+                      let b = w[kCGWindowBounds as String] as? [String: CGFloat],
+                      let pid = w[kCGWindowOwnerPID as String] as? pid_t,
+                      pid != ProcessInfo.processInfo.processIdentifier,
+                      let id = w[kCGWindowNumber as String] as? CGWindowID
+                else { continue }
+                let frame = CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0,
+                                   width: b["Width"] ?? 0, height: b["Height"] ?? 0)
+                if frame.contains(centre) { frontmostID = id; break }
+            }
         }
+        let host = frontmostID.flatMap { id in content.windows.first { $0.windowID == id } }
 
         let filter: SCContentFilter
         if let host {

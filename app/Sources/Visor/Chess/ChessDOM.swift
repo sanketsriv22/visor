@@ -110,6 +110,7 @@ enum ChessDOM {
                 if let reading = parse(json) { return reading }
             } catch {
                 lastError = error.localizedDescription
+                ChessDiagnostics.trace("page: \(candidate.app) — \(lastError)")
             }
         }
         throw lastError.isEmpty ? ReadError.noBoard : ReadError.scriptFailed(lastError)
@@ -154,32 +155,29 @@ enum ChessDOM {
             return "{\\"site\\":\\"none\\"}"
             """
         }
-        return try await withCheckedThrowingContinuation { continuation in
-            // NSAppleScript is synchronous and not thread-happy; a serial
-            // background queue keeps it off the main thread and one at a time.
-            Self.queue.async {
-                var error: NSDictionary?
-                guard let apple = NSAppleScript(source: source) else {
-                    continuation.resume(throwing: ReadError.scriptFailed("bad script")); return
-                }
-                let result = apple.executeAndReturnError(&error)
-                if let error {
-                    var msg = (error[NSAppleScript.errorMessage] as? String) ?? "\(error)"
-                    // Safari's own wording for the toggle being off, turned into
-                    // the instruction rather than left as an error code.
-                    if msg.lowercased().contains("javascript") && msg.lowercased().contains("apple events") {
-                        msg = "turn on Safari ▸ Develop ▸ Allow JavaScript from Apple Events"
-                    } else if msg.contains("-1743") || msg.lowercased().contains("not permitted") {
-                        msg = "allow Visor to control \(app) under Privacy & Security ▸ Automation"
-                    }
-                    continuation.resume(throwing: ReadError.scriptFailed(msg))
-                } else {
-                    continuation.resume(returning: result.stringValue ?? "")
-                }
+        // NSAppleScript is main-thread only. Off it, execution can fail with no
+        // error at all — which looked like a permission problem for a while.
+        // A read is a few tens of milliseconds; the main thread can spare it.
+        return try await MainActor.run {
+            var error: NSDictionary?
+            guard let apple = NSAppleScript(source: source) else {
+                throw ReadError.scriptFailed("bad script")
             }
+            let result = apple.executeAndReturnError(&error)
+            if let error {
+                var msg = (error[NSAppleScript.errorMessage] as? String) ?? "\(error)"
+                // Safari's own wording for the toggle being off, turned into
+                // the instruction rather than left as an error code.
+                if msg.lowercased().contains("javascript") && msg.lowercased().contains("apple events") {
+                    msg = "turn on Safari ▸ Develop ▸ Allow JavaScript from Apple Events"
+                } else if msg.contains("-1743") || msg.lowercased().contains("not permitted") {
+                    msg = "allow Visor to control \(app) under Privacy & Security ▸ Automation"
+                }
+                throw ReadError.scriptFailed(msg)
+            }
+            return result.stringValue ?? ""
         }
     }
-    private static let queue = DispatchQueue(label: "visor.chess.dom")
 
     private static func parse(_ json: String) -> Reading? {
         guard let data = json.data(using: .utf8),
