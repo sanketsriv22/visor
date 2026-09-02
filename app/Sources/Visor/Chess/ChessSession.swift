@@ -55,6 +55,12 @@ final class ChessSession: ObservableObject {
     /// published so it can be shown rather than claimed.
     @Published private(set) var lastLatency: TimeInterval?
     @Published private(set) var tableHitRate: Double?
+    /// A rich status for the island: two lines, live. First line is what it's
+    /// doing; second is the move number, the evaluation from our side, the last
+    /// move, and the clock when there is one.
+    @Published private(set) var info = ""
+    private var lastPlayed: Move?
+    private var lastClock: Double?
 
     private let mode: ChessMode
     let source: ChessSource
@@ -537,6 +543,7 @@ final class ChessSession: ObservableObject {
             if next.turn == ourColour {
                 // Where the opponent's move landed, for spotting a recapture.
                 let oppTo = Self.movedToSquare(from: position, to: next, mover: ourColour.opposite)
+                lastClock = reading.clockSeconds
                 let (pd, ps) = pressured(clock: reading.clockSeconds)
                 let a = await oracle.analyse(next, depthOverride: pd, skillOverride: ps)
                 // Confirm the board is still what we analysed before acting on
@@ -558,6 +565,7 @@ final class ChessSession: ObservableObject {
                                      + " depth=\(pd) skill=\(ps) → "
                                      + a.lines.map { $0.move.uci }.prefix(3).joined(separator: ","))
                 suggestions = a.lines
+                refreshInfo()
                 if mode == .playing { await playOurMove(a.lines, played: a.played, recaptureOn: oppTo, clock: reading.clockSeconds) }
                 else { await actuator?.present(Array(a.lines.prefix(3)), on: geometry) }
             } else if wasOurs {
@@ -591,17 +599,25 @@ final class ChessSession: ObservableObject {
         if forced { return 0 }
         if recapture { return lo }
 
-        // Fast by default, slow only for a genuine decision. Most positions
-        // have a clear enough best move, so the gap to the second-best is
-        // usually well over half a pawn — those come quick. Only a near-tie,
-        // where several moves are within a fraction of a pawn, drifts to the
-        // slow end. Squared, so the middle leans fast rather than sitting in
-        // the centre of the band.
+        // The opening is played from memory, fast. Its moves are close in
+        // evaluation — many book moves are equally fine — but that closeness is
+        // ease, not difficulty, so the gap rule below (which reads close as
+        // hard) would get it exactly backwards and dawdle over move two. The
+        // first several moves just go.
+        if position.fullmoveNumber <= 6 {
+            return lo + Double.random(in: 0...(hi - lo) * 0.12)
+        }
+
+        // Otherwise fast by default, slow only for a genuine decision. The gap
+        // to the second-best move is the tell: over about a pawn and it's clear,
+        // and it comes quick; only when several moves are within a fraction of a
+        // pawn does it drift to the slow end. Cubed, so it takes real closeness
+        // to pull towards the slow end and the bulk of moves stay brisk.
         var closeness = 0.0
         if replies.count >= 2 {
             let gap = abs(replies[0].score.centipawns - replies[1].score.centipawns)
-            let raw = min(1.0, max(0.0, Double(60 - gap) / 60.0))   // 0 by 60cp, 1 at a dead tie
-            closeness = raw * raw
+            let raw = min(1.0, max(0.0, Double(80 - gap) / 80.0))   // 0 by 80cp, 1 at a dead tie
+            closeness = raw * raw * raw
         }
         var base = lo + closeness * (hi - lo)
         let jitter = (hi - lo) * 0.12
@@ -615,6 +631,23 @@ final class ChessSession: ObservableObject {
             base *= urgency
         }
         return base
+    }
+
+    /// Compose the island line from whatever is current.
+    private func refreshInfo(activity: String? = nil) {
+        let colour = ourColour == .white ? "White" : "Black"
+        let head = activity ?? "\(mode == .playing ? "Playing" : "Watching") · \(colour)"
+        var bits: [String] = ["move \(position.fullmoveNumber)"]
+        if let e = suggestions.first?.score {
+            // Evaluations are from the side to move; show it from our side.
+            let cp = position.turn == ourColour ? e.centipawns : -e.centipawns
+            bits.append(Score.centipawns(cp).display)
+        }
+        if let m = lastPlayed { bits.append(m.uci) }
+        if let c = lastClock, c < 3600 {
+            bits.append(String(format: "%d:%02d", Int(c) / 60, Int(c) % 60))
+        }
+        info = head + "\n" + bits.joined(separator: "  ·  ")
     }
 
     /// Strength eased down under time pressure — a fast, low-clock scramble is
@@ -716,6 +749,8 @@ final class ChessSession: ObservableObject {
         if landed {
             ChessDiagnostics.trace("play: \(move.uci) landed")
             lastProgress = Date()
+            lastPlayed = move
+            refreshInfo()
             baseline = latestFrame            // absorb our move; next change is theirs
             settling = []
             changeBegan = nil

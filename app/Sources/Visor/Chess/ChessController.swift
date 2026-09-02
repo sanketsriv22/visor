@@ -126,6 +126,7 @@ final class ChessController: ObservableObject {
     private let calibrator = ChessCalibrator()
     private let badge = ChessStatusBadge()
     private var watchingState: AnyCancellable?
+    private var watchingInfo: AnyCancellable?
     private var resyncing = false
     private static let modeKey = "visor.chess.mode"
 
@@ -352,7 +353,8 @@ final class ChessController: ObservableObject {
                         guard let self else { return }
                         switch state {
                         case .watching:
-                            self.badge.show("\(what.capitalized) · \(colour)")
+                            self.badge.show(session.info.isEmpty
+                                ? "\(what.capitalized) · \(colour)" : session.info)
                         case .recovering:
                             self.badge.show("Catching up…", live: false)
                             self.scheduleResync()
@@ -361,6 +363,13 @@ final class ChessController: ObservableObject {
                         case .idle:
                             self.badge.hide()
                         }
+                    }
+                // Live status: refresh the island text as the game moves.
+                self.watchingInfo = session.$info
+                    .receive(on: RunLoop.main)
+                    .sink { [weak self] text in
+                        guard let self, case .watching = session.state, !text.isEmpty else { return }
+                        self.badge.show(text)
                     }
                 // Clicking the island stops it, which is the other half of the
                 // shortcut and the only control most people will ever see.
@@ -468,6 +477,7 @@ final class ChessController: ObservableObject {
 
     func stop() {
         watchingState = nil
+        watchingInfo = nil
         session?.stop()
         session = nil
         notice = nil
