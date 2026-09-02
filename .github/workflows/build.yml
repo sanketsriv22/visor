@@ -31,6 +31,11 @@ jobs:
       # resolved once here and the steps test this instead. Forks and anyone
       # without the certificate still get a working ad-hoc build.
       HAS_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
+      # A [fast] commit builds arm64-only and skips the merge gates, to get a
+      # dev build onto an Apple-Silicon Mac in about half the time. The full,
+      # universal, tested build still runs for every commit without the flag —
+      # which is every merge and release.
+      FAST: ${{ contains(github.event.head_commit.message, '[fast]') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,20 +57,25 @@ jobs:
           restore-keys: spm-${{ runner.os }}-
 
       - name: Build
+        if: env.FAST != 'true'
         working-directory: app
         run: swift build -c release
 
       # Catches packaging regressions (Info.plist, icon, Sparkle framework)
       # that a plain `swift build` would miss.
       - name: Package .app
-        run: ./scripts/make-app.sh --build-only
+        run: |
+          if [ "$FAST" = "true" ]; then export VISOR_ARCHS=native; fi
+          ./scripts/make-app.sh --build-only
 
       # Gate, not decoration: a red test fails the branch.
       - name: Test
+        if: env.FAST != 'true'
         working-directory: app
         run: swift test
 
       - name: Build MCP server
+        if: env.FAST != 'true'
         working-directory: mcp-server
         run: npm ci && npx tsc --noEmit && npm run build
 
@@ -78,10 +88,12 @@ jobs:
           # that simply never launches on an Intel Mac, with no error anywhere.
           ARCHS=$(lipo -archs "$APP/Contents/MacOS/Visor")
           echo "architectures: $ARCHS"
-          case "$ARCHS" in
-            *arm64*x86_64*|*x86_64*arm64*) ;;
-            *) echo "::error::bundle is not universal ($ARCHS)"; exit 1 ;;
-          esac
+          if [ "$FAST" != "true" ]; then
+            case "$ARCHS" in
+              *arm64*x86_64*|*x86_64*arm64*) ;;
+              *) echo "::error::bundle is not universal ($ARCHS)"; exit 1 ;;
+            esac
+          fi
 
       # Signing every build is what stops macOS treating each one as a new
       # app: Keychain ACLs and TCC grants (Accessibility, microphone) are bound
