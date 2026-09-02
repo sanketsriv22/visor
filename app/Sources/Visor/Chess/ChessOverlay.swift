@@ -110,7 +110,8 @@ final class ChessOverlay {
             let created = NSPanel(contentRect: frame,
                                   styleMask: [.borderless, .nonactivatingPanel],
                                   backing: .buffered, defer: false)
-            created.level = .statusBar
+            created.isReleasedWhenClosed = false   // we hold the reference; close() must not release it too (double-free in the window's dealloc animation)
+        created.level = .statusBar
             created.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary,
                                           .stationary, .ignoresCycle]
             created.isOpaque = false

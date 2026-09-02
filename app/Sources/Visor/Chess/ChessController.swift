@@ -162,6 +162,31 @@ final class ChessController: ObservableObject {
         badge.show("Finding board…", live: false)
 
         Task {
+            // The page first, and on its own — a browser board is read straight
+            // from the DOM, geometry and all, with no screenshot and no pixel
+            // search. Gating this behind the pixel finder was why Lichess
+            // "couldn't find the board": the finder failed on its theme and the
+            // DOM read that would have worked was never reached.
+            if let page = try? await ChessDOM.read(), let rect = page.boardRect {
+                var position = page.position
+                let fresh = position.placement == ChessPosition.start.placement
+                if page.lastMove.isEmpty && page.plies == 0 && !fresh {
+                    guard let turn = await self.askWhoseTurn(suggested: position.turn) else {
+                        self.notice = nil; self.badge.hide(); return
+                    }
+                    position.turn = turn
+                }
+                let geometry = BoardGeometry(origin: rect.origin, square: rect.width / 8,
+                                             flipped: page.flipped)
+                ChessDiagnostics.trace("join via \(page.site): \(position.fen)  board \(rect)")
+                self.notice = nil
+                self.begin(with: ChessCalibrator.Result(
+                    geometry: geometry, ourColour: page.flipped ? .black : .white),
+                           position: position, source: .dom)
+                return
+            }
+
+            // No page to read: the pixel path, and the draw-a-box fallback.
             let shot = try? await ChessScreen.capture()
             guard let shot else {
                 self.fail("Couldn't take a picture of the screen.")
@@ -170,44 +195,7 @@ final class ChessController: ObservableObject {
 
             let found = ChessBoardFinder.find(in: shot.image, displayOrigin: shot.origin)
             if let found {
-                // The page first. If the board is in a browser Visor can talk
-                // to, the position comes straight out of the DOM — exact, no
-                // vision model, no "is it a fresh game" question, and the
-                // page keeps answering for the rest of the game. The finder
-                // still supplies the geometry, since dragging needs screen
-                // coordinates and it has those right.
-                if let page = try? await ChessDOM.read() {
-                    var position = page.position
-                    let fresh = position.placement == ChessPosition.start.placement
-                    if page.plies == 0 && !fresh {
-                        // Move list unreadable and it's not move one: ask.
-                        guard let turn = await self.askWhoseTurn(suggested: position.turn) else {
-                            self.notice = nil; self.badge.hide(); return
-                        }
-                        position.turn = turn
-                    }
-                    var geometry = found.geometry
-                    geometry.flipped = page.flipped
-                    ChessDiagnostics.record(shot: shot, found: found,
-                                            verdict: "joined via \(page.site) page: \(position.fen)")
-                    self.notice = nil
-                    self.begin(with: ChessCalibrator.Result(
-                        geometry: geometry, ourColour: page.flipped ? .black : .white),
-                               position: position, source: .dom)
-                    return
-                }
-                ChessDiagnostics.trace("join: no readable page — falling back to pixels")
-                // A position that isn't the starting one can be *seen* but not
-                // *read* — occupancy says a square is busy, never what is
-                // standing on it. Starting anyway would track a position that
-                // isn't the one on screen and put confident arrows on it, so
-                // this says no rather than guessing.
                 guard Self.looksLikeAFreshGame(found.occupancy) else {
-                    // A game already under way. Occupancy says which squares
-                    // are busy and what colour is on them, but never *what* —
-                    // and that last part is the only thing worth asking a model
-                    // for, once, on a still image, with its answer checked
-                    // against the screen before anything is built on it.
                     self.badge.show("Reading the position…", live: false)
                     guard let board = shot.cropping(to: found.geometry.rect) else {
                         self.fail("Couldn't cut the board out of the screenshot.")
@@ -216,16 +204,14 @@ final class ChessController: ObservableObject {
                     do {
                         let reading = try await ChessVision.read(
                             board: board, occupancy: found.occupancy,
-                            flipped: found.geometry.flipped)
+                            flipped: found.geometry.flipped, tolerance: 3)
                         guard let turn = await self.askWhoseTurn(suggested: reading.position.turn) else {
-                            self.notice = nil
-                            self.badge.hide()
-                            return
+                            self.notice = nil; self.badge.hide(); return
                         }
                         var position = reading.position
                         position.turn = turn
                         ChessDiagnostics.record(shot: shot, found: found,
-                                                verdict: "joined mid-game: \(position.fen)")
+                                                verdict: "joined mid-game (pixels): \(position.fen)")
                         self.notice = nil
                         self.begin(with: ChessCalibrator.Result(
                             geometry: found.geometry,
@@ -238,7 +224,7 @@ final class ChessController: ObservableObject {
                     }
                     return
                 }
-                ChessDiagnostics.record(shot: shot, found: found, verdict: "started")
+                ChessDiagnostics.record(shot: shot, found: found, verdict: "started (pixels)")
                 self.notice = nil
                 self.begin(with: ChessCalibrator.Result(
                     geometry: found.geometry,

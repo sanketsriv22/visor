@@ -50,6 +50,7 @@ final class ChessCalibrator {
         let window = PickerWindow(contentRect: screen.frame,
                                   styleMask: [.borderless],
                                   backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false   // we hold the reference; close() must not release it too (double-free in the window's dealloc animation)
         window.level = .screenSaver
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         window.isOpaque = false

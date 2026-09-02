@@ -30,10 +30,12 @@ enum ChessDOM {
         let plies: Int
         /// The squares of the last move, if the page highlights them. The one
         /// that still holds a piece is the destination, and that piece's colour
-        /// is who just moved — the surest whose-turn signal the page gives, and
-        /// the one that doesn't care how many moves passed or how the move list
-        /// is marked up.
+        /// is who just moved — the surest whose-turn signal the page gives.
         let lastMove: [Square]
+        /// The board's rectangle on screen, in points, read from the element
+        /// itself — so a browser board needs no pixel search for its geometry
+        /// and works the same on any site or theme.
+        let boardRect: CGRect?
     }
 
     enum ReadError: LocalizedError {
@@ -54,10 +56,17 @@ enum ChessDOM {
     /// bottom. Written to run on either site and to say which it found.
     private static let script = #"""
     (function(){
-      var out={site:'none',pieces:[],plies:0,flipped:false,highlights:[]};
+      var out={site:'none',pieces:[],plies:0,flipped:false,highlights:[],board:null};
+      function screenRect(el){
+        var r=el.getBoundingClientRect();
+        var chrome=window.outerHeight-window.innerHeight;
+        return {x:window.screenX+r.left, y:window.screenY+chrome+r.top,
+                w:r.width, h:r.height};
+      }
       var cb=document.querySelector('wc-chess-board')||document.querySelector('chess-board')||document.querySelector('.board');
       if(cb && cb.querySelector('.piece')){
         out.site='chess.com';
+        out.board=screenRect(cb);
         out.flipped=cb.classList.contains('flipped');
         var ps=cb.querySelectorAll('.piece');
         for(var i=0;i<ps.length;i++){
@@ -84,6 +93,7 @@ enum ChessDOM {
       var cg=document.querySelector('cg-board');
       if(cg){
         out.site='lichess';
+        out.board=screenRect((cg.closest('cg-container')||cg.closest('.cg-wrap')||cg));
         var wrap=cg.closest('.cg-wrap')||cg.parentElement;
         out.flipped=!!(wrap&&wrap.classList.contains('orientation-black'));
         var r=cg.getBoundingClientRect(),sq=r.width/8;
@@ -210,6 +220,13 @@ enum ChessDOM {
             else { return nil }
             return Square(file: f - 1, rank: r - 1)
         }
+        var boardRect: CGRect?
+        if let b = obj["board"] as? [String: Any],
+           let x = b["x"] as? Double, let y = b["y"] as? Double,
+           let w = b["w"] as? Double, let h = b["h"] as? Double, w > 40, h > 40 {
+            let side = min(w, h)
+            boardRect = CGRect(x: x + (w - side) / 2, y: y + (h - side) / 2, width: side, height: side)
+        }
 
         var board = [Piece?](repeating: nil, count: 64)
         for code in pieces {
@@ -240,6 +257,7 @@ enum ChessDOM {
             if at("a8") == Piece(.black, .rook) { rights.insert(.blackQueen) }
         }
         position.castling = rights
-        return Reading(position: position, flipped: flipped, site: site, plies: plies, lastMove: lastMove)
+        return Reading(position: position, flipped: flipped, site: site,
+                       plies: plies, lastMove: lastMove, boardRect: boardRect)
     }
 }

@@ -212,13 +212,10 @@ final class ChessStatusBadge: NSObject {
     func hide() {
         hideWork?.cancel()
         hideWork = nil
-        guard let panel else { return }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
-            panel.animator().alphaValue = 0
-        } completionHandler: { [weak panel] in
-            panel?.orderOut(nil)
-        }
+        // Ordered out plainly, not faded. The window-transform animation that
+        // a fade schedules was being torn down mid-flight when the panel went
+        // away, and that dealloc was the crash.
+        panel?.orderOut(nil)
     }
 
     func close() {
@@ -252,6 +249,7 @@ final class ChessStatusBadge: NSObject {
         let panel = NSPanel(contentRect: .zero,
                             styleMask: [.borderless, .nonactivatingPanel],
                             backing: .buffered, defer: false)
+        panel.isReleasedWhenClosed = false   // we hold the reference; close() must not release it too (double-free in the window's dealloc animation)
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary,
                                     .stationary, .ignoresCycle]
