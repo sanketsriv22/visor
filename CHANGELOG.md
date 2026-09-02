@@ -3,7 +3,9 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
-## 1.0-beta.36 — 2026-08-28
+## 1.0-beta.36 — 2026-09-02
+
+- **Computer use: Visor can play chess for you.** ⌘⌃U on a chess.com or Lichess game and Visor reads the board straight out of the page — no screenshots, no guessing — and either draws the three best moves on the board as arrows, or plays them for you by dragging the pieces. Choose the engine's strength from 1320 Elo up, or full strength, and a response-time band so it doesn't answer instantly every move. It works as either colour, handles promotions and checks, and recovers on its own if it loses the thread. Set it up under Settings ▸ Computer Use.
 
 - **Visor has a second face: chat.** Press ⌘⌃K, hit ⌘2, and type — replies stream straight into the notch. The card grows sideways when you switch; the notch stays the notch. Switch with the control in the notch's left shoulder (where VISOR used to sit) or ⌘1 / ⌘2.
 - **Name your own agents.** Settings → Agents lets you create as many as you like, each on its own model — the list is fetched live from OpenRouter, so it's never a stale hard-coded menu — with an optional persona prepended to every conversation. One OpenRouter key is shared by all of them and lives in your Keychain, so you paste it once.
