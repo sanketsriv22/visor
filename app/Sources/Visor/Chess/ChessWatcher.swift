@@ -90,34 +90,28 @@ final class ChessWatcher: NSObject, SCStreamOutput, @unchecked Sendable {
     @discardableResult
     static func requestPermission() -> Bool { CGRequestScreenCaptureAccess() }
 
+    /// Where the board sits inside the captured buffer, in buffer pixels.
+    /// For a window capture the buffer is the whole window and the board is
+    /// somewhere inside it; for the display fallback the buffer *is* the board.
+    private var boardInBuffer = CGRect(x: 0, y: 0, width: 1, height: 1)
+    /// The size in points that the buffer represents, so a retina buffer can
+    /// be mapped back to the point geometry.
+    private var bufferPointSize = CGSize(width: 1, height: 1)
+
     func start() async throws {
         guard Self.isPermitted else { throw WatchError.noScreenRecordingPermission }
 
         let content = try await SCShareableContent.excludingDesktopWindows(
-            false, onScreenWindowsOnly: true)
+            false, onScreenWindowsOnly: false)
         guard let displayID = geometry.displayID,
               let display = content.displays.first(where: { $0.displayID == displayID })
         else { throw WatchError.displayNotFound }
 
-        // Exclude ourselves. The overlay draws arrows *on the board*, inside
-        // the rectangle being captured — leave Visor in the capture and every
-        // arrow we draw comes back as a changed square, which we resolve into
-        // a move, which redraws the arrows. The loop is instantaneous and the
-        // board appears to explode.
         let ourselves = content.applications.filter {
             $0.bundleIdentifier == Bundle.main.bundleIdentifier
         }
-        let filter = SCContentFilter(display: display,
-                                     excludingApplications: ourselves,
-                                     exceptingWindows: [])
 
         let config = SCStreamConfiguration()
-        // sourceRect is in the display's own logical points, so the board's
-        // global position has to have the display's origin taken off it.
-        let bounds = CGDisplayBounds(displayID)
-        config.sourceRect = geometry.rect.offsetBy(dx: -bounds.origin.x, dy: -bounds.origin.y)
-        config.width = Int(geometry.side)
-        config.height = Int(geometry.side)
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.showsCursor = false
         // As fast as the display will go. ScreenCaptureKit is change-driven, so
@@ -125,6 +119,49 @@ final class ChessWatcher: NSObject, SCStreamOutput, @unchecked Sendable {
         // something finally happens, not a steady 120fps of work.
         config.minimumFrameInterval = CMTime(value: 1, timescale: 120)
         config.queueDepth = 3
+
+        // Capture the window the board is in, not the patch of screen it was
+        // on.
+        //
+        // A display-region capture grabs whatever is on screen at those
+        // coordinates. Switch Spaces to type in another app and the watcher is
+        // handed *that app* — every square differs from baseline, the landed
+        // check reads garbage, retries fire, and nothing recovers until the
+        // board is back on screen and something makes a frame flow. The frame
+        // dump showed Slack and a sessions sidebar where the board should be.
+        // A window capture follows the window: across Spaces, behind other
+        // windows, wherever it goes.
+        let centre = CGPoint(x: geometry.rect.midX, y: geometry.rect.midY)
+        let host = content.windows.first { window in
+            window.windowLayer == 0 && window.isOnScreen
+                && window.frame.contains(centre)
+                && window.owningApplication?.bundleIdentifier != Bundle.main.bundleIdentifier
+        }
+
+        let filter: SCContentFilter
+        if let host {
+            filter = SCContentFilter(desktopIndependentWindow: host)
+            // Whole window, at its own size; the board is a sub-rectangle.
+            config.width = Int(host.frame.width)
+            config.height = Int(host.frame.height)
+            boardInBuffer = CGRect(x: geometry.rect.minX - host.frame.minX,
+                                   y: geometry.rect.minY - host.frame.minY,
+                                   width: geometry.side, height: geometry.side)
+            bufferPointSize = host.frame.size
+            ChessDiagnostics.trace("watch: window capture of \(host.owningApplication?.applicationName ?? "?") "
+                                 + "\(Int(host.frame.width))×\(Int(host.frame.height)), board at \(boardInBuffer)")
+        } else {
+            // No window under the board; fall back to the region.
+            filter = SCContentFilter(display: display, excludingApplications: ourselves,
+                                     exceptingWindows: [])
+            let bounds = CGDisplayBounds(displayID)
+            config.sourceRect = geometry.rect.offsetBy(dx: -bounds.origin.x, dy: -bounds.origin.y)
+            config.width = Int(geometry.side)
+            config.height = Int(geometry.side)
+            boardInBuffer = CGRect(x: 0, y: 0, width: geometry.side, height: geometry.side)
+            bufferPointSize = CGSize(width: geometry.side, height: geometry.side)
+            ChessDiagnostics.trace("watch: no window under the board — display region capture")
+        }
 
         let stream = SCStream(filter: filter, configuration: config, delegate: nil)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
@@ -182,14 +219,20 @@ final class ChessWatcher: NSObject, SCStreamOutput, @unchecked Sendable {
         let stride = CVPixelBufferGetBytesPerRow(pixels)
         let bytes = base.assumingMemoryBound(to: UInt8.self)
 
-        // The buffer covers exactly the board, so a square is a fixed fraction
-        // of it and none of the screen-space geometry is needed here.
-        let squareW = Double(width) / 8, squareH = Double(height) / 8
+        // The board is a sub-rectangle of the buffer — the whole window, for a
+        // window capture — and the buffer may be at a different scale from the
+        // points the geometry was measured in (retina hands back 2×).
+        let scaleX = Double(width) / Double(bufferPointSize.width)
+        let scaleY = Double(height) / Double(bufferPointSize.height)
+        let originX = Double(boardInBuffer.minX) * scaleX
+        let originY = Double(boardInBuffer.minY) * scaleY
+        let squareW = Double(boardInBuffer.width) * scaleX / 8
+        let squareH = Double(boardInBuffer.height) * scaleY / 8
 
         // Read a pixel at a fraction across a square, given its drawn cell.
         func pixel(col: Int, row: Int, _ fx: Double, _ fy: Double) -> (r: Int, g: Int, b: Int)? {
-            let x = Int((Double(col) + fx) * squareW)
-            let y = Int((Double(row) + fy) * squareH)
+            let x = Int(originX + (Double(col) + fx) * squareW)
+            let y = Int(originY + (Double(row) + fy) * squareH)
             guard x >= 0, x < width, y >= 0, y < height else { return nil }
             let o = y * stride + x * 4                    // BGRA
             return (Int(bytes[o + 2]), Int(bytes[o + 1]), Int(bytes[o]))
