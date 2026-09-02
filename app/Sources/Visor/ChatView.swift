@@ -2081,13 +2081,25 @@ struct EffortPicker: View {
     /// `supported_parameters` per model, so that's read rather than guessed.
     var body: some View {
         if chat.supportsEffort {
-            HStack(spacing: 1) {
-                ForEach(ChatController.effortLevels, id: \.self) { level in
-                    segment(level)
+            HStack(spacing: 3) {
+                // A brain, matching the model picker's reasoning chip — the two
+                // controls that decide how the model thinks now share a mark, so
+                // the row reads as one instrument rather than three.
+                Image(systemName: "brain")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.white.opacity(chat.agent == nil ? 0.22 : 0.45))
+                    .padding(.leading, 6)
+                HStack(spacing: 1) {
+                    ForEach(ChatController.effortLevels, id: \.self) { level in
+                        segment(level)
+                    }
                 }
+                .padding(.trailing, 2)
             }
-            .padding(2)
-            .background(Capsule().fill(.white.opacity(0.05)))
+            // Height 18 to line up with the model and Fast pills, which the old
+            // 20pt made half a point tall against.
+            .padding(.vertical, 2)
+            .background(Capsule().fill(.white.opacity(0.055)))
             .fixedSize()
             .disabled(chat.agent == nil)
             .help("How hard this model thinks before answering")
@@ -2102,9 +2114,9 @@ struct EffortPicker: View {
             Text(label(for: level))
                 .font(.system(size: 9, weight: selected ? .semibold : .regular))
                 .foregroundStyle(.white.opacity(selected ? 0.9 : 0.38))
-                .padding(.horizontal, 7)
-                .frame(height: 16)
-                .background(Capsule().fill(.white.opacity(selected ? 0.16 : 0)))
+                .padding(.horizontal, 6)
+                .frame(height: 14)
+                .background(Capsule().fill(.white.opacity(selected ? 0.14 : 0)))
                 .contentShape(Capsule())
         }
         .buttonStyle(.visorBare)
