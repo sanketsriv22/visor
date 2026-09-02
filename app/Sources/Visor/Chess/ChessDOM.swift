@@ -26,10 +26,14 @@ enum ChessDOM {
         /// True when the user is playing black.
         let flipped: Bool
         let site: String
-        /// Plies played per the page's move list; 0 when it couldn't be read,
-        /// which on a board that isn't the start position means whose turn it
-        /// is has to come from somewhere else.
+        /// Plies played per the page's move list; 0 when it couldn't be read.
         let plies: Int
+        /// The squares of the last move, if the page highlights them. The one
+        /// that still holds a piece is the destination, and that piece's colour
+        /// is who just moved — the surest whose-turn signal the page gives, and
+        /// the one that doesn't care how many moves passed or how the move list
+        /// is marked up.
+        let lastMove: [Square]
     }
 
     enum ReadError: LocalizedError {
@@ -50,7 +54,7 @@ enum ChessDOM {
     /// bottom. Written to run on either site and to say which it found.
     private static let script = #"""
     (function(){
-      var out={site:'none',pieces:[],plies:0,flipped:false};
+      var out={site:'none',pieces:[],plies:0,flipped:false,highlights:[]};
       var cb=document.querySelector('wc-chess-board')||document.querySelector('chess-board')||document.querySelector('.board');
       if(cb && cb.querySelector('.piece')){
         out.site='chess.com';
@@ -64,8 +68,16 @@ enum ChessDOM {
           }
           if(p&&s)out.pieces.push(p+s);
         }
+        // Last move: the two highlighted squares. The one still holding a
+        // piece is where the mover landed. Robust to how the move list is
+        // marked up, which varies.
+        var hs=cb.querySelectorAll('.highlight,[class*="highlight"]');
+        for(var h=0;h<hs.length;h++){
+          var hc=hs[h].className.split(' ');
+          for(var k=0;k<hc.length;k++){ if(/^square-\d\d$/.test(hc[k])) out.highlights.push(hc[k].slice(7)); }
+        }
         var n=document.querySelectorAll('[data-ply]').length;
-        if(!n)n=document.querySelectorAll('.main-line-ply,.move .node').length;
+        if(!n)n=document.querySelectorAll('.node[data-node], .main-line-ply, .move .node, vertical-move-list .node').length;
         out.plies=n;
         return JSON.stringify(out);
       }
@@ -85,6 +97,12 @@ enum ChessDOM {
           var x=Math.round(parseFloat(m[1])/sq),y=Math.round(parseFloat(m[2])/sq);
           var file=out.flipped?7-x:x, rank=out.flipped?y:7-y;
           out.pieces.push(col+role+(file+1)+''+(rank+1));
+        }
+        var lm=document.querySelectorAll('.last-move, square.last-move');
+        for(var h=0;h<lm.length;h++){
+          var st=lm[h].style.transform||'', mm=/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(st);
+          if(mm){ var hx=Math.round(parseFloat(mm[1])/sq), hy=Math.round(parseFloat(mm[2])/sq);
+            var hf=out.flipped?7-hx:hx, hr=out.flipped?hy:7-hy; out.highlights.push(''+(hf+1)+(hr+1)); }
         }
         out.plies=document.querySelectorAll('kwdb, .tview2 move, l4x kwdb').length;
         return JSON.stringify(out);
@@ -187,6 +205,11 @@ enum ChessDOM {
         else { return nil }
         let plies = obj["plies"] as? Int ?? 0
         let flipped = obj["flipped"] as? Bool ?? false
+        let lastMove = (obj["highlights"] as? [String] ?? []).compactMap { code -> Square? in
+            guard code.count == 2, let f = code.first?.wholeNumberValue, let r = code.last?.wholeNumberValue
+            else { return nil }
+            return Square(file: f - 1, rank: r - 1)
+        }
 
         var board = [Piece?](repeating: nil, count: 64)
         for code in pieces {
@@ -217,6 +240,6 @@ enum ChessDOM {
             if at("a8") == Piece(.black, .rook) { rights.insert(.blackQueen) }
         }
         position.castling = rights
-        return Reading(position: position, flipped: flipped, site: site, plies: plies)
+        return Reading(position: position, flipped: flipped, site: site, plies: plies, lastMove: lastMove)
     }
 }

@@ -481,10 +481,24 @@ final class ChessSession: ObservableObject {
             // move, so the engine answered for the wrong colour and its move was
             // illegal on the real board. The diff is the fallback only when the
             // move list can't be read.
-            var next = seen                       // seen.turn already = plies % 2
-            if reading.plies == 0, let mover = Self.colourThatMoved(from: position, to: seen) {
+            // Whose turn, in order of trust:
+            //   1. the last-move highlight — the piece on the highlighted
+            //      destination is who just moved, whatever the move list says
+            //      and however many plies passed;
+            //   2. the move-list ply count, when the highlight isn't there;
+            //   3. a piece diff, only when neither is.
+            var next = seen
+            if let dest = reading.lastMove.first(where: { seen[$0] != nil }),
+               let mover = seen[dest]?.color {
+                next.turn = mover.opposite
+            } else if reading.plies > 0 {
+                next.turn = reading.plies % 2 == 0 ? .white : .black
+            } else if let mover = Self.colourThatMoved(from: position, to: seen) {
                 next.turn = mover.opposite
             }
+            ChessDiagnostics.trace("page: turn from "
+                + (reading.lastMove.isEmpty ? (reading.plies > 0 ? "plies=\(reading.plies)" : "diff")
+                   : "highlight \(reading.lastMove.map(\.name).joined(separator: ","))"))
             // Rights are only ever lost. Keep ours, minus whatever the page
             // shows has moved off its home square.
             next.castling = position.castling.intersection(next.castling)
