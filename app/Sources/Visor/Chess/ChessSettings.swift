@@ -54,6 +54,7 @@ struct ComputerUsePane: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             modePicker
+            strengthControl
             if chess.mode == .playing { latencyBand }
             requirements
 
@@ -101,6 +102,38 @@ struct ComputerUsePane: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// How strong the engine plays.
+    private var strengthControl: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text("Engine strength").font(.system(size: 12))
+                Spacer()
+                Text(chess.strength.display)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            HStack(spacing: Design.Space.normal) {
+                Toggle("", isOn: Binding(
+                    get: { chess.strength.elo != nil },
+                    set: { chess.strength = $0 ? ChessStrength(elo: 1500) : ChessStrength(elo: nil) }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                Slider(value: Binding(
+                    get: { Double(chess.strength.elo ?? 3000) },
+                    set: { chess.strength = ChessStrength(elo: Int($0.rounded())) }),
+                    in: ChessStrength.range, step: 20)
+                    .disabled(chess.strength.elo == nil)
+            }
+            Text("Off is full strength. On, the engine plays down to the rating — "
+               + "it makes weaker moves, not faster ones, so it feels like an "
+               + "opponent of that level. Takes effect on the next game.")
+                .font(.caption2).foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 2)
     }
 
     /// How long to sit on the answer before playing it.

@@ -18,6 +18,26 @@ import ScreenCaptureKit
 /// milliseconds every single time is also just worse to sit next to — the reply
 /// arrives before you have finished seeing what was played. The engine is still
 /// as fast as it was; this decides when to use the answer, not when to find it.
+/// How strong the engine plays. Full strength, or capped to a rating.
+struct ChessStrength: Equatable {
+    /// nil = full strength; otherwise a UCI Elo (Stockfish floor is 1320).
+    var elo: Int?
+
+    static let `default` = ChessStrength(elo: nil)
+    static let range: ClosedRange<Double> = 1320...3000
+
+    var display: String { elo.map { "\($0) Elo" } ?? "Full strength" }
+
+    private static let key = "visor.chess.elo"
+    static var stored: ChessStrength {
+        get {
+            let v = UserDefaults.standard.integer(forKey: key)   // 0 when unset
+            return ChessStrength(elo: v == 0 ? nil : v)
+        }
+        set { UserDefaults.standard.set(newValue.elo ?? 0, forKey: key) }
+    }
+}
+
 struct LatencyBand: Equatable {
     /// Seconds.
     var shortest: TimeInterval
@@ -73,6 +93,10 @@ final class ChessController: ObservableObject {
     @Published var latency: LatencyBand {
         didSet { LatencyBand.stored = latency }
     }
+    /// Only takes effect on the next game — engines read it when they launch.
+    @Published var strength: ChessStrength {
+        didSet { ChessStrength.stored = strength }
+    }
 
     @Published private(set) var session: ChessSession?
     /// A line for the settings pane. Nil while nothing needs saying.
@@ -88,6 +112,7 @@ final class ChessController: ObservableObject {
         mode = UserDefaults.standard.string(forKey: Self.modeKey)
             .flatMap(ChessMode.init(rawValue:)) ?? .advising
         latency = LatencyBand.stored
+        strength = ChessStrength.stored
     }
 
     var isWatching: Bool { session != nil }
@@ -272,7 +297,8 @@ final class ChessController: ObservableObject {
                                    ourColour: result.ourColour,
                                    position: position,
                                    latency: latency,
-                                   source: source)
+                                   source: source,
+                                   elo: strength.elo)
         self.session = session
         Task {
             do {

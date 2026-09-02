@@ -54,16 +54,16 @@ actor ChessOracle {
         return total == 0 ? nil : Double(hits) / Double(total)
     }
 
-    init(poolSize: Int = 6, depth: Int = 12, lines: Int = 3) throws {
+    init(poolSize: Int = 6, depth: Int = 12, lines: Int = 3, elo: Int? = nil) throws {
         self.depth = depth
         self.lines = lines
-        self.scout = try ChessEngine(threads: 1, hashMB: 16)
+        self.scout = try ChessEngine(threads: 1, hashMB: 16, elo: elo)
         // One thread each. We're already running as many searches as there are
         // cores, and Stockfish threads within a search fight each other for the
         // same hash table — more threads per engine here would be slower, not
         // faster.
         self.pool = try (0..<max(1, poolSize)).map { _ in
-            try ChessEngine(threads: 1, hashMB: 32)
+            try ChessEngine(threads: 1, hashMB: 32, elo: elo)
         }
     }
 

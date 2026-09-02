@@ -63,6 +63,7 @@ final class ChessSession: ObservableObject {
     let ourColour: PieceColor
     private var domTask: Task<Void, Never>?
     private let latency: LatencyBand
+    private let elo: Int?
 
     private var oracle: ChessOracle?
     private var watcher: ChessWatcher?
@@ -107,7 +108,8 @@ final class ChessSession: ObservableObject {
 
     init(mode: ChessMode, geometry: BoardGeometry, ourColour: PieceColor,
          position: ChessPosition = .start, latency: LatencyBand = .default,
-         source: ChessSource = .pixels) {
+         source: ChessSource = .pixels, elo: Int? = nil) {
+        self.elo = elo
         self.mode = mode
         self.source = source
         self.geometry = geometry
@@ -119,7 +121,7 @@ final class ChessSession: ObservableObject {
     // ── lifecycle ─────────────────────────────────────────────────────
 
     func start() async throws {
-        let oracle = try ChessOracle()
+        let oracle = try ChessOracle(elo: elo)
         self.oracle = oracle
         self.actuator = mode == .advising ? AdvisingActuator() : ClickingActuator()
 
@@ -573,6 +575,24 @@ final class ChessSession: ObservableObject {
 
         suggestions = replies
         playingOwnMove = true
+
+        // Pace the reply, when the mode moves pieces. Random inside the band,
+        // so it isn't the same instant every move and never lands during the
+        // opponent's animation. The engine already has the answer; this is only
+        // when to use it. Advise mode never waits — an arrow late is worse than
+        // useless.
+        if mode == .playing {
+            let wait = latency.sample()
+            if wait > 0.01 { try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
+            // The board may have moved while we waited (opponent premoved, game
+            // ended); if it's no longer our move, drop it.
+            if source == .dom, let r = try? await ChessDOM.read(),
+               r.position.placement != position.placement {
+                playingOwnMove = false
+                return
+            }
+        }
+
         position.apply(move)                 // it is the opponent's turn now
         await confirmOwnMove(move, attempt: 1)
     }

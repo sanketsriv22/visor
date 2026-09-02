@@ -198,7 +198,10 @@ actor ChessEngine {
             .map { URL(fileURLWithPath: $0) }
     }
 
-    init(threads: Int = 1, hashMB: Int = 64) throws {
+    private let elo: Int?
+
+    init(threads: Int = 1, hashMB: Int = 64, elo: Int? = nil) throws {
+        self.elo = elo
         guard let binary = Self.locate() else { throw EngineError.notFound }
 
         let process = Process()
@@ -217,7 +220,7 @@ actor ChessEngine {
         self.input = stdin.fileHandleForWriting
         self.reader = reader
 
-        Task { try? await self.handshake(threads: threads, hashMB: hashMB) }
+        Task { try? await self.handshake(threads: threads, hashMB: hashMB, elo: elo) }
     }
 
     deinit {
@@ -248,10 +251,18 @@ actor ChessEngine {
         throw EngineError.timedOut(what)
     }
 
-    private func handshake(threads: Int, hashMB: Int) async throws {
+    private func handshake(threads: Int, hashMB: Int, elo: Int?) async throws {
         _ = try await ask("uci", what: "uci") { $0.hasPrefix("uciok") }
         write("setoption name Threads value \(threads)")
         write("setoption name Hash value \(hashMB)")
+        // Play down to a rating, when asked. Stockfish's own limiter — it
+        // deliberately picks weaker moves rather than searching shallower, so
+        // the play *feels* like a human of that rating rather than a strong
+        // engine given less time. Its floor is 1320; below that it clamps.
+        if let elo {
+            write("setoption name UCI_LimitStrength value true")
+            write("setoption name UCI_Elo value \(max(1320, min(3190, elo)))")
+        }
         _ = try await ask("isready", what: "isready") { $0.hasPrefix("readyok") }
     }
 
