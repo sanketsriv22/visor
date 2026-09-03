@@ -260,9 +260,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         // Keep the menu-bar icon lit while the panel is open, the way every
-        // other menu-bar app does — the old behaviour only showed the pressed
-        // state during the mouse-down, which read as a flicker.
-        button.highlight(true)
+        // other menu-bar app does. Dispatched to the next runloop tick: the
+        // click's mouse-up ends the button's tracking and un-highlights it
+        // *after* this method returns, so a synchronous highlight(true) here is
+        // immediately undone — setting it a tick later sticks.
+        DispatchQueue.main.async { button.highlight(true) }
     }
 
     func popoverDidClose(_ notification: Notification) {
