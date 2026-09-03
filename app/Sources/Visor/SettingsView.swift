@@ -11,13 +11,14 @@ final class SettingsFocus: ObservableObject {
 }
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case appearance, agents, voice, hud, computerUse, usage, workspace, mcp, memory
+    case appearance, agents, secrets, voice, hud, computerUse, usage, workspace, mcp, memory
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .appearance: return "Appearance"
+        case .secrets:   return "Secrets"
         case .agents:    return "Agents"
         case .voice:     return "Voice"
         case .hud:       return "HUD"
@@ -33,6 +34,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var glyph: String {
         switch self {
         case .appearance:  return "◐"
+        case .secrets:     return "◧"
         case .agents:      return Glyph.agents
         case .voice:       return Glyph.voice
         case .hud:         return Glyph.hud
@@ -150,6 +152,7 @@ struct SettingsView: View {
     private var pane: some View {
         switch tab {
         case .appearance: AppearancePane()
+        case .secrets:   SecretsPane()
         case .agents:    AgentsPane(ai: ai, catalog: catalog, focus: focus)
         case .voice:     VoicePane(chat: chat, catalog: catalog, pushToTalk: pushToTalk)
         case .hud:       HUDPane()
@@ -171,6 +174,7 @@ private struct AgentsPane: View {
 
     @State private var keyDraft = ""
     @State private var newAgentName = ""
+    @State private var editingKey = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -211,36 +215,42 @@ private struct AgentsPane: View {
     }
 
     /// One key for every chat agent — they all sit on one OpenRouter account.
+    /// Collapsed to a status once it's set (with the full vault in Secrets), so
+    /// there isn't an input box sitting open over a key that's already saved.
     private var openRouterKey: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text("API key").font(Design.Text.headline)
-                if OpenRouterClient.hasKey {
-                    Label("set", systemImage: "checkmark.circle.fill")
-                        .font(Design.Text.caption2).foregroundStyle(.green)
+            HStack(spacing: 8) {
+                Text("OpenRouter key").font(Design.Text.headline)
+                Text(OpenRouterClient.hasKey ? "set" : "not set")
+                    .font(Design.Text.caption2)
+                    .foregroundStyle(OpenRouterClient.hasKey ? Design.Retro.accent : Design.Retro.faint)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(OpenRouterClient.hasKey ? Design.Retro.accentDim : Color.white.opacity(0.05)))
+                Spacer()
+                if OpenRouterClient.hasKey && !editingKey {
+                    Button("Change") { editingKey = true }.buttonStyle(.borderless).font(Design.Text.caption)
                 }
-            }
-            HStack {
-                SecureField(OpenRouterClient.hasKey
-                            ? "•••••• (set) — type to replace"
-                            : "paste your API key",
-                            text: $keyDraft)
-                    .textFieldStyle(.roundedBorder)
-                Button("Save") {
-                    Keychain.set(keyDraft.trimmingCharacters(in: .whitespacesAndNewlines),
-                                 account: OpenRouterClient.sharedKeyAccount)
-                    keyDraft = ""
-                    focus.provider = nil
-                    Task { await catalog.reload() }
-                }
-                .disabled(keyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("Get a key") {
-                    if let url = URL(string: "https://openrouter.ai/keys") {
-                        NSWorkspace.shared.open(url)
+                    if let url = URL(string: "https://openrouter.ai/keys") { NSWorkspace.shared.open(url) }
+                }
+                .buttonStyle(.borderless).font(Design.Text.caption)
+            }
+            if !OpenRouterClient.hasKey || editingKey {
+                HStack {
+                    SecureField("paste your API key", text: $keyDraft)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Save") {
+                        Keychain.set(keyDraft.trimmingCharacters(in: .whitespacesAndNewlines),
+                                     account: OpenRouterClient.sharedKeyAccount)
+                        keyDraft = ""
+                        editingKey = false
+                        focus.provider = nil
+                        Task { await catalog.reload() }
                     }
+                    .disabled(keyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            Text("Shared by every chat agent, and stored in your macOS Keychain — never in a file. Keys come from openrouter.ai, which reaches every model in the picker below.")
+            Text("Shared by every chat agent, stored in your Keychain — full vault in Secrets. Keys come from openrouter.ai, which reaches every model in the picker.")
                 .font(Design.Text.caption).foregroundStyle(.secondary)
             if catalog.isLoading {
                 Text("Loading models…").font(Design.Text.caption2).foregroundStyle(.secondary)
@@ -1044,27 +1054,15 @@ private struct VoicePane: View {
     @StateObject private var trust = AccessibilityTrust()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Voice").font(Design.Text.paneTitle)
-                Text("Dictate anywhere on your Mac. The words land at the caret in whatever you were typing in, and every transcript is kept here whether or not it reached a chat.")
-                    .font(Design.Text.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        VStack(alignment: .leading, spacing: 22) {
+            SettingsHeader(
+                title: "Voice",
+                subtitle: "Dictate anywhere on your Mac. The words land at the caret in whatever you're typing in, and every transcript is kept here.")
 
-            voiceKey
-
-            Divider()
-
-            transcriptionModelField
-
-            Divider()
-
-            notchGames
-
-            Divider()
-
-            voiceLogSection
+            SettingsCard(label: "Transcription") { voiceKey }
+            SettingsCard(label: "Transcription model") { transcriptionModelField }
+            SettingsCard(label: "Dictation games") { notchGames }
+            SettingsCard(label: "Voice log") { voiceLogSection }
         }
     }
 
@@ -1110,13 +1108,11 @@ private struct VoicePane: View {
                 cleanupPromptEditor
                 benchmarkSection
             }
-            Text("Speech-to-text returns what you said, not what you meant to write: no punctuation, \"um\"s left in, and the occasional wrong homophone. With this on, the raw transcript is passed through the model below to punctuate and clean it before it's inserted — a fraction of a cent per dictation, and about a second. Off, you get the transcript exactly as heard.")
-                .font(Design.Text.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            InfoNote(text: "Speech-to-text returns what you said, not what you meant to write: no punctuation, \"um\"s left in, and the occasional wrong homophone. With this on, the raw transcript is passed through the model below to punctuate and clean it before it's inserted — a fraction of a cent per dictation, and about a second. Off, you get the transcript exactly as heard.",
+                     summary: "About cleanup")
 
-            Text("\(ShortcutSettings.hint(.dictate)) dictates into the composer using OpenAI's transcription API. This is a separate key because OpenRouter doesn't carry audio — leave it blank and dictation stays off.")
-                .font(Design.Text.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            InfoNote(text: "\(ShortcutSettings.hint(.dictate)) dictates into the composer using OpenAI's transcription API. This is a separate key because OpenRouter doesn't carry audio — leave it blank and dictation stays off.",
+                     summary: "About the voice key")
 
             Toggle(isOn: Binding(
                 get: { TextInsertion.clipboardFallback },

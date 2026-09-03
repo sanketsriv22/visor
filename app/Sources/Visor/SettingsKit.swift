@@ -149,3 +149,30 @@ struct SettingsSlider: View {
         }
     }
 }
+
+/// A one-line hint with the full explanation folded behind it — click to
+/// reveal. Keeps a pane scannable while the detail stays one tap away, instead
+/// of a paragraph of prose under every control.
+struct InfoNote: View {
+    let text: String
+    var summary: String = "What this does"
+    @State private var open = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Button { withAnimation(.easeInOut(duration: 0.15)) { open.toggle() } } label: {
+                HStack(spacing: 5) {
+                    RetroIcon(open ? Glyph.chevron : "▸", size: 9, color: Design.Retro.dim)
+                    Text(summary).font(Design.Text.caption2).foregroundStyle(Design.Retro.dim)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if open {
+                Text(text)
+                    .font(Design.Text.caption2).foregroundStyle(Design.Retro.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
