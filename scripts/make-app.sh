@@ -140,6 +140,12 @@ for f in "$REPO/app/Sources/Visor/Resources"/*Template*.png; do
     [ -f "$f" ] && cp "$f" "$APP/Contents/Resources/"
 done
 
+# Bundled fonts (registered at launch via CTFontManager). Departure Mono is the
+# Settings type face.
+for f in "$REPO/app/Sources/Visor/Resources"/*.otf; do
+    [ -f "$f" ] && cp "$f" "$APP/Contents/Resources/"
+done
+
 # Bundle the changelog so the app can show "What's New" offline.
 cp "$REPO/CHANGELOG.md" "$APP/Contents/Resources/CHANGELOG.md" 2>/dev/null || true
 

@@ -548,7 +548,7 @@ final class ChessSession: ObservableObject {
                 // Where the opponent's move landed, for spotting a recapture.
                 let oppTo = Self.movedToSquare(from: position, to: next, mover: ourColour.opposite)
                 lastClock = reading.clockSeconds
-                let (pd, ps) = pressured(clock: reading.clockSeconds)
+                let (pd, ps) = pressured(clock: reading.clockSeconds, oppClock: reading.opponentSeconds)
                 let a = await oracle.analyse(next, depthOverride: pd, skillOverride: ps)
                 // Confirm the board is still what we analysed before acting on
                 // it. The engine only ever returns a legal move for the
@@ -603,26 +603,15 @@ final class ChessSession: ObservableObject {
         let hi = max(latency.shortest, latency.longest)
         let span = max(0.001, hi - lo)
 
-        // Forced: essentially instant, but a hand still takes a beat — a tenth
-        // of a second of spread reads as reflex rather than a bot firing on a
-        // timer.
+        // A forced move is a reflex; a recapture nearly so. These snap even when
+        // we're sitting on a clock lead — playing the obvious ones instantly is
+        // part of looking human.
         if forced { return Double.random(in: 0...0.12) }
+        if recapture { return Self.humanTime(median: lo + span * 0.12, sigma: 0.4) }
 
-        // Recapture: quick, around the fast end, with a little human wobble.
-        if recapture { return Self.humanTime(median: lo + span * 0.10, sigma: 0.35) }
-
-        // Opening from memory: fast and loose. Its moves are close in evaluation
-        // but that closeness is ease, not difficulty, so the gap rule below
-        // would read it backwards and dawdle over move two.
-        if position.fullmoveNumber <= 6 {
-            return Self.humanTime(median: lo + span * 0.12, sigma: 0.5)
-        }
-
-        // How much thought this move wants, 0…1 — the two things a person
-        // actually feels. First, whether it's a real decision: how close the
-        // best move is to the next best. Second, how busy the board is: more
-        // legal moves is more to look at. A clear move in a quiet position wants
-        // almost none; a knife-edge choice in a thicket wants a lot.
+        // How much thought this move wants, 0…1 — how close the decision is (the
+        // gap to the second-best move) and how busy the board is (legal-move
+        // count). A clear move in a quiet position wants almost none.
         var decision = 0.0
         if replies.count >= 2 {
             let gap = abs(replies[0].score.centipawns - replies[1].score.centipawns)
@@ -632,41 +621,46 @@ final class ChessSession: ObservableObject {
         let busy = min(1.0, max(0.0, Double(moveCount - 8) / 32.0))   // ~8 quiet, 40 a thicket
         let difficulty = min(1.0, decision * 0.7 + busy * 0.45)
 
-        // The mean this position pulls towards.
-        var median = lo + difficulty * span
+        // The base human pace, from the latency band; the opening goes quick.
+        var median = position.fullmoveNumber <= 6 ? lo + span * 0.12
+                                                  : lo + difficulty * span
 
-        // Spend a clock lead on the hard moves — only the hard ones. When we
-        // have meaningfully more time than the opponent, a genuine decision can
-        // take longer; a clear move is untouched. Being behind never slows us —
-        // that's the flag rule below.
-        if let clock, let oppClock, clock > oppClock + 5, difficulty > 0.2 {
-            let lead = min(1.0, (clock - oppClock) / max(20.0, oppClock))
-            median += difficulty * lead * span * 0.7
+        // Clock parity is the goal: keep our time within ~5s of the opponent's,
+        // and that is now the main driver of pace. Ahead of them by more than
+        // the 5s tolerance → spend it down, a fraction of the surplus per move
+        // so a big lead burns over several moves rather than one absurd think.
+        // Behind by more than the tolerance → hurry. Within ±5s → just play at
+        // the base pace. The band still shapes the quick end; the clock decides
+        // when to depart from it.
+        var blitzOK = true
+        if let ours = clock, let opp = oppClock {
+            let delta = ours - opp
+            if delta > 5 {
+                median += min((delta - 5) * 0.4, 9.0)
+                blitzOK = false          // we have time to spend; don't also blitz
+            } else if delta < -5 {
+                median = min(median, lo + span * 0.15)
+            }
         }
 
-        // Sample the actual wait from a distribution around that mean rather
-        // than returning the mean itself — this is where the human volatility
-        // comes from. The spread widens with difficulty: people are consistent
-        // on easy moves and erratic on hard ones. Log-normal, so the shape is
-        // the human right-skew — many quick, a long tail of slow.
-        let sigma = 0.5 + difficulty * 0.4
+        // Sample around the mean — this is the volatility. A wide spread plus a
+        // long-think chance on every move (not only the hard ones), so two
+        // similar positions don't take the same time and the pace never reads as
+        // metronomic. Log-normal, for the human right-skew.
+        let sigma = 0.6 + difficulty * 0.3
         var wait = Self.humanTime(median: median, sigma: sigma)
-
-        // The occasional long think: a move that looks like the rest but that
-        // this position, this time, got stared at. Never on the easy ones.
-        if difficulty > 0.25 && Double.random(in: 0...1) < 0.12 {
-            wait *= Double.random(in: 1.8...3.2)
+        if Double.random(in: 0...1) < 0.10 {
+            wait *= Double.random(in: 1.6...3.0)
         }
 
-        // Don't let the tail run away entirely.
-        wait = min(wait, hi * 3.0 + 1.0)
-
-        // Blitz as the flag approaches — overrides everything above, the way a
-        // person stops thinking and just moves when low.
-        if let clock, clock < 60 {
-            wait *= max(0.05, clock / 60.0)
+        // Genuinely low on time and NOT sitting on a lead — stop thinking and
+        // move. Skipped when we're ahead, since there we're deliberately
+        // spending the clock down toward parity.
+        if blitzOK, let ours = clock, ours < 20 {
+            wait *= max(0.1, ours / 20.0)
         }
-        return max(0.03, wait)
+
+        return max(0.03, min(wait, 15.0))
     }
 
     /// A move time drawn from a log-normal distribution: `median` is where the
@@ -706,13 +700,22 @@ final class ChessSession: ObservableObject {
     /// half a minute nothing changes; below it the search shortens and the
     /// skill randomness grows in proportion to how near the flag is, so at 2000
     /// Elo flagging, the moves come out closer to a blitz-scramble 1500.
-    private func pressured(clock: Double?) -> (depth: Int, skill: Int) {
+    private func pressured(clock: Double?, oppClock: Double? = nil) -> (depth: Int, skill: Int) {
         let baseSkill = skill ?? 20
-        guard let clock, clock < 30 else { return (searchDepth, baseSkill) }
-        let urgency = 1.0 - clock / 30.0                       // 0 at 30s, 1 at the flag
-        let d = Int((Double(searchDepth) - urgency * Double(searchDepth - 2)).rounded())
-        let sk = Int((Double(baseSkill) - urgency * Double(baseSkill - 3)).rounded())
-        return (max(2, d), max(1, sk))
+        // Only ease off when actually scrambling — genuinely low on time and NOT
+        // ahead of the opponent. The old version triggered under 30s regardless,
+        // which is just "the endgame", and dropped skill to near-random (1),
+        // which is how a won endgame turned into 30% accuracy. If we're ahead on
+        // the clock we can afford to think, so full strength holds.
+        let ahead = oppClock.map { clock ?? 0 > $0 + 3 } ?? false
+        guard let clock, clock < 15, !ahead else { return (searchDepth, baseSkill) }
+        let urgency = 1.0 - clock / 15.0                       // 0 at 15s, 1 at the flag
+        // Gentle: a shorter search and a little more skill noise — a blitz
+        // scramble, not a beginner. Floors kept high enough to still find the
+        // move, so it plays fast-and-loose, not random.
+        let d = Int((Double(searchDepth) - urgency * Double(searchDepth - 5)).rounded())
+        let sk = Int((Double(baseSkill) - urgency * Double(baseSkill - 8)).rounded())
+        return (max(5, d), max(8, sk))
     }
 
     /// The square a move of `mover`'s colour landed on, between two positions —

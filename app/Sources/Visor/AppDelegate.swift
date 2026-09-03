@@ -1,4 +1,5 @@
 import AppKit
+import CoreText
 import Sparkle
 import SwiftUI
 
@@ -10,6 +11,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var controller: NotchController?
     private var statusItem: NSStatusItem?
+    private var menuPopover: NSPopover?
     private let updater = Updater()
     private let ai = AIRunner()
     private var sendToMenu: NSMenu?
@@ -64,7 +66,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Register any .otf fonts bundled in Resources so `Font.custom` can find
+    /// them — the app isn't in the App Sandbox and doesn't use an Info.plist
+    /// font key, so it registers them itself at launch. A no-op in dev builds
+    /// where the Resources aren't copied next to the binary.
+    private static func registerBundledFonts() {
+        guard let dir = Bundle.main.resourceURL else { return }
+        let fonts = (try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil)) ?? []
+        for url in fonts where url.pathExtension.lowercased() == "otf" {
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.registerBundledFonts()
         let args = ProcessInfo.processInfo.arguments
 
         if args.contains("--probe") {
@@ -206,66 +222,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         icon?.isTemplate = true
         icon?.size = NSSize(width: 18, height: 18)
         item.button?.image = icon
-
-        let menu = NSMenu()
-        menu.delegate = self
-
-        // Version header + what changed in this version.
-        let header = NSMenuItem(title: "Visor \(AppInfo.version)", action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        menu.addItem(header)
-        menu.addItem(whatsNewItem())
-        menu.addItem(.separator())
-
-        let toggle = NSMenuItem(title: "Show / Hide Note", action: #selector(toggleNote), keyEquivalent: "")
-        toggle.target = self
-        menu.addItem(toggle)
-
-        // Settings: which agent the ✈ send buttons target.
-        let sendTo = NSMenuItem(title: "Send tasks to", action: nil, keyEquivalent: "")
-        let sub = NSMenu()
-        sendToMenu = sub
-        rebuildSendToMenu()
-        sendTo.submenu = sub
-        menu.addItem(sendTo)
-
-        // Whether a send opens a Terminal window or runs in the background.
-        let runIn = NSMenuItem(title: "Run agents in", action: nil, keyEquivalent: "")
-        let runSub = NSMenu()
-        runModeMenu = runSub
-        rebuildRunModeMenu()
-        runIn.submenu = runSub
-        menu.addItem(runIn)
-
-        // Which local repo/folder agents run in (the task is for that project).
-        let folder = NSMenuItem(title: "Run in folder", action: nil, keyEquivalent: "")
-        let folderSub = NSMenu()
-        runInFolderMenu = folderSub
-        rebuildRunInFolderMenu()
-        folder.submenu = folderSub
-        menu.addItem(folder)
-
-        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
-        settings.target = self
-        menu.addItem(settings)
-
-        menu.addItem(.separator())
-
-        let update = NSMenuItem(
-            title: "Check for Updates…",
-            action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
-            keyEquivalent: ""
-        )
-        update.target = updater.controller
-        menu.addItem(update)
-
-        menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit Visor", action: #selector(quitApp), keyEquivalent: "q")
-        quit.target = self
-        menu.addItem(quit)
-
-        item.menu = menu
+        // A designed panel on click, not a system menu. The old NSMenu carried
+        // three routing submenus ("Send tasks to", "Run agents in", "Run in
+        // folder") that predate the HUD and no longer earn their place — those
+        // are gone; run-mode lives in Settings → Workspace.
+        item.button?.action = #selector(toggleMenuPanel)
+        item.button?.target = self
         statusItem = item
+    }
+
+    @objc private func toggleMenuPanel() {
+        if let popover = menuPopover, popover.isShown {
+            popover.performClose(nil)
+            return
+        }
+        guard let button = statusItem?.button else { return }
+        let close: () -> Void = { [weak self] in self?.menuPopover?.performClose(nil) }
+        let panel = MenuBarPanel(
+            version: AppInfo.version,
+            computerUseOn: ChessController.shared.isWatching,
+            onOpenVisor:    { close(); self.controller?.showNote() },
+            onComputerUse:  { close(); ChessController.shared.toggle() },
+            onDictate:      { close(); self.controller?.toggleDictation() },
+            onSettings:     { close(); self.openSettings() },
+            onWhatsNew:     { close(); self.openReleases() },
+            onCheckUpdates: { close(); self.updater.controller.checkForUpdates(nil) },
+            onQuit:         { NSApp.terminate(nil) })
+        let hosting = NSHostingController(rootView: panel)
+        hosting.sizingOptions = .preferredContentSize
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentViewController = hosting
+        menuPopover = popover
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
     private func whatsNewItem() -> NSMenuItem {

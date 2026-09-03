@@ -11,13 +11,19 @@ import SwiftUI
 extension Design {
     /// A type scale, so a title, a section label and a caption are the same
     /// size in every pane instead of a spread of raw `.system(size:)` literals.
+    ///
+    /// Set in Departure Mono — a bundled pixel face — as an experiment in giving
+    /// Settings its own voice. It's a single weight, so hierarchy comes from
+    /// size, not weight. `Font.custom` falls back to the system font cleanly if
+    /// the face didn't register, so nothing breaks if it's missing.
     enum Text {
-        static let paneTitle = Font.system(size: 20, weight: .semibold)
-        static let sectionLabel = Font.system(size: 11, weight: .semibold)
-        static let rowTitle = Font.system(size: 13)
-        static let body = Font.system(size: 12)
-        static let caption = Font.system(size: 11)
-        static let mono = Font.system(size: 11, design: .monospaced)
+        static let face = "Departure Mono"
+        static let paneTitle = Font.custom(face, size: 18)
+        static let sectionLabel = Font.custom(face, size: 10.5)
+        static let rowTitle = Font.custom(face, size: 12.5)
+        static let body = Font.custom(face, size: 12)
+        static let caption = Font.custom(face, size: 11)
+        static let mono = Font.custom(face, size: 11)
     }
 
     /// Adaptive surfaces for the Settings window — the dark-only `Surface` ramp

@@ -1149,99 +1149,155 @@ struct InlineModelPicker: View {
         .buttonStyle(.visorBare)
         .disabled(chat.agent == nil)
         .help("Model for this message")
-        .popover(isPresented: $showing, arrowEdge: .top) {
-            VStack(spacing: 0) {
-                TextField("Search \(chat.modelOptions.count) models…", text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .padding(7)
-                Divider()
-                if showingPinned {
-                    HStack {
-                        Text("PINNED")
-                            .font(.system(size: 8, weight: .semibold))
-                            .tracking(0.6)
-                        Spacer()
-                        Text("type to search all")
-                            .font(.system(size: 9))
-                    }
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 2)
-                }
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        if matches.isEmpty {
-                            Text(showingPinned
-                                 ? "Nothing pinned yet. Search, then tap a star to pin it here."
-                                 : "Nothing matches “\(query)”")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(9)
-                        }
-                        ForEach(matches, id: \.self) { id in
-                            row(id)
-                        }
-                    }
-                }
-                // The overlay scroller sat on top of the star and grew when
-                // grabbed, covering it entirely. Hidden, with the list inset
-                // from the edge so nothing needs to share that column.
-                .scrollIndicators(.hidden)
-                .frame(height: showingPinned ? 170 : 260)
-            }
-            .frame(width: 384)
-        }
+        .popover(isPresented: $showing, arrowEdge: .top) { picker }
     }
 
-    private func row(_ id: String) -> some View {
+    // MARK: The picker
+
+    private var picker: some View {
+        VStack(spacing: 0) {
+            // A borderless search with an icon, like a command palette rather
+            // than a form field. Return picks the top result.
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                TextField("Search \(chat.modelOptions.count) models…", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12.5))
+                    .onSubmit { if let first = matches.first { choose(first) } }
+                if !query.isEmpty {
+                    Button { query = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    }.buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 11)
+
+            Divider()
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 1, pinnedViews: [.sectionHeaders]) {
+                    if matches.isEmpty {
+                        Text(showingPinned
+                             ? "Nothing pinned yet — search, then tap a star to keep a model here."
+                             : "No model matches “\(query)”.")
+                            .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(12)
+                    } else if showingPinned {
+                        Section {
+                            ForEach(chat.favouriteModels, id: \.self) { modelRow($0) }
+                        } header: {
+                            sectionHeader("Pinned", trailing: "type to search all")
+                        }
+                    } else {
+                        ForEach(groupedMatches) { group in
+                            Section {
+                                ForEach(group.ids, id: \.self) { modelRow($0) }
+                            } header: {
+                                sectionHeader(group.vendor)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 6).padding(.vertical, 4)
+            }
+            .scrollIndicators(.hidden)
+            .frame(height: showingPinned ? 240 : 340)
+        }
+        .frame(width: 396)
+    }
+
+    /// One model, two lines: the name, and a meta line of vendor · context ·
+    /// price with capability marks — the facts you actually choose on.
+    private func modelRow(_ id: String) -> some View {
         let selected = id == chat.conversation.model
         let model = chat.catalog.model(for: id)
-        return HStack(spacing: 2) {
-            Button {
-                chat.useModel(id)
-                showing = false
-                query = ""
-            } label: {
-                HStack(spacing: 7) {
-                    // A vendor dot, not the repeated "anthropic /" prefix that
-                    // used to open every row: colour carries the vendor and the
-                    // name gets the line to itself.
-                    Circle().fill(vendorColor(id)).frame(width: 6, height: 6)
-                    Text(shortName(of: id))
-                        .font(.system(size: 11, weight: selected ? .semibold : .regular))
-                        .lineLimit(1).truncationMode(.middle)
-                    capabilityChips(model)
+        return HStack(spacing: 4) {
+            Button { choose(id) } label: {
+                HStack(spacing: 10) {
+                    Circle().fill(vendorColor(id)).frame(width: 7, height: 7)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(shortName(of: id))
+                            .font(.system(size: 12.5, weight: selected ? .semibold : .medium))
+                            .lineLimit(1).truncationMode(.middle)
+                        HStack(spacing: 6) {
+                            Text(metaLine(id, model))
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            capabilityChips(model)
+                        }
+                    }
                     Spacer(minLength: 6)
-                    // What the row is actually for: how much it holds and what
-                    // it costs, which is how you choose between two names you
-                    // half-recognise. Both hidden until the catalogue loads.
-                    if let ctx = contextLabel(model) {
-                        Text(ctx)
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                    }
-                    if let price = priceLabel(model) {
-                        Text(price)
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(.secondary.opacity(0.75))
-                            .frame(width: 60, alignment: .trailing)
-                    }
-                    // Fixed column, so ticking a row never nudges the layout.
                     Image(systemName: "checkmark")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Color.accentColor)
                         .opacity(selected ? 1 : 0)
                         .frame(width: 12)
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.visor)
+            .buttonStyle(.plain)
 
             star(id)
         }
-        .padding(.leading, 8).padding(.trailing, 4).padding(.vertical, 3)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.control)
-            .fill(selected ? Color.accentColor.opacity(0.16) : .clear))
+        .padding(.horizontal, 9).padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(selected ? Color.accentColor.opacity(0.14) : Color.clear))
     }
+
+    private func sectionHeader(_ title: String, trailing: String? = nil) -> some View {
+        HStack {
+            Text(title.uppercased())
+                .font(.system(size: 9, weight: .semibold)).tracking(0.8)
+                .foregroundStyle(.secondary)
+            Spacer()
+            if let trailing {
+                Text(trailing).font(.system(size: 9)).foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 9).padding(.top, 8).padding(.bottom, 3)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial)
+    }
+
+    private func choose(_ id: String) {
+        chat.useModel(id)
+        showing = false
+        query = ""
+    }
+
+    /// Vendor · context · price for the second line.
+    private func metaLine(_ id: String, _ model: ORModel?) -> String {
+        var parts = [vendorDisplay(id)]
+        if let ctx = contextLabel(model) { parts.append(ctx) }
+        if let price = priceLabel(model) { parts.append(price) }
+        return parts.filter { !$0.isEmpty }.joined(separator: "  ·  ")
+    }
+
+    /// Search results grouped by vendor, first-seen order kept — so the list
+    /// reads as families, the way every good model picker groups them.
+    private var groupedMatches: [ModelGroup] {
+        var order: [String] = []
+        var map: [String: [String]] = [:]
+        for id in matches {
+            let v = vendorDisplay(id)
+            if map[v] == nil { order.append(v) }
+            map[v, default: []].append(id)
+        }
+        return order.map { ModelGroup(vendor: $0, ids: map[$0]!) }
+    }
+}
+
+/// A vendor's models, grouped for the picker. A struct, not a tuple, because
+/// SwiftUI's ForEach needs `Identifiable` and Swift has no key path to a tuple
+/// element.
+private struct ModelGroup: Identifiable {
+    let vendor: String
+    let ids: [String]
+    var id: String { vendor }
 }
 
 /// Full-screen HUD: the same conversation at another scale.
@@ -2199,6 +2255,26 @@ extension InlineModelPicker {
 
     func shortName(of id: String) -> String {
         id.contains("/") ? String(id.split(separator: "/").dropFirst().joined(separator: "/")) : id
+    }
+
+    /// A vendor's display name, since raw ids capitalise badly ("openai" →
+    /// "Openai"). Falls back to a plain capitalisation for vendors not listed.
+    func vendorDisplay(_ id: String) -> String {
+        let v = (id.split(separator: "/").first.map { $0.lowercased() }) ?? ""
+        switch v {
+        case "anthropic":            return "Anthropic"
+        case "openai":               return "OpenAI"
+        case "google":               return "Google"
+        case "meta-llama", "meta":   return "Meta"
+        case "mistralai", "mistral": return "Mistral"
+        case "deepseek":             return "DeepSeek"
+        case "x-ai":                 return "xAI"
+        case "qwen", "alibaba":      return "Qwen"
+        case "cohere":               return "Cohere"
+        case "perplexity":           return "Perplexity"
+        case "":                     return ""
+        default:                     return v.prefix(1).uppercased() + v.dropFirst()
+        }
     }
 
     /// A colour per vendor, so the list groups itself at a glance without the
