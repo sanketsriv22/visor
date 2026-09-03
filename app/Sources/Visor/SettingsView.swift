@@ -1646,7 +1646,7 @@ private struct HUDPane: View {
             SettingsCard(label: "Trackpad") {
                 SettingsRow(
                     title: "Four-finger swipe for the HUD",
-                    caption: "Swipe down with four fingers to open the HUD, up to close it — read straight off the trackpad. macOS uses four fingers up/down for Mission Control and App Exposé, so turn those off in System Settings → Trackpad → More Gestures or they'll fire at the same time.") {
+                    caption: "Swipe down with four fingers to open the HUD, down again to close it — read straight off the trackpad. Down-only so it doesn't fight a macOS gesture; if you've left App Exposé on four-finger-down, turn it off in System Settings → Trackpad → More Gestures.") {
                     Toggle("", isOn: $swipeOn).labelsHidden().toggleStyle(.switch)
                 }
             }
