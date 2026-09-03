@@ -37,7 +37,10 @@ struct AppearancePane: View {
             }
 
             SettingsCard(label: "Preview") {
+                // Fixed height so the box doesn't jump as fonts/themes with
+                // different metrics swap in.
                 AppearancePreview(theme: draftTheme, font: draftFont)
+                    .frame(height: 150)
             }
 
             HStack(spacing: 10) {
@@ -142,7 +145,7 @@ private struct AppearancePreview: View {
             .overlay(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous).stroke(theme.line, lineWidth: 1))
         }
         .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous).fill(theme.bg))
         .overlay(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous).stroke(theme.line, lineWidth: 1))
     }
