@@ -575,7 +575,8 @@ final class ChessSession: ObservableObject {
             // Game over: the side to move has no legal move (checkmate or
             // stalemate), or the page is showing a result. Stop acting and idle;
             // the loop keeps polling, so a rematch re-arms on its own.
-            if reading.gameOver || (await oracle.legalMoves(from: next)?.isEmpty ?? false) {
+            let noLegalMoves = (await oracle.legalMoves(from: next)?.isEmpty) ?? false
+            if reading.gameOver || noLegalMoves {
                 gameOver = true
                 suggestions = []
                 actuator?.clear()

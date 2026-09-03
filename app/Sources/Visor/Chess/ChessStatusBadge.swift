@@ -70,8 +70,8 @@ final class ChessStatusBadge: NSObject {
         let textWidth = min(maxTextWidth, measured.width)
         let textHeight = measured.height
 
-        let height = max(32, textHeight + 14) + (evalFraction == nil ? 0 : 22)
-        let width = max(132, textWidth + 54)
+        let height = max(32, textHeight + 14) + (evalFraction == nil ? 0 : 30)
+        let width = max(evalFraction == nil ? 132 : 200, textWidth + 54)
 
         // Keep the same top-right corner as it grows, so a longer message
         // extends leftwards and downwards rather than marching off the screen.
@@ -111,12 +111,12 @@ final class ChessStatusBadge: NSObject {
         // A real eval bar along the bottom, full width: white's share fills from
         // the left, the rest is black's, an even mark down the middle. The text
         // sits above it.
-        let barH: CGFloat = evalFraction == nil ? 0 : 14
+        let barH: CGFloat = evalFraction == nil ? 0 : 20
         if let f = evalFraction {
             evalTrack.isHidden = false
             let inset: CGFloat = 14
             let trackW = width - inset * 2
-            evalTrack.frame = CGRect(x: inset, y: 8, width: trackW, height: barH)
+            evalTrack.frame = CGRect(x: inset, y: 10, width: trackW, height: barH)
             let frac = CGFloat(min(1, max(0, f)))
             evalFill.frame = CGRect(x: 0, y: 0, width: max(3, trackW * frac), height: barH)
             evalMid.frame = CGRect(x: trackW / 2 - 0.5, y: 0, width: 1, height: barH)
