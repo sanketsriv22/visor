@@ -63,21 +63,34 @@ enum VisorTheme: String, CaseIterable, Identifiable {
     var swatch: (Color, Color) { (bg, accent) }
 }
 
-/// The app's UI typeface — pixel (Departure Mono) or the system font — chosen
-/// in Settings → Appearance. `Design.Text.f(size)` and the scale read this.
-enum VisorFont: String, CaseIterable, Identifiable {
-    case departureMono, system
+/// The app's UI typeface — any font family installed on the machine, chosen in
+/// Settings → Appearance. Stored as a family name; the bundled Departure Mono
+/// (shipped with the app) is the default. `Design.Text.f(size)` reads this.
+enum VisorFont {
+    static let key = "visor.fontFamily"
+    static let system = "System"
+    static let defaultFamily = "Departure Mono"
 
-    var id: String { rawValue }
-    static let key = "visor.font"
-    static var current: VisorFont {
-        VisorFont(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .departureMono
+    static var current: String { UserDefaults.standard.string(forKey: key) ?? defaultFamily }
+
+    /// A font in the given family at a size — `System` maps to San Francisco.
+    static func font(_ family: String, _ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        family == system ? .system(size: size, weight: weight) : .custom(family, size: size)
     }
-    var name: String { self == .departureMono ? "Departure Mono" : "System" }
+    static func current(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        font(current, size, weight: weight)
+    }
+    /// Departure Mono is the app's monospaced face; anything else falls back to
+    /// the system monospaced font for numeric readouts.
+    static var currentIsMono: Bool { current == defaultFamily }
 
-    func font(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        self == .departureMono ? .custom("Departure Mono", size: size)
-                               : .system(size: size, weight: weight)
+    /// Every installed font family, with the bundled Departure Mono and System
+    /// pinned first, then the rest alphabetically — the dropdown's contents.
+    static var available: [String] {
+        let all = NSFontManager.shared.availableFontFamilies
+        let rest = all.filter { $0 != defaultFamily && $0 != system }
+            .sorted { $0.lowercased() < $1.lowercased() }
+        return [defaultFamily, system] + rest
     }
 }
 

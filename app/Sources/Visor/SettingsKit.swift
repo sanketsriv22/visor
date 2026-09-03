@@ -18,9 +18,9 @@ extension Design {
     /// the face didn't register, so nothing breaks if it's missing.
     enum Text {
         static let face = "Departure Mono"
-        /// The chosen UI font at a given size — pixel or system (Appearance).
+        /// The chosen UI font at a given size (any installed family — Appearance).
         static func f(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-            VisorFont.current.font(size, weight: weight)
+            VisorFont.current(size, weight: weight)
         }
         static var paneTitle: Font { f(18) }
         static var sectionLabel: Font { f(10.5) }
@@ -29,8 +29,8 @@ extension Design {
         static var caption: Font { f(11) }
         /// Numeric readouts stay monospaced whichever UI font is chosen.
         static var mono: Font {
-            VisorFont.current == .departureMono ? .custom(face, size: 11)
-                                                : .system(size: 11, design: .monospaced)
+            VisorFont.currentIsMono ? .custom(face, size: 11)
+                                    : .system(size: 11, design: .monospaced)
         }
     }
 

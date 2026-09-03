@@ -5,13 +5,13 @@ import SwiftUI
 /// every time you tap a swatch.
 struct AppearancePane: View {
     @AppStorage(VisorTheme.key) private var themeRaw = VisorTheme.mono.rawValue
-    @AppStorage(VisorFont.key) private var fontRaw = VisorFont.departureMono.rawValue
+    @AppStorage(VisorFont.key) private var fontRaw = VisorFont.defaultFamily
 
     @State private var draftTheme: VisorTheme = .mono
-    @State private var draftFont: VisorFont = .departureMono
+    @State private var draftFontFamily = VisorFont.defaultFamily
 
     private var dirty: Bool {
-        draftTheme.rawValue != themeRaw || draftFont.rawValue != fontRaw
+        draftTheme.rawValue != themeRaw || draftFontFamily != fontRaw
     }
 
     var body: some View {
@@ -27,19 +27,14 @@ struct AppearancePane: View {
             }
 
             SettingsCard(label: "Font") {
-                HStack(spacing: 8) {
-                    ForEach(VisorFont.allCases) { fontChip($0) }
-                    Spacer(minLength: 0)
-                }
-                Text("Departure Mono is the pixel face; System is San Francisco. Icons stay pixel either way.")
+                fontDropdown
+                Text("Any font installed on your Mac. Departure Mono ships with the app and is the default; icons stay pixel whatever you pick.")
                     .font(Design.Text.caption2).foregroundStyle(Design.Retro.dim)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             SettingsCard(label: "Preview") {
-                // Fixed height so the box doesn't jump as fonts/themes with
-                // different metrics swap in.
-                AppearancePreview(theme: draftTheme, font: draftFont)
+                AppearancePreview(theme: draftTheme, fontFamily: draftFontFamily)
                     .frame(height: 150)
             }
 
@@ -48,12 +43,10 @@ struct AppearancePane: View {
                     .font(Design.Text.caption2)
                     .foregroundStyle(dirty ? Design.Retro.accent : Design.Retro.faint)
                 Spacer()
-                if dirty {
-                    Button("Revert") { syncDraft() }.controlSize(.small)
-                }
+                if dirty { Button("Revert", action: syncDraft).controlSize(.small) }
                 Button("Apply") {
                     themeRaw = draftTheme.rawValue
-                    fontRaw = draftFont.rawValue
+                    fontRaw = draftFontFamily
                 }
                 .controlSize(.small)
                 .disabled(!dirty)
@@ -64,7 +57,42 @@ struct AppearancePane: View {
 
     private func syncDraft() {
         draftTheme = VisorTheme(rawValue: themeRaw) ?? .mono
-        draftFont = VisorFont(rawValue: fontRaw) ?? .departureMono
+        draftFontFamily = fontRaw
+    }
+
+    private func label(_ family: String) -> String {
+        family == VisorFont.system ? "System" : family
+    }
+
+    private var fontDropdown: some View {
+        Menu {
+            ForEach(VisorFont.available, id: \.self) { family in
+                Button { draftFontFamily = family } label: {
+                    if draftFontFamily == family {
+                        Label(label(family), systemImage: "checkmark")
+                    } else {
+                        Text(label(family))
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Text(label(draftFontFamily))
+                    .font(VisorFont.font(draftFontFamily, 13))
+                    .foregroundStyle(Design.Retro.text)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                RetroIcon(Glyph.chevron, size: 9, color: Design.Retro.dim)
+            }
+            .padding(.horizontal, 11).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous)
+                .fill(Design.Retro.panel))
+            .overlay(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous)
+                .stroke(Design.Retro.line, lineWidth: 1))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(maxWidth: 300, alignment: .leading)
     }
 
     private func swatch(_ theme: VisorTheme) -> some View {
@@ -94,51 +122,37 @@ struct AppearancePane: View {
         }
         .buttonStyle(.plain)
     }
-
-    private func fontChip(_ f: VisorFont) -> some View {
-        let selected = draftFont == f
-        return Button { draftFont = f } label: {
-            Text(f.name)
-                .font(f.font(12))
-                .foregroundStyle(selected ? Design.Retro.text : Design.Retro.dim)
-                .padding(.horizontal, 12).padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous)
-                    .fill(selected ? Design.Retro.accentDim : Color.white.opacity(0.04)))
-                .overlay(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous)
-                    .stroke(selected ? Design.Retro.accent : Design.Retro.line, lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-    }
 }
 
 /// A little mock of the app rendered in the *draft* theme and font, so you can
-/// see the choice before committing it — its colours come straight from the
-/// draft, not from `Design.Retro` (which is still the applied theme).
+/// see the choice before committing it — its colours and font come straight
+/// from the draft, not from the applied theme.
 private struct AppearancePreview: View {
     let theme: VisorTheme
-    let font: VisorFont
+    let fontFamily: String
+
+    private func f(_ size: CGFloat) -> Font { VisorFont.font(fontFamily, size) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 6) {
-                Text("AGENTS").font(font.font(15)).foregroundStyle(theme.text)
-                Text("▪▪▪").font(font.font(9)).foregroundStyle(theme.accent)
+                Text("AGENTS").font(f(15)).foregroundStyle(theme.text)
+                Text("▪▪▪").font(f(9)).foregroundStyle(theme.accent)
             }
             VStack(alignment: .leading, spacing: 9) {
                 HStack(spacing: 8) {
                     Circle().fill(theme.accent).frame(width: 8, height: 8)
-                    Text("Default agent").font(font.font(12.5)).foregroundStyle(theme.text)
+                    Text("Default agent").font(f(12.5)).foregroundStyle(theme.text)
                     Spacer()
-                    Text("gpt-5").font(font.font(11)).foregroundStyle(theme.dim)
+                    Text("gpt-5").font(f(11)).foregroundStyle(theme.dim)
                 }
                 Rectangle().fill(theme.line).frame(height: 1)
                 HStack {
-                    Text("Response time").font(font.font(11)).foregroundStyle(theme.dim)
+                    Text("Response time").font(f(11)).foregroundStyle(theme.dim)
                     Spacer()
-                    Text("0.4s").font(font.font(11)).foregroundStyle(theme.accent)
+                    Text("0.4s").font(f(11)).foregroundStyle(theme.accent)
                 }
-                Text("SET · Apply looks like this")
-                    .font(font.font(10)).foregroundStyle(theme.faint)
+                Text("SET · Apply looks like this").font(f(10)).foregroundStyle(theme.faint)
             }
             .padding(12)
             .background(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous).fill(theme.panel))

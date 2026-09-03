@@ -63,7 +63,7 @@ struct SettingsView: View {
     // changed in the Appearance pane — every view reads its colours/font from
     // Design, which forwards to these.
     @AppStorage(VisorTheme.key) private var themeRaw = VisorTheme.mono.rawValue
-    @AppStorage(VisorFont.key) private var fontRaw = VisorFont.departureMono.rawValue
+    @AppStorage(VisorFont.key) private var fontRaw = VisorFont.defaultFamily
 
     var body: some View {
         HStack(spacing: 0) {
