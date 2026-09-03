@@ -44,6 +44,9 @@ enum ChessDOM {
         /// pacing spend the clock lead it has: when we're well ahead, the hard
         /// moves can take a little longer. nil when there's no clock to read.
         let opponentSeconds: Double?
+        /// The page is showing a finished game — a result modal or status —
+        /// covering resignations, timeouts and draws a legal-move check misses.
+        let gameOver: Bool
     }
 
     enum ReadError: LocalizedError {
@@ -64,7 +67,10 @@ enum ChessDOM {
     /// bottom. Written to run on either site and to say which it found.
     private static let script = #"""
     (function(){
-      var out={site:'none',pieces:[],plies:0,flipped:false,highlights:[],board:null,clock:null,oppClock:null};
+      var out={site:'none',pieces:[],plies:0,flipped:false,highlights:[],board:null,clock:null,oppClock:null,over:false};
+      // A finished game shows a result overlay on both sites; the selectors are
+      // best-effort and cover the common modals/status banners.
+      function isOver(sels){ return !!document.querySelector(sels); }
       function clockSeconds(sel){
         var el=document.querySelector(sel); if(!el) return null;
         var t=(el.textContent||'').trim();
@@ -84,6 +90,7 @@ enum ChessDOM {
         out.board=screenRect(cb);
         out.clock=clockSeconds('.clock-bottom, [class*="clock-bottom"]');
         out.oppClock=clockSeconds('.clock-top, [class*="clock-top"]');
+        out.over=isOver('.game-over-modal-content, [class*="game-over-modal"], [class*="game-result"]');
         out.flipped=cb.classList.contains('flipped');
         var ps=cb.querySelectorAll('.piece');
         for(var i=0;i<ps.length;i++){
@@ -113,6 +120,7 @@ enum ChessDOM {
         out.board=screenRect((cg.closest('cg-container')||cg.closest('.cg-wrap')||cg));
         out.clock=clockSeconds('.rclock-bottom .time, .rclock-bottom time');
         out.oppClock=clockSeconds('.rclock-top .time, .rclock-top time');
+        out.over=isOver('.result-wrap, .status--gameover, .rcontrols .result, .game__over');
         var wrap=cg.closest('.cg-wrap')||cg.parentElement;
         out.flipped=!!(wrap&&wrap.classList.contains('orientation-black'));
         var r=cg.getBoundingClientRect(),sq=r.width/8;
@@ -285,6 +293,7 @@ enum ChessDOM {
         return Reading(position: position, flipped: flipped, site: site,
                        plies: plies, lastMove: lastMove, boardRect: boardRect,
                        clockSeconds: (clock ?? 0) > 0 ? clock : nil,
-                       opponentSeconds: (oppClock ?? 0) > 0 ? oppClock : nil)
+                       opponentSeconds: (oppClock ?? 0) > 0 ? oppClock : nil,
+                       gameOver: obj["over"] as? Bool ?? false)
     }
 }

@@ -180,23 +180,25 @@ private struct AgentsPane: View {
                 if ai.providers.isEmpty {
                     Text("No agents yet.").font(Design.Text.caption).foregroundStyle(.secondary)
                 }
-                ForEach(ai.providers) { provider in
+                ForEach(sortedProviders) { provider in
                     AgentRow(ai: ai, catalog: catalog, provider: provider,
                              highlighted: focus.provider == provider.name)
                         .id(provider.name)
-                    Divider()
                 }
             }
         }
     }
 
+    /// Default agent first, then the rest in their existing order (stable).
+    private var sortedProviders: [AIProvider] {
+        ai.providers.filter { $0.name == ai.defaultProviderName }
+            + ai.providers.filter { $0.name != ai.defaultProviderName }
+    }
+
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Agents").font(Design.Text.paneTitle)
-            Text("Name as many agents as you like. A chat agent answers in the notch and can run on any model OpenRouter offers; a CLI agent runs a local tool like Claude Code or Devin.")
-                .font(Design.Text.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
+        SettingsHeader(
+            title: "Agents",
+            subtitle: "A chat agent answers in the notch on any model OpenRouter offers; a CLI agent runs a local tool like Claude Code or Devin. The default is first.")
     }
 
     /// One key for every chat agent — they all sit on one OpenRouter account.
@@ -280,13 +282,13 @@ private struct AgentRow: View {
 
     @State private var nameDraft: String = ""
     @State private var keyDraft = ""
+    @State private var expanded = false
     @FocusState private var nameFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Image(systemName: provider.isChat ? "bubble.left.and.bubble.right" : "terminal")
-                    .foregroundStyle(.secondary)
+                RetroIcon(provider.isChat ? "◈" : "▶", size: 12, color: Design.Retro.dim)
                     .frame(width: 16)
 
                 // Committed on Return *and* on losing focus: requiring Return
@@ -311,30 +313,53 @@ private struct AgentRow: View {
                     Text("default")
                         .font(Design.Text.caption2)
                         .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Capsule().fill(.orange.opacity(0.25)))
-                        .foregroundStyle(.orange)
+                        .background(Capsule().fill(Design.Retro.accentDim))
+                        .foregroundStyle(Design.Retro.text)
                 } else {
                     Button("Make default") { ai.setDefault(provider.name) }
                         .buttonStyle(.borderless).font(Design.Text.caption)
                 }
 
-                Spacer()
+                // Collapsed, the row shows just what it is; the settings live
+                // behind the disclosure so a screen of agents (CLI ones
+                // especially, with a dozen fields each) stays parseable.
+                if !expanded {
+                    Text(summary).font(Design.Text.caption2)
+                        .foregroundStyle(Design.Retro.faint).lineLimit(1)
+                }
+
+                Spacer(minLength: 6)
+
+                Button { withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() } } label: {
+                    RetroIcon(expanded ? Glyph.chevron : "▸", size: 11, color: Design.Retro.dim)
+                        .frame(width: 16, height: 16).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(expanded ? "Collapse" : "Edit")
 
                 Button(role: .destructive) { ai.remove(provider) } label: {
-                    Image(systemName: "trash")
+                    RetroIcon(Glyph.close, size: 12, color: Design.Retro.dim)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
                 .help("Remove this agent")
             }
 
-            if provider.isChat { chatFields } else { cliFields }
+            if expanded {
+                if provider.isChat { chatFields } else { cliFields }
+            }
         }
-        .padding(.horizontal, 8).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.pill)
-            .fill(highlighted ? Color.accentColor.opacity(0.12) : .clear))
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: Design.Retro.radius)
+            .fill(highlighted ? Design.Retro.accentDim : Design.Retro.panel))
+        .overlay(RoundedRectangle(cornerRadius: Design.Retro.radius).stroke(Design.Retro.line, lineWidth: 1))
         .animation(.easeInOut(duration: 0.2), value: highlighted)
-        .onAppear { nameDraft = provider.name }
+        .onAppear { nameDraft = provider.name; if highlighted { expanded = true } }
         .onChange(of: provider.name) { nameDraft = $0 }
+    }
+
+    private var summary: String {
+        provider.isChat ? (provider.model ?? ChatController.defaultModel)
+                        : ([provider.command] + provider.args).joined(separator: " ")
     }
 
     // MARK: Chat

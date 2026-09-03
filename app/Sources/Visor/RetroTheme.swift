@@ -14,10 +14,13 @@ extension Design {
         static let panelDeep = Color(red: 0.065, green: 0.063, blue: 0.083)
         static let line = Color.white.opacity(0.10)
 
-        /// The dark purple everything highlights with.
-        static let accent = Color(red: 0.55, green: 0.38, blue: 0.90)
-        static let accentDim = Color(red: 0.55, green: 0.38, blue: 0.90).opacity(0.20)
-        static let accentDeep = Color(red: 0.36, green: 0.24, blue: 0.60)
+        /// Monochrome by default — black and white — with the accent as bright
+        /// white. An Appearance preset can swap this for a colour (dark purple,
+        /// etc.) later; the whole app reads the accent from here, so one change
+        /// re-tints everything.
+        static let accent = Color.white.opacity(0.95)
+        static let accentDim = Color.white.opacity(0.13)
+        static let accentDeep = Color.white.opacity(0.35)
 
         static let text = Color.white.opacity(0.92)
         static let dim = Color.white.opacity(0.55)

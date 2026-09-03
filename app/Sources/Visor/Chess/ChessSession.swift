@@ -70,7 +70,9 @@ final class ChessSession: ObservableObject {
     let source: ChessSource
     /// Readable so a resync can rebuild a session over the same board.
     let geometry: BoardGeometry
-    let ourColour: PieceColor
+    /// Settable so a new game can re-derive which side we're on from the board
+    /// orientation, in case it swapped between games.
+    private(set) var ourColour: PieceColor
     private var domTask: Task<Void, Never>?
     private let latency: LatencyBand
     private let elo: Int?
@@ -486,6 +488,10 @@ final class ChessSession: ObservableObject {
     /// is. A move is a difference between two readings.
     /// When the game last visibly advanced, for the watchdog below.
     private var lastProgress = Date()
+    /// True once a game has ended (mate/stalemate, or the page shows a result).
+    /// The loop stops acting and idles, still polling, so a rematch re-arms on
+    /// its own when the board returns to the starting layout.
+    private var gameOver = false
 
     private func followPage() async {
         while !Task.isCancelled {
@@ -499,6 +505,28 @@ final class ChessSession: ObservableObject {
             }
 
             let seen = reading.position
+
+            // A fresh game: the board is back to the initial layout. Re-arm —
+            // re-derive our side from the orientation (it may have swapped) and
+            // reset, whatever happened to the last game. The start layout is
+            // unique to move one, so this can't be mistaken for a normal move.
+            if seen.placement == ChessPosition.start.placement,
+               position.placement != ChessPosition.start.placement {
+                gameOver = false
+                ourColour = reading.flipped ? .black : .white
+                var fresh = ChessPosition.start
+                fresh.turn = .white
+                position = fresh
+                lastProgress = Date()
+                suggestions = []
+                actuator?.clear()
+                refreshInfo(activity: "New game · \(ourColour == .white ? "White" : "Black")")
+                continue
+            }
+
+            // Once a game is over, sit still and just watch for the next one.
+            if gameOver { continue }
+
             if seen.placement == position.placement {
                 // Nothing changed. Usually that's right — we're waiting for the
                 // opponent. But if it's our turn and stays our turn, we failed
@@ -543,6 +571,18 @@ final class ChessSession: ObservableObject {
             position = next
             if case .recovering = state { state = .watching }
             ChessDiagnostics.trace("page: changed → \(next.turn == ourColour ? "our" : "their") turn — \(next.fen)")
+
+            // Game over: the side to move has no legal move (checkmate or
+            // stalemate), or the page is showing a result. Stop acting and idle;
+            // the loop keeps polling, so a rematch re-arms on its own.
+            if reading.gameOver || (await oracle.legalMoves(from: next)?.isEmpty ?? false) {
+                gameOver = true
+                suggestions = []
+                actuator?.clear()
+                refreshInfo(activity: "Game over")
+                ChessDiagnostics.trace("page: game over — idling until a new game")
+                continue
+            }
 
             if next.turn == ourColour {
                 // Where the opponent's move landed, for spotting a recapture.
@@ -682,8 +722,13 @@ final class ChessSession: ObservableObject {
         let head = activity ?? "\(mode == .playing ? "Playing" : "Watching") · \(colour)"
         var bits: [String] = ["move \(position.fullmoveNumber)"]
         if let e = suggestions.first?.score {
-            // Evaluations are from the side to move; show it from our side.
-            let ourCp = position.turn == ourColour ? e.centipawns : -e.centipawns
+            // The suggestions always come from analysing one of OUR moves, so
+            // the score is already from our side. Do NOT re-derive perspective
+            // from position.turn: by the time this runs again after we play, the
+            // position has advanced to the opponent's turn while the score is
+            // still ours — and that mismatch flipped the eval bar a full swing
+            // every ply.
+            let ourCp = e.centipawns
             bits.append(Score.centipawns(ourCp).display)
             // The bar wants it from White's side.
             evalCp = ourColour == .white ? ourCp : -ourCp
