@@ -309,8 +309,7 @@ struct ChatCard: View {
                 // catalogue here was a control that silently did nothing.
                 if chat.agent?.isChat ?? false {
                     InlineModelPicker(chat: chat)
-                    EffortPicker(chat: chat)
-                    FastToggle(chat: chat)
+                    ComposerOptions(chat: chat)
                 } else if chat.isCLIAgent {
                     CLIModelPicker(chat: chat)
                 }
@@ -1637,8 +1636,7 @@ private struct HUDComposer: View {
                 // right, and this was the one that got missed.
                 if chat.agent?.isChat ?? false {
                     InlineModelPicker(chat: chat)
-                    EffortPicker(chat: chat)
-                    FastToggle(chat: chat)
+                    ComposerOptions(chat: chat)
                 } else if chat.isCLIAgent {
                     CLIModelPicker(chat: chat)
                 }
@@ -2118,6 +2116,56 @@ enum ModelSearch {
     }
 }
 
+
+/// The composer's secondary controls — reasoning effort and fast routing —
+/// folded behind one button, so the composer shows the model and the send and
+/// nothing else until you go looking. The best composers keep the input clean;
+/// three controls in a row was the opposite of that.
+struct ComposerOptions: View {
+    @ObservedObject var chat: ChatController
+    @State private var showing = false
+
+    var body: some View {
+        Button { showing = true } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "slider.horizontal.3").font(.system(size: 9, weight: .semibold))
+                Text(summary)
+            }
+            .composerPill(active: chat.isFast || chat.effort != nil, enabled: chat.agent != nil)
+        }
+        .buttonStyle(.visorBare)
+        .disabled(chat.agent == nil)
+        .help("Reasoning effort and speed")
+        .popover(isPresented: $showing, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 14) {
+                if chat.supportsEffort {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("REASONING").font(.custom(Design.Text.face, size: 9)).tracking(1)
+                            .foregroundStyle(Design.Retro.dim)
+                        EffortPicker(chat: chat)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("SPEED").font(.custom(Design.Text.face, size: 9)).tracking(1)
+                        .foregroundStyle(Design.Retro.dim)
+                    FastToggle(chat: chat)
+                }
+            }
+            .padding(16)
+            .frame(width: 232)
+            .background(Design.Retro.bg)
+            .tint(Design.Retro.accent)
+            .environment(\.colorScheme, .dark)
+        }
+    }
+
+    private var summary: String {
+        var bits: [String] = []
+        if let e = chat.effort { bits.append(e == "medium" ? "med" : e) }
+        if chat.isFast { bits.append("fast") }
+        return bits.isEmpty ? "Options" : bits.joined(separator: " · ")
+    }
+}
 
 /// How hard the model should think, per message.
 ///

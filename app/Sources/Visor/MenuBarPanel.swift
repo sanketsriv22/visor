@@ -1,12 +1,9 @@
 import SwiftUI
 
-/// The status-bar dropdown, as a designed panel rather than a system menu.
-///
-/// This is most people's first contact with Visor, and a stock `NSMenu` of
-/// grey rows — several of them ("Send tasks to", "Run agents in", "Run in
-/// folder") left over from before the HUD existed — was the worst possible
-/// first impression. This is a small SwiftUI card in a popover: the few things
-/// worth doing from the menu bar, with room to breathe.
+/// The status-bar dropdown, as a designed panel rather than a system menu — and
+/// now in the vintage theme: white on near-black, a purple accent, one pixel
+/// face, glyph icons. This is most people's first contact with Visor, so it
+/// sets the tone the rest of the app keeps.
 struct MenuBarPanel: View {
     let version: String
     let computerUseOn: Bool
@@ -19,73 +16,79 @@ struct MenuBarPanel: View {
     let onQuit: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 2) {
             header
 
-            row("Open Visor", symbol: "rectangle.on.rectangle", hint: ShortcutSettings.hint(.toggle), action: onOpenVisor)
-            row("Computer Use", symbol: "cursorarrow.rays",
-                trailing: { stateDot(computerUseOn) }, action: onComputerUse)
-            row("Dictate", symbol: "waveform", hint: ShortcutSettings.hint(.dictate), action: onDictate)
+            row("Open Visor", glyph: Glyph.open, hint: ShortcutSettings.hint(.toggle), action: onOpenVisor)
+            row("Computer Use", glyph: Glyph.computer,
+                trailing: { stateTag(computerUseOn) }, action: onComputerUse)
+            row("Dictate", glyph: Glyph.dictate, hint: ShortcutSettings.hint(.dictate), action: onDictate)
 
-            Divider().padding(.vertical, 4)
+            rule()
 
-            row("Settings…", symbol: "gearshape", hint: "⌘,", action: onSettings)
-            row("What's New", symbol: "sparkles", action: onWhatsNew)
-            row("Check for Updates…", symbol: "arrow.triangle.2.circlepath", action: onCheckUpdates)
+            row("Settings", glyph: Glyph.settings, hint: "⌘,", action: onSettings)
+            row("What's New", glyph: Glyph.whatsNew, action: onWhatsNew)
+            row("Check for Updates", glyph: Glyph.update, action: onCheckUpdates)
 
-            Divider().padding(.vertical, 4)
+            rule()
 
-            row("Quit Visor", symbol: "power", hint: "⌘Q", action: onQuit)
+            row("Quit Visor", glyph: Glyph.quit, hint: "⌘Q", action: onQuit)
         }
         .padding(8)
-        .frame(width: 264)
+        .frame(width: 268)
+        .background(Design.Retro.bg)
+        .tint(Design.Retro.accent)
+        .environment(\.colorScheme, .dark)
     }
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "circle.hexagongrid.fill")
-                .font(.system(size: 13))
-                .foregroundStyle(Color.accentColor)
-            Text("Visor").font(.system(size: 13, weight: .semibold))
+            BeamMark().frame(width: 15, height: 13)
+            Text("VISOR")
+                .font(.custom(Design.Text.face, size: 13)).tracking(3)
+                .foregroundStyle(Design.Retro.text)
             Spacer()
-            Text(version)
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.tertiary)
+            Text("v\(version)")
+                .font(Design.Text.caption2)
+                .foregroundStyle(Design.Retro.faint)
         }
         .padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 8)
     }
 
-    private func stateDot(_ on: Bool) -> some View {
-        HStack(spacing: 5) {
-            Circle().fill(on ? Color.green : Color.secondary.opacity(0.4))
-                .frame(width: 6, height: 6)
-            Text(on ? "On" : "Off")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(on ? .primary : .secondary)
-        }
+    private func rule() -> some View {
+        Rectangle().fill(Design.Retro.line).frame(height: 1).padding(.vertical, 4)
     }
 
-    private func row(_ title: String, symbol: String, hint: String? = nil,
+    private func stateTag(_ on: Bool) -> some View {
+        Text(on ? "ON" : "OFF")
+            .font(.custom(Design.Text.face, size: 9)).tracking(1)
+            .foregroundStyle(on ? Design.Retro.accent : Design.Retro.faint)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: Design.Retro.radius)
+                .fill(on ? Design.Retro.accentDim : Color.white.opacity(0.05)))
+    }
+
+    private func row(_ title: String, glyph: String, hint: String? = nil,
                      action: @escaping () -> Void) -> some View {
-        row(title, symbol: symbol, trailing: {
+        row(title, glyph: glyph, trailing: {
             if let hint {
-                Text(hint).font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
+                Text(hint).font(Design.Text.caption2).foregroundStyle(Design.Retro.faint)
             }
         }, action: action)
     }
 
-    private func row<Trailing: View>(_ title: String, symbol: String,
+    private func row<Trailing: View>(_ title: String, glyph: String,
                                      @ViewBuilder trailing: () -> Trailing,
                                      action: @escaping () -> Void) -> some View {
-        MenuRow(title: title, symbol: symbol, trailing: trailing(), action: action)
+        MenuRow(title: title, glyph: glyph, trailing: trailing(), action: action)
     }
 }
 
-/// One row of the panel, with its own hover highlight — the feedback a system
-/// menu gives for free and a custom one has to draw.
+/// One row, with its own hover highlight — the feedback a system menu gives for
+/// free and a custom one has to draw. A purple wash and a left cursor bar.
 private struct MenuRow<Trailing: View>: View {
     let title: String
-    let symbol: String
+    let glyph: String
     let trailing: Trailing
     let action: () -> Void
 
@@ -93,18 +96,19 @@ private struct MenuRow<Trailing: View>: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: symbol)
-                    .font(.system(size: 12))
-                    .foregroundStyle(hovering ? Color.accentColor : .secondary)
-                    .frame(width: 20)
-                Text(title).font(.system(size: 12.5))
+            HStack(spacing: 9) {
+                Rectangle()
+                    .fill(hovering ? Design.Retro.accent : Color.clear)
+                    .frame(width: 2, height: 14)
+                RetroIcon(glyph, size: 12, color: hovering ? Design.Retro.accent : Design.Retro.dim)
+                    .frame(width: 16)
+                Text(title).font(Design.Text.rowTitle).foregroundStyle(Design.Retro.text)
                 Spacer(minLength: 8)
                 trailing
             }
-            .padding(.horizontal, 8).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(hovering ? Color.primary.opacity(0.08) : .clear))
+            .padding(.trailing, 8).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous)
+                .fill(hovering ? Design.Retro.accentDim : Color.clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

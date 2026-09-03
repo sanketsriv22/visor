@@ -24,7 +24,7 @@ struct ComputerUsePane: View {
             Text("Visor watching part of the screen and acting on what changes there. "
                + "Nothing is captured until you point it at something, and only the "
                + "rectangle you pick is ever looked at.")
-                .font(.caption)
+                .font(Design.Text.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -35,11 +35,11 @@ struct ComputerUsePane: View {
     private var chessSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("Chess").font(.headline)
+                Text("Chess").font(Design.Text.headline)
                 Spacer()
                 if chess.isWatching {
                     Label("Watching", systemImage: "eye")
-                        .font(.caption)
+                        .font(Design.Text.caption)
                         .foregroundStyle(Color.accentColor)
                 }
             }
@@ -49,7 +49,7 @@ struct ComputerUsePane: View {
                + "anywhere else. For Safari, turn on Develop ▸ Allow JavaScript from "
                + "Apple Events once; Chrome asks the same under View ▸ Developer. macOS "
                + "will ask once to let Visor talk to the browser.")
-                .font(.caption)
+                .font(Design.Text.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -61,7 +61,7 @@ struct ComputerUsePane: View {
             if let notice = chess.notice {
                 HStack(alignment: .firstTextBaseline, spacing: Design.Space.normal) {
                     Text(notice)
-                        .font(.caption)
+                        .font(Design.Text.caption)
                         .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
@@ -99,7 +99,7 @@ struct ComputerUsePane: View {
             Text(chess.mode == .advising
                     ? "Draws the three best moves on the board. Never touches your mouse."
                     : "Plays the best move by clicking it. Visor takes the pointer for a moment.")
-                .font(.caption2)
+                .font(Design.Text.caption2)
                 .foregroundStyle(.secondary)
         }
     }
@@ -108,7 +108,7 @@ struct ComputerUsePane: View {
     private var strengthControl: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
-                Text("Engine strength").font(.system(size: 12))
+                Text("Engine strength").font(.custom(Design.Text.face, size: 12))
                 Spacer()
                 Text(chess.strength.display)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
@@ -130,7 +130,7 @@ struct ComputerUsePane: View {
             Text("Off is full strength. On, the engine plays down to the rating — "
                + "it makes weaker moves, not faster ones, so it feels like an "
                + "opponent of that level. Takes effect on the next game.")
-                .font(.caption2).foregroundStyle(.tertiary)
+                .font(Design.Text.caption2).foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 2)
@@ -144,21 +144,31 @@ struct ComputerUsePane: View {
     private var latencyBand: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
-                Text("Response time").font(.system(size: 12))
+                Text("Response time").font(.custom(Design.Text.face, size: 12))
                 Spacer()
                 Text(chess.latency.display)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
-            bandSlider("Fastest", get: { chess.latency.shortest }, set: { new in
-                chess.latency.shortest = min(new, chess.latency.longest)
-            })
-            bandSlider("Slowest", get: { chess.latency.longest }, set: { new in
-                chess.latency.longest = max(new, chess.latency.shortest)
-            })
+            // One slider, two thumbs — the fast end and the slow end of the
+            // band, instead of two separate sliders for one range. Squared, so
+            // the sub-second part of the range is reachable (see below).
+            let span = LatencyBand.range.upperBound
+            RangeSlider(
+                low: Binding(
+                    get: { (chess.latency.shortest / span).squareRoot() },
+                    set: { chess.latency.shortest = min($0 * $0 * span, chess.latency.longest) }),
+                high: Binding(
+                    get: { (chess.latency.longest / span).squareRoot() },
+                    set: { chess.latency.longest = max($0 * $0 * span, chess.latency.shortest) }))
+            HStack {
+                Text("fast").font(Design.Text.caption2).foregroundStyle(.tertiary)
+                Spacer()
+                Text("slow").font(Design.Text.caption2).foregroundStyle(.tertiary)
+            }
             Text("Each move waits a random time inside the band. The engine is "
                + "as quick either way — this only decides when the answer gets used.")
-                .font(.caption2).foregroundStyle(.tertiary)
+                .font(Design.Text.caption2).foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 2)
@@ -176,7 +186,7 @@ struct ComputerUsePane: View {
         let span = LatencyBand.range.upperBound
         return HStack(spacing: Design.Space.normal) {
             Text(label)
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(Design.Text.caption2).foregroundStyle(.secondary)
                 .frame(width: 52, alignment: .leading)
             Slider(value: Binding(
                 get: { (get() / span).squareRoot() },
@@ -207,7 +217,7 @@ struct ComputerUsePane: View {
             if !chess.hasScreenRecording {
                 HStack(alignment: .firstTextBaseline, spacing: Design.Space.normal) {
                     Text("Already ticked it? macOS only hands screen access to a fresh launch.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(Design.Text.caption2).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     PaneButton(title: "Quit Visor") { NSApp.terminate(nil) }
@@ -245,14 +255,14 @@ struct ComputerUsePane: View {
             // only after a click that can't happen.
             if chess.isWatching {
                 Text("Drag-select happens once per game.")
-                    .font(.caption2).foregroundStyle(.tertiary)
+                    .font(Design.Text.caption2).foregroundStyle(.tertiary)
             } else if let blocker = chess.blocker {
                 Text("Can't start yet — \(blocker.lowercased()). See above.")
-                    .font(.caption2).foregroundStyle(.orange)
+                    .font(Design.Text.caption2).foregroundStyle(.orange)
             } else {
                 Text("⌘⌃U does this from anywhere. If no board is found you'll be "
                    + "asked to draw a box around it.")
-                    .font(.caption2).foregroundStyle(.tertiary)
+                    .font(Design.Text.caption2).foregroundStyle(.tertiary)
             }
         }
     }
@@ -273,7 +283,7 @@ private struct PaneButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 12))
+                .font(.custom(Design.Text.face, size: 12))
                 .padding(.horizontal, 11)
                 .padding(.vertical, 5)
                 .contentShape(Rectangle())
@@ -293,12 +303,12 @@ private struct RequirementRow: View {
         HStack(alignment: .firstTextBaseline, spacing: Design.Space.normal) {
             Image(systemName: met ? "checkmark.circle.fill" : "circle.dashed")
                 .foregroundStyle(met ? Color.green : Color.secondary)
-                .font(.system(size: 12))
+                .font(.custom(Design.Text.face, size: 12))
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 12))
+                Text(title).font(.custom(Design.Text.face, size: 12))
                 if let fix {
                     Text(fix)
-                        .font(.caption2)
+                        .font(Design.Text.caption2)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
@@ -323,13 +333,13 @@ private struct WatchingReadout: View {
         VStack(alignment: .leading, spacing: 8) {
             switch session.state {
             case .idle:
-                Text("Stopped.").font(.caption).foregroundStyle(.secondary)
+                Text("Stopped.").font(Design.Text.caption).foregroundStyle(.secondary)
             case .recovering(let why):
                 Text(why + " — it will pick the game back up on its own.")
-                    .font(.caption).foregroundStyle(.orange)
+                    .font(Design.Text.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             case .lost(let why):
-                Text(why).font(.caption).foregroundStyle(.orange)
+                Text(why).font(Design.Text.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             case .watching:
                 HStack(spacing: Design.Space.loose) {
@@ -344,7 +354,7 @@ private struct WatchingReadout: View {
                 }
                 if session.suggestions.isEmpty {
                     Text("Waiting for your opponent.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(Design.Text.caption).foregroundStyle(.secondary)
                 } else {
                     HStack(spacing: Design.Space.snug) {
                         ForEach(Array(session.suggestions.prefix(3).enumerated()),
@@ -364,7 +374,7 @@ private struct WatchingReadout: View {
 
     private func stat(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(label).font(.caption2).foregroundStyle(.tertiary)
+            Text(label).font(Design.Text.caption2).foregroundStyle(.tertiary)
             Text(value).font(.system(size: 13, weight: .medium, design: .monospaced))
         }
     }

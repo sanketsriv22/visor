@@ -28,16 +28,17 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         }
     }
 
-    var symbol: String {
+    /// Pixel glyph for the sidebar, in place of an SF Symbol.
+    var glyph: String {
         switch self {
-        case .agents:    return "person.2"
-        case .voice:     return "waveform"
-        case .hud:       return "square.on.square"
-        case .computerUse: return "cursorarrow.rays"
-        case .usage:     return "chart.bar"
-        case .workspace: return "folder"
-        case .mcp:       return "app.connected.to.app.below.fill"
-        case .memory:    return "brain"
+        case .agents:      return Glyph.agents
+        case .voice:       return Glyph.voice
+        case .hud:         return Glyph.hud
+        case .computerUse: return Glyph.computer
+        case .usage:       return Glyph.usage
+        case .workspace:   return Glyph.workspace
+        case .mcp:         return Glyph.mcp
+        case .memory:      return Glyph.memory
         }
     }
 }
@@ -67,9 +68,14 @@ struct SettingsView: View {
                     .padding(.bottom, 28)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(Design.Retro.bg)
         }
         .frame(minWidth: 800, minHeight: 560)
+        .background(Design.Retro.bg)
+        .foregroundStyle(Design.Retro.text)
+        .tint(Design.Retro.accent)
+        .font(Design.Text.body)                 // pixel face as the default for any un-fonted text
+        .environment(\.colorScheme, .dark)
         .task { await catalog.loadIfNeeded() }
         .onChange(of: focus.provider) { name in
             // Sent here to fix a key — that's always on the Agents tab.
@@ -78,47 +84,55 @@ struct SettingsView: View {
     }
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text("VISOR")
-                .font(.system(size: 11, weight: .bold))
-                .tracking(2)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 7) {
+                BeamMark().frame(width: 15, height: 13)
+                Text("VISOR")
+                    .font(.custom(Design.Text.face, size: 13))
+                    .tracking(3)
+                    .foregroundStyle(Design.Retro.text)
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 14)
+
             ForEach(SettingsTab.allCases) { candidate in
                 sidebarItem(candidate)
             }
             Spacer()
-            Text("Visor \(AppInfo.version)")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            Text("v\(AppInfo.version)")
+                .font(Design.Text.caption2)
+                .foregroundStyle(Design.Retro.faint)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 6)
         }
         .padding(10)
         .padding(.top, 28)   // clear the traffic lights over the full-size content
-        .frame(width: 184)
+        .frame(width: 188)
         .frame(maxHeight: .infinity)
-        .background(.regularMaterial)
+        .background(Design.Retro.panelDeep)
+        .overlay(Rectangle().fill(Design.Retro.line).frame(width: 1), alignment: .trailing)
     }
 
     private func sidebarItem(_ candidate: SettingsTab) -> some View {
         let selected = tab == candidate
         return Button { tab = candidate } label: {
             HStack(spacing: 10) {
-                Image(systemName: candidate.symbol)
-                    .font(.system(size: 12))
-                    .foregroundStyle(selected ? Color.accentColor : Color.secondary)
-                    .frame(width: 18)
+                // A left accent bar marks the selected row, like a cursor.
+                Rectangle()
+                    .fill(selected ? Design.Retro.accent : Color.clear)
+                    .frame(width: 2, height: 15)
+                RetroIcon(candidate.glyph, size: 12,
+                          color: selected ? Design.Retro.accent : Design.Retro.dim)
+                    .frame(width: 16)
                 Text(candidate.title)
-                    .font(.system(size: 12.5, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(selected ? Color.primary : Color.secondary)
+                    .font(Design.Text.rowTitle)
+                    .foregroundStyle(selected ? Design.Retro.text : Design.Retro.dim)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 9)
+            .padding(.trailing, 9)
             .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(selected ? Color.accentColor.opacity(0.15) : Color.clear))
+            .background(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous)
+                .fill(selected ? Design.Retro.accentDim : Color.clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -159,12 +173,12 @@ private struct AgentsPane: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text("Your agents").font(.headline)
+                    Text("Your agents").font(Design.Text.headline)
                     Spacer()
                     addMenu
                 }
                 if ai.providers.isEmpty {
-                    Text("No agents yet.").font(.caption).foregroundStyle(.secondary)
+                    Text("No agents yet.").font(Design.Text.caption).foregroundStyle(.secondary)
                 }
                 ForEach(ai.providers) { provider in
                     AgentRow(ai: ai, catalog: catalog, provider: provider,
@@ -180,7 +194,7 @@ private struct AgentsPane: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Agents").font(Design.Text.paneTitle)
             Text("Name as many agents as you like. A chat agent answers in the notch and can run on any model OpenRouter offers; a CLI agent runs a local tool like Claude Code or Devin.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(Design.Text.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -189,10 +203,10 @@ private struct AgentsPane: View {
     private var openRouterKey: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Text("API key").font(.headline)
+                Text("API key").font(Design.Text.headline)
                 if OpenRouterClient.hasKey {
                     Label("set", systemImage: "checkmark.circle.fill")
-                        .font(.caption2).foregroundStyle(.green)
+                        .font(Design.Text.caption2).foregroundStyle(.green)
                 }
             }
             HStack {
@@ -216,14 +230,14 @@ private struct AgentsPane: View {
                 }
             }
             Text("Shared by every chat agent, and stored in your macOS Keychain — never in a file. Keys come from openrouter.ai, which reaches every model in the picker below.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(Design.Text.caption).foregroundStyle(.secondary)
             if catalog.isLoading {
-                Text("Loading models…").font(.caption2).foregroundStyle(.secondary)
+                Text("Loading models…").font(Design.Text.caption2).foregroundStyle(.secondary)
             } else if let error = catalog.error {
-                Text(error).font(.caption2).foregroundStyle(.orange)
+                Text(error).font(Design.Text.caption2).foregroundStyle(.orange)
             } else if !catalog.models.isEmpty {
                 Text("\(catalog.models.count) models available")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(Design.Text.caption2).foregroundStyle(.secondary)
             }
         }
     }
@@ -288,20 +302,20 @@ private struct AgentRow: View {
                     }
 
                 Text(provider.isChat ? "chat" : "CLI")
-                    .font(.caption2)
+                    .font(Design.Text.caption2)
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(Capsule().fill(.secondary.opacity(0.18)))
                     .foregroundStyle(.secondary)
 
                 if provider.name == ai.defaultProviderName {
                     Text("default")
-                        .font(.caption2)
+                        .font(Design.Text.caption2)
                         .padding(.horizontal, 5).padding(.vertical, 1)
                         .background(Capsule().fill(.orange.opacity(0.25)))
                         .foregroundStyle(.orange)
                 } else {
                     Button("Make default") { ai.setDefault(provider.name) }
-                        .buttonStyle(.borderless).font(.caption)
+                        .buttonStyle(.borderless).font(Design.Text.caption)
                 }
 
                 Spacer()
@@ -342,12 +356,12 @@ private struct AgentRow: View {
                     TextEditor(text: Binding(
                         get: { provider.systemPrompt ?? "" },
                         set: { value in var p = provider; p.systemPrompt = value; ai.upsert(p) }))
-                        .font(.system(size: 11))
+                        .font(.custom(Design.Text.face, size: 11))
                         .frame(height: 46)
                         .overlay(RoundedRectangle(cornerRadius: Design.Radius.control)
                             .stroke(.secondary.opacity(0.3), lineWidth: 1))
                     Text("Optional. Prepended to every conversation with this agent.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(Design.Text.caption2).foregroundStyle(.secondary)
                 }
             }
         }
@@ -387,7 +401,7 @@ private struct AgentRow: View {
                     .textFieldStyle(.roundedBorder)
             }
             Text("Free text, not OpenRouter's list — a CLI agent names its own models. Leave blank to use whatever it defaults to.")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(Design.Text.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             CLIAccountRow(provider: provider, ai: ai)
@@ -395,11 +409,11 @@ private struct AgentRow: View {
             Toggle(isOn: Binding(
                 get: { provider.runsInNotch ?? false },
                 set: { value in var p = provider; p.runsInNotch = value; ai.upsert(p) })) {
-                    Text("Answer in the notch").font(.caption)
+                    Text("Answer in the notch").font(Design.Text.caption)
                 }
                 .toggleStyle(.switch)
             Text("Makes this a first-class agent in the composer — pick it like any other, and its output streams into the chat instead of opening a Terminal.")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(Design.Text.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 8) {
@@ -431,7 +445,7 @@ private struct AgentRow: View {
 
     private func fieldLabel(_ text: String) -> some View {
         Text(text)
-            .font(.caption)
+            .font(Design.Text.caption)
             .foregroundStyle(.secondary)
             .frame(width: 62, alignment: .leading)
     }
@@ -474,7 +488,7 @@ private struct ModelPickerButton: View {
                     .font(.system(size: 8, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
-            .font(.system(size: 11))
+            .font(.custom(Design.Text.face, size: 11))
             .padding(.horizontal, 7).padding(.vertical, 3)
             .frame(width: 320, alignment: .leading)
             .overlay(RoundedRectangle(cornerRadius: Design.Radius.control)
@@ -492,7 +506,7 @@ private struct ModelPickerButton: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if matches.isEmpty {
                             Text("No model matches “\(query)”")
-                                .font(.system(size: 11))
+                                .font(.custom(Design.Text.face, size: 11))
                                 .foregroundStyle(.secondary)
                                 .padding(10)
                         }
@@ -503,7 +517,7 @@ private struct ModelPickerButton: View {
                                 query = ""
                             } label: {
                                 HStack {
-                                    Text(id).font(.system(size: 11)).lineLimit(1)
+                                    Text(id).font(.custom(Design.Text.face, size: 11)).lineLimit(1)
                                     Spacer(minLength: 0)
                                     if id == selection {
                                         Image(systemName: "checkmark")
@@ -535,11 +549,11 @@ private struct WorkspacePane: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Workspace").font(Design.Text.paneTitle)
                 Text("Where local CLI agents run, and how you watch them.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Design.Text.caption).foregroundStyle(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Run CLI agents in").font(.headline)
+                Text("Run CLI agents in").font(Design.Text.headline)
                 Picker("", selection: Binding(get: { ai.runMode }, set: { ai.setRunMode($0) })) {
                     ForEach(AIRunner.RunMode.allCases, id: \.self) { mode in
                         Text(mode.menuTitle).tag(mode)
@@ -547,13 +561,13 @@ private struct WorkspacePane: View {
                 }
                 .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 420)
                 Text("Chat agents ignore this — they always answer in the notch.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Design.Text.caption).foregroundStyle(.secondary)
             }
 
             Divider()
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Project folder").font(.headline)
+                Text("Project folder").font(Design.Text.headline)
                 HStack {
                     Text(ai.workDirDisplay)
                         .font(.system(size: 11, design: .monospaced))
@@ -574,9 +588,9 @@ private struct WorkspacePane: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Shortcuts").font(.headline)
+                Text("Shortcuts").font(Design.Text.headline)
                 Text("Click one and press the keys you want. Every combination macOS leaves free is claimed by *some* app, and a global shortcut wins over whatever's in front — so a clash breaks that app, not Visor. Better to set them than to guess.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Design.Text.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 ForEach(ShortcutSettings.Action.allCases) { action in
                     ShortcutRecorder(action: action)
@@ -586,20 +600,20 @@ private struct WorkspacePane: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Notes").font(.headline)
+                Text("Notes").font(Design.Text.headline)
                 HStack(spacing: 6) {
                     Text(ShortcutSettings.hint(.toggle)).font(.system(size: 12, design: .monospaced))
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(RoundedRectangle(cornerRadius: Design.Radius.control).fill(.secondary.opacity(0.18)))
                     Text("opens and closes the notch from any app.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(Design.Text.caption).foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(ShortcutSettings.hint(.swapMode)) swaps between notes and chat.")
                     Text("\(ShortcutSettings.hint(.hud)) expands chat into the full-screen HUD.")
                     Text("\(ShortcutSettings.agentHint(0))–\(ShortcutSettings.agentHint(4)) jump straight to an agent.")
                 }
-                .font(.caption).foregroundStyle(.secondary)
+                .font(Design.Text.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -741,13 +755,13 @@ private struct MCPPane: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("MCP").font(Design.Text.paneTitle)
                 Text("Visor ships an MCP server, so any MCP-aware agent can read your notes and chats — and write back into them. Run one of these once per client.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Design.Text.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             ForEach(clients, id: \.name) { client in
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(client.name).font(.headline)
+                    Text(client.name).font(Design.Text.headline)
                     HStack {
                         Text(client.command)
                             .font(.system(size: 10, design: .monospaced))
@@ -813,12 +827,12 @@ private struct UsagePane: View {
                 .frame(width: 300)
                 Spacer()
                 Button("Refresh") { refresh += 1 }
-                    .font(.caption)
+                    .font(Design.Text.caption)
             }
 
             if totals.isEmpty {
                 Text("Nothing recorded in this period. Usage is written as each reply finishes.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Design.Text.caption).foregroundStyle(.secondary)
                     .padding(.top, 4)
             } else {
                 ForEach(totals) { total in
@@ -842,16 +856,16 @@ private struct UsagePane: View {
                         confirmingClear = true
                     }
                 }
-                .font(.caption)
+                .font(Design.Text.caption)
                 .foregroundStyle(confirmingClear ? Color.red : .secondary)
                 if confirmingClear {
-                    Button("Cancel") { confirmingClear = false }.font(.caption)
+                    Button("Cancel") { confirmingClear = false }.font(Design.Text.caption)
                 }
                 Spacer()
             }
 
             Text("Counted from what each provider reports for the request — not estimated. Cached input is listed separately because it's billed at a different rate.")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(Design.Text.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
@@ -864,7 +878,7 @@ private struct UsagePane: View {
         let requests = totals.reduce(0) { $0 + $1.requests }
         return HStack {
             Text("\(requests) request\(requests == 1 ? "" : "s")")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(Design.Text.caption).foregroundStyle(.secondary)
             Spacer()
             if !billed.isEmpty {
                 Text(UsageFormat.money(cost))
@@ -880,14 +894,14 @@ private struct UsageRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: total.source == "openrouter" ? "globe" : "terminal")
-                .font(.system(size: 11))
+                .font(.custom(Design.Text.face, size: 11))
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(total.account).font(.system(size: 12, weight: .medium))
                 Text(subtitle)
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(Design.Text.caption2).foregroundStyle(.secondary)
                     .lineLimit(1)
             }
 
@@ -899,7 +913,7 @@ private struct UsageRow: View {
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
                 } else {
                     Text("subscription")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(Design.Text.caption2).foregroundStyle(.secondary)
                 }
                 Text(tokens)
                     .font(.system(size: 9, design: .monospaced))
@@ -1000,7 +1014,7 @@ private struct VoicePane: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Voice").font(Design.Text.paneTitle)
                 Text("Dictate anywhere on your Mac. The words land at the caret in whatever you were typing in, and every transcript is kept here whether or not it reached a chat.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Design.Text.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -1025,10 +1039,10 @@ private struct VoicePane: View {
     private var voiceKey: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Text("Voice key").font(.headline)
+                Text("Voice key").font(Design.Text.headline)
                 if VoiceInput.hasKey {
                     Label("set", systemImage: "checkmark.circle.fill")
-                        .font(.caption2).foregroundStyle(.green)
+                        .font(Design.Text.caption2).foregroundStyle(.green)
                 }
             }
             HStack {
@@ -1047,12 +1061,12 @@ private struct VoicePane: View {
             Toggle(isOn: Binding(
                 get: { VoiceInput.cleanupEnabled },
                 set: { VoiceInput.cleanupEnabled = $0; cleanupOn = $0 })) {
-                    Text("Clean up dictation before it lands").font(.caption)
+                    Text("Clean up dictation before it lands").font(Design.Text.caption)
                 }
                 .toggleStyle(.switch)
             if cleanupOn {
                 HStack(spacing: 8) {
-                    Text("using").font(.caption).foregroundStyle(.secondary)
+                    Text("using").font(Design.Text.caption).foregroundStyle(.secondary)
                     ModelPickerButton(catalog: catalog, selection: VoiceInput.cleanupModel) { id in
                         VoiceInput.cleanupModel = id
                         cleanupModel = id
@@ -1063,31 +1077,31 @@ private struct VoicePane: View {
                 benchmarkSection
             }
             Text("Speech-to-text returns what you said, not what you meant to write: no punctuation, \"um\"s left in, and the occasional wrong homophone. With this on, the raw transcript is passed through the model below to punctuate and clean it before it's inserted — a fraction of a cent per dictation, and about a second. Off, you get the transcript exactly as heard.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(Design.Text.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             Text("\(ShortcutSettings.hint(.dictate)) dictates into the composer using OpenAI's transcription API. This is a separate key because OpenRouter doesn't carry audio — leave it blank and dictation stays off.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(Design.Text.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             Toggle(isOn: Binding(
                 get: { TextInsertion.clipboardFallback },
                 set: { TextInsertion.clipboardFallback = $0; clipboardOn = $0 })) {
-                    Text("Fall back to the clipboard if it can't be inserted").font(.caption)
+                    Text("Fall back to the clipboard if it can't be inserted").font(Design.Text.caption)
                 }
                 .toggleStyle(.switch)
             Text("Off by default. A transcript on the clipboard is one you still have to paste, and it takes over something you may have been using. Every transcript is in the log below regardless.")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(Design.Text.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             Toggle(isOn: Binding(
                 get: { TextInsertion.insertIntoFocusedApp },
                 set: { TextInsertion.insertIntoFocusedApp = $0; insertOn = $0 })) {
-                    Text("Type dictation into the app you're using").font(.caption)
+                    Text("Type dictation into the app you're using").font(Design.Text.caption)
                 }
                 .toggleStyle(.switch)
             Text("When the composer isn't focused, the transcript is inserted at the caret in the app you were in when you started speaking. Your clipboard is left alone — it's only used if the text can't be inserted at all.")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(Design.Text.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             // Stated, not discovered. Without Accessibility this feature
@@ -1099,26 +1113,26 @@ private struct VoicePane: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
                         Text("Accessibility is off, so dictation can only reach the clipboard.")
-                            .font(.caption2)
+                            .font(Design.Text.caption2)
                         Button("Open Settings") {
                             guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
                             else { return }
                             NSWorkspace.shared.open(url)
                         }
-                        .font(.caption2)
+                        .font(Design.Text.caption2)
                         .buttonStyle(.borderless)
                     }
                     // Said here because the alternative is someone opening
                     // that pane, seeing Visor already switched on, and
                     // reasonably concluding the app is broken.
                     Text("If Visor is already switched on there, switch it off and on again. macOS ties the permission to the exact build it was granted to, and every update is a new one — the pane keeps showing the app as enabled either way, because it's listing the entry rather than checking it still matches.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(Design.Text.caption2).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
             HStack(spacing: 8) {
-                Text("Hold to talk").font(.caption).foregroundStyle(.secondary)
+                Text("Hold to talk").font(Design.Text.caption).foregroundStyle(.secondary)
                 Picker("", selection: Binding(
                     get: { pushToTalk.trigger },
                     set: { pushToTalk.setTrigger($0) })) {
@@ -1130,11 +1144,11 @@ private struct VoicePane: View {
                     .frame(width: 130)
                 if pushToTalk.trigger != .off && !pushToTalk.isTrusted {
                     Button("Grant access…") { pushToTalk.requestTrust() }
-                        .font(.caption)
+                        .font(Design.Text.caption)
                 }
             }
             Text("Hold the key to record and release to transcribe; double-tap it to toggle. This is the only part of Visor that needs Accessibility — a bare modifier press produces no key equivalent, so it can't use the permission-free shortcut mechanism everything else does.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(Design.Text.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -1164,7 +1178,7 @@ private struct VoicePane: View {
     var transcriptionModelField: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Text("Transcribe with").font(.caption).foregroundStyle(.secondary)
+                Text("Transcribe with").font(Design.Text.caption).foregroundStyle(.secondary)
                 TextField("whisper-1", text: Binding(
                     get: { VoiceInput.transcriptionModel },
                     set: { VoiceInput.transcriptionModel = $0.isEmpty ? "whisper-1" : $0 }))
@@ -1172,10 +1186,10 @@ private struct VoicePane: View {
                     .frame(width: 200)
             }
             HStack(spacing: 6) {
-                Text("try").font(.caption2).foregroundStyle(.secondary)
+                Text("try").font(Design.Text.caption2).foregroundStyle(.secondary)
                 ForEach(Self.transcriptionSuggestions, id: \.id) { option in
                     Button { VoiceInput.transcriptionModel = option.id } label: {
-                        Text(option.id).font(.system(size: 10))
+                        Text(option.id).font(.custom(Design.Text.face, size: 10))
                     }
                     .buttonStyle(.borderless)
                     .help(option.note)
@@ -1183,7 +1197,7 @@ private struct VoicePane: View {
                 Spacer(minLength: 0)
             }
             Text("The upload and the transcription are usually the longer half of the wait — the cleanup model is the part with a picker, so it tends to get the blame. The voice log below now times both.")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(Design.Text.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -1209,10 +1223,10 @@ private struct VoicePane: View {
                     // badly is the wrong winner.
                     benchmark.run(on: voiceEntries.first?.text)
                 }
-                .font(.caption)
+                .font(Design.Text.caption)
                 .disabled(benchmark.running)
                 Text("Runs the instruction above against your last dictation on each model.")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(Design.Text.caption2).foregroundStyle(.secondary)
             }
 
             ForEach(benchmark.results) { result in
@@ -1225,7 +1239,7 @@ private struct VoicePane: View {
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(seconds < 1 ? Color.green : .secondary)
                         } else {
-                            Text("…").font(.caption2).foregroundStyle(.secondary)
+                            Text("…").font(Design.Text.caption2).foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 0)
                         if result.output != nil {
@@ -1233,14 +1247,14 @@ private struct VoicePane: View {
                                 VoiceInput.cleanupModel = result.model
                                 cleanupModel = result.model
                             }
-                            .font(.caption2).buttonStyle(.borderless)
+                            .font(Design.Text.caption2).buttonStyle(.borderless)
                         }
                     }
                     if let error = result.error {
-                        Text(error).font(.caption2).foregroundStyle(.orange).lineLimit(2)
+                        Text(error).font(Design.Text.caption2).foregroundStyle(.orange).lineLimit(2)
                     } else if let output = result.output {
                         Text(output)
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .font(Design.Text.caption2).foregroundStyle(.secondary)
                             .lineLimit(3)
                             .textSelection(.enabled)
                     }
@@ -1252,14 +1266,14 @@ private struct VoicePane: View {
 
     var suggestedModels: some View {
         HStack(spacing: 6) {
-            Text("try").font(.caption2).foregroundStyle(.secondary)
+            Text("try").font(Design.Text.caption2).foregroundStyle(.secondary)
             ForEach(Self.suggestions, id: \.id) { suggestion in
                 Button {
                     VoiceInput.cleanupModel = suggestion.id
                     cleanupModel = suggestion.id
                 } label: {
                     Text(suggestion.id.split(separator: "/").last.map(String.init) ?? suggestion.id)
-                        .font(.system(size: 10))
+                        .font(.custom(Design.Text.face, size: 10))
                 }
                 .buttonStyle(.borderless)
                 .help("\(suggestion.id) — \(suggestion.note)")
@@ -1272,14 +1286,14 @@ private struct VoicePane: View {
     var cleanupPromptEditor: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text("Instruction").font(.caption).foregroundStyle(.secondary)
+                Text("Instruction").font(Design.Text.caption).foregroundStyle(.secondary)
                 Spacer()
                 if promptDraft != VoiceInput.defaultCleanupPrompt {
                     Button("Reset") {
                         promptDraft = VoiceInput.defaultCleanupPrompt
                         VoiceInput.cleanupPrompt = promptDraft
                     }
-                    .font(.caption2).buttonStyle(.borderless)
+                    .font(Design.Text.caption2).buttonStyle(.borderless)
                 }
             }
             TextEditor(text: $promptDraft)
@@ -1294,7 +1308,7 @@ private struct VoicePane: View {
                     VoiceInput.cleanupPrompt = value
                 }
             Text("Sent as the system prompt, with only the raw transcript as the message. It stays identical between dictations, so the provider serves it from cache — which is most of why this is quick. Saying what not to do matters more than what to do: a small model handed dictation will happily answer it, and that loses what you said.")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(Design.Text.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -1305,15 +1319,15 @@ private struct VoicePane: View {
 
     private var notchGames: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("What the notch shows").font(.headline)
+            Text("What the notch shows").font(Design.Text.headline)
             Text("Two moments, two slots. While you're talking there's a voice level to "
                + "play with; afterwards there isn't, so what fits there plays itself.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(Design.Text.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: Design.Space.roomy) {
                 Text("While listening")
-                    .font(.system(size: 12))
+                    .font(.custom(Design.Text.face, size: 12))
                     .frame(width: 110, alignment: .leading)
                 Picker("", selection: $visuals.during) {
                     ForEach(NotchVisuals.During.allCases) { Text($0.title).tag($0) }
@@ -1323,7 +1337,7 @@ private struct VoicePane: View {
             }
             HStack(spacing: Design.Space.roomy) {
                 Text("While transcribing")
-                    .font(.system(size: 12))
+                    .font(.custom(Design.Text.face, size: 12))
                     .frame(width: 110, alignment: .leading)
                 Picker("", selection: $visuals.after) {
                     ForEach(NotchVisuals.After.allCases) { Text($0.title).tag($0) }
@@ -1335,7 +1349,7 @@ private struct VoicePane: View {
                 Text("Your paddle is on the left and moves while you speak, turning round "
                    + "at the top and bottom. Stop talking and it stays put. The notch "
                    + "grows downward to give the rally room.")
-                    .font(.caption2).foregroundStyle(.tertiary)
+                    .font(Design.Text.caption2).foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -1344,7 +1358,7 @@ private struct VoicePane: View {
     private var voiceLogSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Voice log").font(.headline)
+                Text("Voice log").font(Design.Text.headline)
                 Spacer()
                 Button("Reveal") {
                     NSWorkspace.shared.activateFileViewerSelecting([VoiceLog.url])
@@ -1359,7 +1373,7 @@ private struct VoicePane: View {
             }
             if voiceEntries.isEmpty {
                 Text("Nothing dictated yet. ⌘⌃V, or hold your push-to-talk key.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Design.Text.caption).foregroundStyle(.secondary)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 6) {
@@ -1367,13 +1381,13 @@ private struct VoicePane: View {
                             HStack(alignment: .top, spacing: 8) {
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(entry.text)
-                                        .font(.system(size: 11))
+                                        .font(.custom(Design.Text.face, size: 11))
                                         .textSelection(.enabled)
                                         .fixedSize(horizontal: false, vertical: true)
                                     Text(VoicePane.stamp.string(from: entry.date)
                                          + (entry.duration.map { String(format: " · %.1fs", $0) } ?? "")
                                          + VoicePane.timings(entry))
-                                        .font(.caption2).foregroundStyle(.tertiary)
+                                        .font(Design.Text.caption2).foregroundStyle(.tertiary)
                                 }
                                 Spacer(minLength: 0)
                                 // Selectable text is not the same as copyable
@@ -1391,7 +1405,7 @@ private struct VoicePane: View {
                                 } label: {
                                     Image(systemName: copiedEntry == entry.id
                                                         ? "checkmark" : "doc.on.doc")
-                                        .font(.system(size: 9))
+                                        .font(.custom(Design.Text.face, size: 9))
                                         .foregroundStyle(copiedEntry == entry.id
                                                             ? Color.accentColor : .secondary)
                                 }
@@ -1402,7 +1416,7 @@ private struct VoicePane: View {
                                     voiceEntries.removeAll { $0.id == entry.id }
                                 } label: {
                                     Image(systemName: "trash")
-                                        .font(.system(size: 9))
+                                        .font(.custom(Design.Text.face, size: 9))
                                         .foregroundStyle(.secondary)
                                 }
                                 .buttonStyle(.borderless)
@@ -1415,7 +1429,7 @@ private struct VoicePane: View {
                 .frame(maxHeight: 150)
             }
             Text("Appended one line per utterance to voice-log.jsonl, so writing the ten-thousandth costs the same as the first.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(Design.Text.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .onAppear { voiceEntries = VoiceLog.recent(limit: 30) }
@@ -1469,23 +1483,23 @@ private struct CLIAccountRow: View {
             HStack(spacing: 8) {
                 fieldLabel("Account")
                 if accounts.isChecking(provider) {
-                    Text("checking…").font(.caption).foregroundStyle(.secondary)
+                    Text("checking…").font(Design.Text.caption).foregroundStyle(.secondary)
                 } else if let account {
                     Image(systemName: account.loggedIn
                           ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                        .font(.system(size: 10))
+                        .font(.custom(Design.Text.face, size: 10))
                         .foregroundStyle(account.loggedIn ? Color.green : Color.orange)
-                    Text(account.summary).font(.caption)
+                    Text(account.summary).font(Design.Text.caption)
                 } else {
-                    Text("unknown").font(.caption).foregroundStyle(.secondary)
+                    Text("unknown").font(Design.Text.caption).foregroundStyle(.secondary)
                 }
                 Button("Check") { accounts.refresh(provider) }
-                    .font(.caption2).buttonStyle(.borderless)
+                    .font(Design.Text.caption2).buttonStyle(.borderless)
                 Spacer(minLength: 0)
                 Button(showingProfile ? "Hide profile" : "Use a different account") {
                     showingProfile.toggle()
                 }
-                .font(.caption2).buttonStyle(.borderless)
+                .font(Design.Text.caption2).buttonStyle(.borderless)
             }
 
             if showingProfile {
@@ -1500,13 +1514,13 @@ private struct CLIAccountRow: View {
                         }))
                         .textFieldStyle(.roundedBorder)
                     Button("Choose…") { chooseDirectory() }
-                        .font(.caption2)
+                        .font(Design.Text.caption2)
                 }
                 // Said plainly, because the sign-in itself has to happen in a
                 // terminal: it opens a browser and waits, which is not
                 // something to run inside a notch.
                 Text("A separate directory is a separate login, so one agent can be your personal account and another your work one. Point it somewhere new, then sign that profile in:")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(Design.Text.caption2).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 6) {
                     Text(signInCommand)
@@ -1519,7 +1533,7 @@ private struct CLIAccountRow: View {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(signInCommand, forType: .string)
                     }
-                    .font(.caption2).buttonStyle(.borderless)
+                    .font(Design.Text.caption2).buttonStyle(.borderless)
                 }
             }
         }
@@ -1547,7 +1561,7 @@ private struct CLIAccountRow: View {
     }
 
     private func fieldLabel(_ text: String) -> some View {
-        Text(text).font(.caption).foregroundStyle(.secondary)
+        Text(text).font(Design.Text.caption).foregroundStyle(.secondary)
             .frame(width: 64, alignment: .leading)
     }
 }

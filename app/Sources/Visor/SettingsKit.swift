@@ -26,12 +26,12 @@ extension Design {
         static let mono = Font.custom(face, size: 11)
     }
 
-    /// Adaptive surfaces for the Settings window — the dark-only `Surface` ramp
-    /// is for the HUD.
+    /// Settings-window surfaces — now the vintage theme (see `Design.Retro`),
+    /// white on near-black with a dark-purple accent, everywhere.
     enum Panel {
-        static let card = Color.primary.opacity(0.04)
-        static let cardStroke = Color.primary.opacity(0.08)
-        static let radius: CGFloat = 12
+        static let card = Design.Retro.panel
+        static let cardStroke = Design.Retro.line
+        static let radius = Design.Retro.radius
     }
 }
 
@@ -42,12 +42,23 @@ struct SettingsHeader: View {
     var subtitle: String? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(Design.Text.paneTitle)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(title.uppercased())
+                    .font(Design.Text.paneTitle)
+                    .foregroundStyle(Design.Retro.text)
+                    .tracking(1)
+                // A run of blocks trailing the title, like a header rule drawn
+                // in text.
+                Text(String(repeating: "▪", count: 3))
+                    .font(.custom(Design.Text.face, size: 10))
+                    .foregroundStyle(Design.Retro.accent)
+                Spacer(minLength: 0)
+            }
             if let subtitle {
                 Text(subtitle)
                     .font(Design.Text.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Design.Retro.dim)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -63,12 +74,16 @@ struct SettingsCard<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 7) {
             if let label {
-                Text(label.uppercased())
-                    .font(Design.Text.sectionLabel)
-                    .tracking(0.6)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text("»").font(.custom(Design.Text.face, size: 10))
+                        .foregroundStyle(Design.Retro.accent)
+                    Text(label.uppercased())
+                        .font(Design.Text.sectionLabel)
+                        .tracking(1)
+                        .foregroundStyle(Design.Retro.dim)
+                }
             }
             VStack(alignment: .leading, spacing: spacing, content: content)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -91,12 +106,12 @@ struct SettingsRow<Control: View>: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(Design.Text.rowTitle)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(Design.Text.rowTitle).foregroundStyle(Design.Retro.text)
                 if let caption {
                     Text(caption)
                         .font(Design.Text.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Design.Retro.dim)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -116,11 +131,12 @@ struct SettingsSlider: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text(title).font(Design.Text.body).frame(width: 78, alignment: .leading)
-            Slider(value: $value, in: range)
+            Text(title).font(Design.Text.body).foregroundStyle(Design.Retro.dim)
+                .frame(width: 78, alignment: .leading)
+            Slider(value: $value, in: range).tint(Design.Retro.accent)
             Text(format(value))
                 .font(Design.Text.mono)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Design.Retro.accent)
                 .frame(width: 50, alignment: .trailing)
         }
     }

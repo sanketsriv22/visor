@@ -253,6 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let popover = NSPopover()
         popover.behavior = .transient
         popover.animates = true
+        popover.appearance = NSAppearance(named: .darkAqua)
         popover.contentViewController = hosting
         menuPopover = popover
         NSApp.activate(ignoringOtherApps: true)
@@ -461,6 +462,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
             window.isMovableByWindowBackground = true
+            // The whole app wears the vintage dark theme now, so the system
+            // chrome (traffic lights, sliders, toggles) renders dark too.
+            window.appearance = NSAppearance(named: .darkAqua)
             window.contentView = NSHostingView(
                 rootView: SettingsView(ai: ai, chat: controller.chat, pushToTalk: pushToTalk))
             window.isReleasedWhenClosed = false
