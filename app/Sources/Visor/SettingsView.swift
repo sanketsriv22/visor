@@ -1611,7 +1611,6 @@ private struct HUDPane: View {
     @AppStorage("visor.hudScale") private var scale: Double = 1.0
     @AppStorage("visor.hudOnlyMode") private var hudOnly: Bool = false
     @AppStorage(TrackpadGesture.enabledKey) private var swipeOn = false
-    @AppStorage(TrackpadGesture.directionKey) private var swipeDir = "down"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -1646,21 +1645,9 @@ private struct HUDPane: View {
 
             SettingsCard(label: "Trackpad") {
                 SettingsRow(
-                    title: "Four-finger swipe to open the HUD",
-                    caption: "Reads the trackpad directly. macOS uses four fingers up/down for Mission Control and App Exposé — turn those off in System Settings → Trackpad → More Gestures so they don't fire at the same time.") {
+                    title: "Four-finger swipe for the HUD",
+                    caption: "Swipe down with four fingers to open the HUD, up to close it — read straight off the trackpad. macOS uses four fingers up/down for Mission Control and App Exposé, so turn those off in System Settings → Trackpad → More Gestures or they'll fire at the same time.") {
                     Toggle("", isOn: $swipeOn).labelsHidden().toggleStyle(.switch)
-                }
-                if swipeOn {
-                    Divider().opacity(0.4)
-                    HStack(spacing: 10) {
-                        Text("Direction").font(Design.Text.body).foregroundStyle(Design.Retro.dim)
-                        Picker("", selection: $swipeDir) {
-                            Text("Swipe down").tag("down")
-                            Text("Swipe up").tag("up")
-                        }
-                        .labelsHidden().pickerStyle(.segmented).frame(width: 200)
-                        Spacer(minLength: 0)
-                    }
                 }
             }
 

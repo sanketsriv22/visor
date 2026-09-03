@@ -861,14 +861,17 @@ final class NotchController {
     /// switch off it behaves the way it always did: the key opens the notch
     /// card, and the HUD keeps its own key. The card faces stay reachable
     /// either way — from the menu bar, a re-launch, or a task sent to an agent.
-    /// Open or close the HUD directly — the four-finger-swipe gesture's action.
-    /// Always the HUD, regardless of the HUD-only setting.
-    func openHUDToggle() {
-        if ui.expanded {
-            if ui.mode.isFullScreen { collapseFromHUD() } else { setMode(.hud) }
-        } else {
-            expandIntoHUD()
-        }
+    /// Open the HUD — the four-finger swipe-down action. Always the HUD,
+    /// regardless of the HUD-only setting; a no-op if it's already up.
+    func showHUDGesture() {
+        guard !(ui.expanded && ui.mode.isFullScreen) else { return }
+        if ui.expanded { setMode(.hud) } else { expandIntoHUD() }
+    }
+
+    /// Close the HUD — the four-finger swipe-up action; a no-op if it isn't up.
+    func hideHUDGesture() {
+        guard ui.expanded, ui.mode.isFullScreen else { return }
+        collapseFromHUD()
     }
 
     func macroToggle() {

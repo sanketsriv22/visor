@@ -39,13 +39,11 @@ private final class SwipeDetector {
 
     // Config, read live from UserDefaults so the Settings toggle takes effect.
     private var enabled: Bool { UserDefaults.standard.bool(forKey: TrackpadGesture.enabledKey) }
-    /// Swipe direction that triggers, "down" (default) or "up".
-    private var wantUp: Bool { UserDefaults.standard.string(forKey: TrackpadGesture.directionKey) == "up" }
-
     private var startY: Float?
     private var lastFire = Date.distantPast
 
-    /// Called once per multitouch frame. `n` is the finger count.
+    /// Called once per multitouch frame. `n` is the finger count. Fires up and
+    /// down as two separate gestures.
     func frame(_ touches: UnsafeMutablePointer<MTTouch>?, _ n: Int32) {
         guard enabled, let touches else { startY = nil; return }
         guard n == 4 else { startY = nil; return }   // only a clean four-finger set
@@ -57,15 +55,16 @@ private final class SwipeDetector {
         guard let start = startY else { startY = y; return }
         let dy = y - start                 // normalized 0…1, y increases upward on the trackpad
         let threshold: Float = 0.18
-        let movedUp = dy > threshold
-        let movedDown = dy < -threshold
-        guard movedUp || movedDown else { return }
-        guard (movedUp == wantUp) else { startY = y; return }   // wrong direction, re-anchor
+        let direction: TrackpadGesture.Direction?
+        if dy > threshold { direction = .up }
+        else if dy < -threshold { direction = .down }
+        else { direction = nil }
+        guard let direction else { return }
 
         // Debounce and require the fingers to lift before another fire.
-        if Date().timeIntervalSince(lastFire) > 0.6 {
+        if Date().timeIntervalSince(lastFire) > 0.5 {
             lastFire = Date()
-            Task { @MainActor in TrackpadGesture.shared.fire() }
+            Task { @MainActor in TrackpadGesture.shared.fire(direction) }
         }
         startY = nil
     }
@@ -92,10 +91,11 @@ final class TrackpadGesture {
     static let shared = TrackpadGesture()
 
     static let enabledKey = "visor.trackpadSwipe"
-    static let directionKey = "visor.trackpadSwipeDirection"
 
-    /// What a recognised swipe does. Set by the app delegate.
-    var onSwipe: (() -> Void)?
+    enum Direction { case up, down }
+
+    /// What a recognised swipe does, per direction. Set by the app delegate.
+    var onSwipe: ((Direction) -> Void)?
 
     private var handle: UnsafeMutableRawPointer?
     private var devices: [UnsafeRawPointer] = []
@@ -135,5 +135,5 @@ final class TrackpadGesture {
     }
 
     /// Called from the detector (already hopped to the main actor).
-    fileprivate func fire() { onSwipe?() }
+    fileprivate func fire(_ direction: Direction) { onSwipe?(direction) }
 }

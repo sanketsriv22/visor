@@ -134,9 +134,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             self?.bindShortcuts()
         }
 
-        // Four-finger-swipe → open the HUD. The tap runs always; the detector
-        // itself checks the Settings toggle, so it does nothing until enabled.
-        TrackpadGesture.shared.onSwipe = { [weak self] in self?.controller?.openHUDToggle() }
+        // Four-finger swipe down opens the HUD, up closes it. The tap runs
+        // always; the detector checks the Settings toggle, so it does nothing
+        // until enabled.
+        TrackpadGesture.shared.onSwipe = { [weak self] direction in
+            switch direction {
+            case .down: self?.controller?.showHUDGesture()
+            case .up:   self?.controller?.hideHUDGesture()
+            }
+        }
         TrackpadGesture.shared.startIfPossible()
 
         pushToTalk.onHoldStart = { [weak self] in self?.controller?.beginDictation() }
@@ -248,6 +254,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         popover.appearance = NSAppearance(named: VisorTheme.current.isDark ? .darkAqua : .aqua)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         installMenuClickMonitor()
+        // Light the icon on the NEXT runloop tick — after the click's mouse-up
+        // has ended the button's own tracking (which un-highlights it). Doing it
+        // now or in popoverDidShow (both before mouse-up) gets wiped, which is
+        // why the lit state wasn't sticking.
+        DispatchQueue.main.async { [weak self] in self?.statusItem?.button?.highlight(true) }
     }
 
     private func closeMenuPanel() {
@@ -300,12 +311,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             onWhatsNew:     { close(); self.openReleases() },
             onCheckUpdates: { close(); self.updater.controller.checkForUpdates(nil) },
             onQuit:         { NSApp.terminate(nil) })
-    }
-
-    func popoverDidShow(_ notification: Notification) {
-        // Lit only once the popover is actually up — after the click's mouse-up
-        // has ended the button's own tracking, so there's no on-off-on flash.
-        statusItem?.button?.highlight(true)
     }
 
     func popoverDidClose(_ notification: Notification) {
