@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private var controller: NotchController?
     private var statusItem: NSStatusItem?
     private var menuPopover: NSPopover?
+    private var menuPopoverClosedAt = Date.distantPast
     private let updater = Updater()
     private let ai = AIRunner()
     private var sendToMenu: NSMenu?
@@ -232,13 +233,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     @objc private func toggleMenuPanel() {
-        if let popover = menuPopover, popover.isShown {
+        // A transient popover closes itself when you click the status item —
+        // that counts as an outside click. Without this guard the very same
+        // click would then reopen it, which is the double-flash / stutter when
+        // spam-clicking. Ignore a click that lands right after an auto-close.
+        if Date().timeIntervalSince(menuPopoverClosedAt) < 0.2 { return }
+        let popover = ensureMenuPopover()
+        if popover.isShown {
             popover.performClose(nil)
             return
         }
         guard let button = statusItem?.button else { return }
+        // Reuse the popover, just refresh the live bits. Rebuilding it and its
+        // whole SwiftUI view on every click was the lag and the flash.
+        (popover.contentViewController as? NSHostingController<MenuBarPanel>)?.rootView = makeMenuPanel()
+        popover.appearance = NSAppearance(named: VisorTheme.current.isDark ? .darkAqua : .aqua)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        // Keep the icon lit while the panel is open. Dispatched a tick later:
+        // the click's mouse-up ends the button's tracking and un-highlights it
+        // after this returns, so a synchronous highlight here is undone.
+        DispatchQueue.main.async { button.highlight(true) }
+    }
+
+    private func ensureMenuPopover() -> NSPopover {
+        if let menuPopover { return menuPopover }
+        let hosting = NSHostingController(rootView: makeMenuPanel())
+        hosting.sizingOptions = .preferredContentSize
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = false
+        popover.delegate = self
+        popover.contentViewController = hosting
+        menuPopover = popover
+        return popover
+    }
+
+    private func makeMenuPanel() -> MenuBarPanel {
         let close: () -> Void = { [weak self] in self?.menuPopover?.performClose(nil) }
-        let panel = MenuBarPanel(
+        return MenuBarPanel(
             version: AppInfo.version,
             computerUseOn: ComputerUseAgent.shared.running,
             onOpenVisor:    { close(); self.controller?.showNote() },
@@ -248,27 +280,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             onWhatsNew:     { close(); self.openReleases() },
             onCheckUpdates: { close(); self.updater.controller.checkForUpdates(nil) },
             onQuit:         { NSApp.terminate(nil) })
-        let hosting = NSHostingController(rootView: panel)
-        hosting.sizingOptions = .preferredContentSize
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.animates = false          // instant, like ChatGPT/Granola — no open animation lag
-        popover.appearance = NSAppearance(named: VisorTheme.current.isDark ? .darkAqua : .aqua)
-        popover.delegate = self
-        popover.contentViewController = hosting
-        menuPopover = popover
-        NSApp.activate(ignoringOtherApps: true)
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        // Keep the menu-bar icon lit while the panel is open, the way every
-        // other menu-bar app does. Dispatched to the next runloop tick: the
-        // click's mouse-up ends the button's tracking and un-highlights it
-        // *after* this method returns, so a synchronous highlight(true) here is
-        // immediately undone — setting it a tick later sticks.
-        DispatchQueue.main.async { button.highlight(true) }
     }
 
     func popoverDidClose(_ notification: Notification) {
         statusItem?.button?.highlight(false)
+        menuPopoverClosedAt = Date()
     }
 
     private func whatsNewItem() -> NSMenuItem {
