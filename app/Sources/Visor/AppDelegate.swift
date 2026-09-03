@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private var controller: NotchController?
     private var statusItem: NSStatusItem?
     private var menuPopover: NSPopover?
-    private var menuPopoverClosedAt = Date.distantPast
+    private var menuClickMonitor: Any?
     private let updater = Updater()
     private let ai = AIRunner()
     private var sendToMenu: NSMenu?
@@ -134,6 +134,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             self?.bindShortcuts()
         }
 
+        // Four-finger-swipe → open the HUD. The tap runs always; the detector
+        // itself checks the Settings toggle, so it does nothing until enabled.
+        TrackpadGesture.shared.onSwipe = { [weak self] in self?.controller?.openHUDToggle() }
+        TrackpadGesture.shared.startIfPossible()
+
         pushToTalk.onHoldStart = { [weak self] in self?.controller?.beginDictation() }
         pushToTalk.onHoldEnd = { [weak self] in self?.controller?.endDictation() }
         pushToTalk.onToggle = { [weak self] in self?.controller?.toggleDictation() }
@@ -233,26 +238,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     @objc private func toggleMenuPanel() {
-        // A transient popover closes itself when you click the status item —
-        // that counts as an outside click. Without this guard the very same
-        // click would then reopen it, which is the double-flash / stutter when
-        // spam-clicking. Ignore a click that lands right after an auto-close.
-        if Date().timeIntervalSince(menuPopoverClosedAt) < 0.2 { return }
         let popover = ensureMenuPopover()
-        if popover.isShown {
-            popover.performClose(nil)
-            return
-        }
+        // Deterministic toggle: with .applicationDefined the popover never
+        // auto-closes, so a click on the icon while it's open reliably closes it
+        // — no transient close-then-reopen race, which was the stutter.
+        if popover.isShown { closeMenuPanel(); return }
         guard let button = statusItem?.button else { return }
-        // Reuse the popover, just refresh the live bits. Rebuilding it and its
-        // whole SwiftUI view on every click was the lag and the flash.
         (popover.contentViewController as? NSHostingController<MenuBarPanel>)?.rootView = makeMenuPanel()
         popover.appearance = NSAppearance(named: VisorTheme.current.isDark ? .darkAqua : .aqua)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        // Keep the icon lit while the panel is open. Dispatched a tick later:
-        // the click's mouse-up ends the button's tracking and un-highlights it
-        // after this returns, so a synchronous highlight here is undone.
-        DispatchQueue.main.async { button.highlight(true) }
+        installMenuClickMonitor()
+    }
+
+    private func closeMenuPanel() {
+        menuPopover?.performClose(nil)
+        removeMenuClickMonitor()
+    }
+
+    /// Since the popover no longer closes itself, close it on a click anywhere
+    /// outside it — but not on the icon, whose own click is the toggle (letting
+    /// that through would close-then-reopen).
+    private func installMenuClickMonitor() {
+        guard menuClickMonitor == nil else { return }
+        menuClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            guard let self, let button = self.statusItem?.button, let window = button.window else {
+                self?.closeMenuPanel(); return
+            }
+            let iconRect = window.convertToScreen(button.convert(button.bounds, to: nil))
+            if !iconRect.contains(NSEvent.mouseLocation) { self.closeMenuPanel() }
+        }
+    }
+
+    private func removeMenuClickMonitor() {
+        if let m = menuClickMonitor { NSEvent.removeMonitor(m) }
+        menuClickMonitor = nil
     }
 
     private func ensureMenuPopover() -> NSPopover {
@@ -260,7 +280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         let hosting = NSHostingController(rootView: makeMenuPanel())
         hosting.sizingOptions = .preferredContentSize
         let popover = NSPopover()
-        popover.behavior = .transient
+        popover.behavior = .applicationDefined   // we control open/close ourselves
         popover.animates = false
         popover.delegate = self
         popover.contentViewController = hosting
@@ -282,9 +302,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             onQuit:         { NSApp.terminate(nil) })
     }
 
+    func popoverDidShow(_ notification: Notification) {
+        // Lit only once the popover is actually up — after the click's mouse-up
+        // has ended the button's own tracking, so there's no on-off-on flash.
+        statusItem?.button?.highlight(true)
+    }
+
     func popoverDidClose(_ notification: Notification) {
         statusItem?.button?.highlight(false)
-        menuPopoverClosedAt = Date()
+        removeMenuClickMonitor()
     }
 
     private func whatsNewItem() -> NSMenuItem {
