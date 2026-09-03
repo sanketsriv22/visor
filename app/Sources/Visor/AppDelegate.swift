@@ -240,9 +240,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         let close: () -> Void = { [weak self] in self?.menuPopover?.performClose(nil) }
         let panel = MenuBarPanel(
             version: AppInfo.version,
-            computerUseOn: ChessController.shared.isWatching,
+            computerUseOn: ComputerUseAgent.shared.running,
             onOpenVisor:    { close(); self.controller?.showNote() },
-            onComputerUse:  { close(); ChessController.shared.toggle() },
+            onComputerUse:  { close(); ComputerUseUI.shared.toggle() },
             onDictate:      { close(); self.controller?.toggleDictation() },
             onSettings:     { close(); self.openSettings() },
             onWhatsNew:     { close(); self.openReleases() },
