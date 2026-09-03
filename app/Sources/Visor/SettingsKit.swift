@@ -18,12 +18,20 @@ extension Design {
     /// the face didn't register, so nothing breaks if it's missing.
     enum Text {
         static let face = "Departure Mono"
-        static let paneTitle = Font.custom(face, size: 18)
-        static let sectionLabel = Font.custom(face, size: 10.5)
-        static let rowTitle = Font.custom(face, size: 12.5)
-        static let body = Font.custom(face, size: 12)
-        static let caption = Font.custom(face, size: 11)
-        static let mono = Font.custom(face, size: 11)
+        /// The chosen UI font at a given size — pixel or system (Appearance).
+        static func f(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+            VisorFont.current.font(size, weight: weight)
+        }
+        static var paneTitle: Font { f(18) }
+        static var sectionLabel: Font { f(10.5) }
+        static var rowTitle: Font { f(12.5) }
+        static var body: Font { f(12) }
+        static var caption: Font { f(11) }
+        /// Numeric readouts stay monospaced whichever UI font is chosen.
+        static var mono: Font {
+            VisorFont.current == .departureMono ? .custom(face, size: 11)
+                                                : .system(size: 11, design: .monospaced)
+        }
     }
 
     /// Settings-window surfaces — now the vintage theme (see `Design.Retro`),

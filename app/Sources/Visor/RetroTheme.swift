@@ -1,31 +1,103 @@
 import AppKit
 import SwiftUI
 
-/// The vintage-computing theme: white on near-black, a dark-purple accent, one
-/// pixel typeface, and glyph icons instead of SF Symbols. Every surface draws
-/// from here so the whole app reads as one machine rather than a stack of views
-/// that each picked their own greys.
+/// A selectable theme — picked in Settings → Appearance and applied everywhere
+/// (Settings, the menu-bar panel, the HUD). Monochrome by default; the rest are
+/// presets. The whole app reads its colours from `Design.Retro`, which forwards
+/// to whichever theme is current, so one change re-skins the lot.
+enum VisorTheme: String, CaseIterable, Identifiable {
+    case mono, purple, phosphor, amber, paper
+
+    var id: String { rawValue }
+
+    static let key = "visor.theme"
+    static var current: VisorTheme {
+        VisorTheme(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .mono
+    }
+
+    var name: String {
+        switch self {
+        case .mono:     return "Mono"
+        case .purple:   return "Midnight Purple"
+        case .phosphor: return "Phosphor"
+        case .amber:    return "Amber"
+        case .paper:    return "Paper"
+        }
+    }
+
+    /// Light themes flip the system chrome (window, controls) to aqua.
+    var isDark: Bool { self != .paper }
+
+    var bg: Color {
+        switch self {
+        case .mono:     return Color(red: 0.045, green: 0.045, blue: 0.062)
+        case .purple:   return Color(red: 0.045, green: 0.042, blue: 0.065)
+        case .phosphor: return Color(red: 0.02, green: 0.035, blue: 0.02)
+        case .amber:    return Color(red: 0.05, green: 0.035, blue: 0.02)
+        case .paper:    return Color(red: 0.93, green: 0.92, blue: 0.90)
+        }
+    }
+    var panel: Color {
+        isDark ? Color.white.opacity(0.055) : Color.black.opacity(0.04)
+    }
+    var panelDeep: Color {
+        isDark ? Color.black.opacity(0.28) : Color.black.opacity(0.05)
+    }
+    var line: Color { isDark ? Color.white.opacity(0.10) : Color.black.opacity(0.12) }
+
+    var accent: Color {
+        switch self {
+        case .mono:     return Color.white.opacity(0.95)
+        case .purple:   return Color(red: 0.58, green: 0.40, blue: 0.94)
+        case .phosphor: return Color(red: 0.35, green: 0.95, blue: 0.45)
+        case .amber:    return Color(red: 0.98, green: 0.70, blue: 0.25)
+        case .paper:    return Color(red: 0.10, green: 0.10, blue: 0.12)
+        }
+    }
+
+    var text: Color { isDark ? Color.white.opacity(0.92) : Color.black.opacity(0.88) }
+    var dim: Color { isDark ? Color.white.opacity(0.55) : Color.black.opacity(0.55) }
+    var faint: Color { isDark ? Color.white.opacity(0.32) : Color.black.opacity(0.35) }
+
+    /// A pair of swatch colours for the Appearance picker.
+    var swatch: (Color, Color) { (bg, accent) }
+}
+
+/// The app's UI typeface — pixel (Departure Mono) or the system font — chosen
+/// in Settings → Appearance. `Design.Text.f(size)` and the scale read this.
+enum VisorFont: String, CaseIterable, Identifiable {
+    case departureMono, system
+
+    var id: String { rawValue }
+    static let key = "visor.font"
+    static var current: VisorFont {
+        VisorFont(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .departureMono
+    }
+    var name: String { self == .departureMono ? "Departure Mono" : "System" }
+
+    func font(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        self == .departureMono ? .custom("Departure Mono", size: size)
+                               : .system(size: size, weight: weight)
+    }
+}
+
+/// The one place the app's colours come from — forwards to the current theme.
+/// Views read these at render, so changing the theme re-skins on next render
+/// (the Settings window updates live via its @AppStorage; the menu and HUD are
+/// rebuilt on next open).
 extension Design {
     enum Retro {
-        /// Near-black, faintly blue like an unlit CRT.
-        static let bg = Color(red: 0.045, green: 0.045, blue: 0.062)
-        /// A panel sitting just proud of the background.
-        static let panel = Color(red: 0.09, green: 0.088, blue: 0.11)
-        static let panelDeep = Color(red: 0.065, green: 0.063, blue: 0.083)
-        static let line = Color.white.opacity(0.10)
-
-        /// Monochrome by default — black and white — with the accent as bright
-        /// white. An Appearance preset can swap this for a colour (dark purple,
-        /// etc.) later; the whole app reads the accent from here, so one change
-        /// re-tints everything.
-        static let accent = Color.white.opacity(0.95)
-        static let accentDim = Color.white.opacity(0.13)
-        static let accentDeep = Color.white.opacity(0.35)
-
-        static let text = Color.white.opacity(0.92)
-        static let dim = Color.white.opacity(0.55)
-        static let faint = Color.white.opacity(0.32)
-
+        static var theme: VisorTheme { VisorTheme.current }
+        static var bg: Color { theme.bg }
+        static var panel: Color { theme.panel }
+        static var panelDeep: Color { theme.panelDeep }
+        static var line: Color { theme.line }
+        static var accent: Color { theme.accent }
+        static var accentDim: Color { theme.accent.opacity(0.18) }
+        static var accentDeep: Color { theme.accent.opacity(0.4) }
+        static var text: Color { theme.text }
+        static var dim: Color { theme.dim }
+        static var faint: Color { theme.faint }
         /// Sharp corners for the terminal look — a couple of pixels, not soft.
         static let radius: CGFloat = 3
     }
@@ -35,11 +107,11 @@ extension Design {
 /// sizes the semantic SwiftUI fonts used to cover, so a sweep can replace
 /// `.caption`/`.headline`/etc. and keep everything on the one face.
 extension Design.Text {
-    static let caption2 = Font.custom(face, size: 9.5)
-    static let callout = Font.custom(face, size: 12.5)
-    static let headline = Font.custom(face, size: 13)
-    static let title = Font.custom(face, size: 16)
-    static let big = Font.custom(face, size: 22)
+    static var caption2: Font { f(9.5) }
+    static var callout: Font { f(12.5) }
+    static var headline: Font { f(13) }
+    static var title: Font { f(16) }
+    static var big: Font { f(22, weight: .semibold) }
 }
 
 /// A pixel glyph used where an SF Symbol used to be. Rendered in Departure Mono

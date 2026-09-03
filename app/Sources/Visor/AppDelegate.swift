@@ -8,7 +8,7 @@ import SwiftUI
 /// reason this is explicit — they arrive as plain @objc selectors with no
 /// isolation of their own.
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopoverDelegate {
     private var controller: NotchController?
     private var statusItem: NSStatusItem?
     private var menuPopover: NSPopover?
@@ -252,12 +252,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hosting.sizingOptions = .preferredContentSize
         let popover = NSPopover()
         popover.behavior = .transient
-        popover.animates = true
-        popover.appearance = NSAppearance(named: .darkAqua)
+        popover.animates = false          // instant, like ChatGPT/Granola — no open animation lag
+        popover.appearance = NSAppearance(named: VisorTheme.current.isDark ? .darkAqua : .aqua)
+        popover.delegate = self
         popover.contentViewController = hosting
         menuPopover = popover
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        // Keep the menu-bar icon lit while the panel is open, the way every
+        // other menu-bar app does — the old behaviour only showed the pressed
+        // state during the mouse-down, which read as a flicker.
+        button.highlight(true)
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        statusItem?.button?.highlight(false)
     }
 
     private func whatsNewItem() -> NSMenuItem {
@@ -462,9 +471,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
             window.isMovableByWindowBackground = true
-            // The whole app wears the vintage dark theme now, so the system
-            // chrome (traffic lights, sliders, toggles) renders dark too.
-            window.appearance = NSAppearance(named: .darkAqua)
+            // Match the system chrome (traffic lights, sliders, toggles) to the
+            // chosen theme so a light preset isn't dark-on-light.
+            window.appearance = NSAppearance(named: VisorTheme.current.isDark ? .darkAqua : .aqua)
             window.contentView = NSHostingView(
                 rootView: SettingsView(ai: ai, chat: controller.chat, pushToTalk: pushToTalk))
             window.isReleasedWhenClosed = false

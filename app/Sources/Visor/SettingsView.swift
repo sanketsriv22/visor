@@ -11,12 +11,13 @@ final class SettingsFocus: ObservableObject {
 }
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case agents, voice, hud, computerUse, usage, workspace, mcp, memory
+    case appearance, agents, voice, hud, computerUse, usage, workspace, mcp, memory
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .appearance: return "Appearance"
         case .agents:    return "Agents"
         case .voice:     return "Voice"
         case .hud:       return "HUD"
@@ -31,6 +32,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     /// Pixel glyph for the sidebar, in place of an SF Symbol.
     var glyph: String {
         switch self {
+        case .appearance:  return "◐"
         case .agents:      return Glyph.agents
         case .voice:       return Glyph.voice
         case .hud:         return Glyph.hud
@@ -54,7 +56,12 @@ struct SettingsView: View {
     @ObservedObject var pushToTalk: PushToTalk
     @StateObject private var catalog = ModelCatalog()
     @ObservedObject private var focus = SettingsFocus.shared
-    @State private var tab: SettingsTab = .agents
+    @State private var tab: SettingsTab = .appearance
+    // Observed only so the whole window re-renders when the theme or font is
+    // changed in the Appearance pane — every view reads its colours/font from
+    // Design, which forwards to these.
+    @AppStorage(VisorTheme.key) private var themeRaw = VisorTheme.mono.rawValue
+    @AppStorage(VisorFont.key) private var fontRaw = VisorFont.departureMono.rawValue
 
     var body: some View {
         HStack(spacing: 0) {
@@ -74,8 +81,9 @@ struct SettingsView: View {
         .background(Design.Retro.bg)
         .foregroundStyle(Design.Retro.text)
         .tint(Design.Retro.accent)
-        .font(Design.Text.body)                 // pixel face as the default for any un-fonted text
-        .environment(\.colorScheme, .dark)
+        .font(Design.Text.body)                 // chosen face as the default for any un-fonted text
+        .environment(\.colorScheme, VisorTheme.current.isDark ? .dark : .light)
+        .id(themeRaw + fontRaw)                  // rebuild cleanly when the theme/font changes
         .task { await catalog.loadIfNeeded() }
         .onChange(of: focus.provider) { name in
             // Sent here to fix a key — that's always on the Agents tab.
@@ -141,6 +149,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var pane: some View {
         switch tab {
+        case .appearance: AppearancePane()
         case .agents:    AgentsPane(ai: ai, catalog: catalog, focus: focus)
         case .voice:     VoicePane(chat: chat, catalog: catalog, pushToTalk: pushToTalk)
         case .hud:       HUDPane()
