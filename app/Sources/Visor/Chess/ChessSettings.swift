@@ -20,7 +20,7 @@ struct ComputerUsePane: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Computer use").font(.headline)
+            Text("Computer Use").font(Design.Text.paneTitle)
             Text("Visor watching part of the screen and acting on what changes there. "
                + "Nothing is captured until you point it at something, and only the "
                + "rectangle you pick is ever looked at.")

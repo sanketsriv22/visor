@@ -597,58 +597,89 @@ final class ChessSession: ObservableObject {
     /// the band, the way a person lingers over a hard choice. Jittered so it is
     /// never mechanical.
     private func smartDelay(_ replies: [ScoredMove], forced: Bool, recapture: Bool,
-                           clock: Double?, oppClock: Double? = nil) -> TimeInterval {
+                           clock: Double?, oppClock: Double? = nil,
+                           moveCount: Int = 20) -> TimeInterval {
         let lo = min(latency.shortest, latency.longest)
         let hi = max(latency.shortest, latency.longest)
-        if forced { return 0 }
-        if recapture { return lo }
+        let span = max(0.001, hi - lo)
 
-        // The opening is played from memory, fast. Its moves are close in
-        // evaluation — many book moves are equally fine — but that closeness is
-        // ease, not difficulty, so the gap rule below (which reads close as
-        // hard) would get it exactly backwards and dawdle over move two. The
-        // first several moves just go.
+        // Forced: essentially instant, but a hand still takes a beat — a tenth
+        // of a second of spread reads as reflex rather than a bot firing on a
+        // timer.
+        if forced { return Double.random(in: 0...0.12) }
+
+        // Recapture: quick, around the fast end, with a little human wobble.
+        if recapture { return Self.humanTime(median: lo + span * 0.10, sigma: 0.35) }
+
+        // Opening from memory: fast and loose. Its moves are close in evaluation
+        // but that closeness is ease, not difficulty, so the gap rule below
+        // would read it backwards and dawdle over move two.
         if position.fullmoveNumber <= 6 {
-            return lo + Double.random(in: 0...(hi - lo) * 0.12)
+            return Self.humanTime(median: lo + span * 0.12, sigma: 0.5)
         }
 
-        // Otherwise fast by default, slow only for a genuine decision. The gap
-        // to the second-best move is the tell: over about a pawn and it's clear,
-        // and it comes quick; only when several moves are within a fraction of a
-        // pawn does it drift to the slow end. Cubed, so it takes real closeness
-        // to pull towards the slow end and the bulk of moves stay brisk.
-        var closeness = 0.0
+        // How much thought this move wants, 0…1 — the two things a person
+        // actually feels. First, whether it's a real decision: how close the
+        // best move is to the next best. Second, how busy the board is: more
+        // legal moves is more to look at. A clear move in a quiet position wants
+        // almost none; a knife-edge choice in a thicket wants a lot.
+        var decision = 0.0
         if replies.count >= 2 {
             let gap = abs(replies[0].score.centipawns - replies[1].score.centipawns)
-            let raw = min(1.0, max(0.0, Double(50 - gap) / 50.0))   // 0 by 50cp, 1 at a dead tie
-            closeness = raw * raw * raw
+            let closeness = min(1.0, max(0.0, Double(50 - gap) / 50.0))
+            decision = closeness * closeness
         }
-        var base = lo + closeness * (hi - lo)
+        let busy = min(1.0, max(0.0, Double(moveCount - 8) / 32.0))   // ~8 quiet, 40 a thicket
+        let difficulty = min(1.0, decision * 0.7 + busy * 0.45)
 
-        // Spend a clock lead on the hard moves — and only the hard ones. When we
+        // The mean this position pulls towards.
+        var median = lo + difficulty * span
+
+        // Spend a clock lead on the hard moves — only the hard ones. When we
         // have meaningfully more time than the opponent, a genuine decision can
-        // take a little longer (the way you use your time when you're ahead on
-        // the clock), stretching past the band's top by up to a third. A clear
-        // move is untouched: closeness is near zero for it, so this adds nothing.
-        // Being behind never slows us down — that's what the flag rule below is
-        // for.
-        if let clock, let oppClock, clock > oppClock + 5, closeness > 0.15 {
-            let lead = min(1.0, (clock - oppClock) / max(20.0, oppClock))   // 0…1
-            base += closeness * lead * (hi - lo) * 0.7
+        // take longer; a clear move is untouched. Being behind never slows us —
+        // that's the flag rule below.
+        if let clock, let oppClock, clock > oppClock + 5, difficulty > 0.2 {
+            let lead = min(1.0, (clock - oppClock) / max(20.0, oppClock))
+            median += difficulty * lead * span * 0.7
         }
 
-        let jitter = (hi - lo) * 0.12
-        base = max(lo, min(hi * 1.33, base + Double.random(in: -jitter...jitter)))
+        // Sample the actual wait from a distribution around that mean rather
+        // than returning the mean itself — this is where the human volatility
+        // comes from. The spread widens with difficulty: people are consistent
+        // on easy moves and erratic on hard ones. Log-normal, so the shape is
+        // the human right-skew — many quick, a long tail of slow.
+        let sigma = 0.5 + difficulty * 0.4
+        var wait = Self.humanTime(median: median, sigma: sigma)
 
-        // Blitz as the flag approaches. Under a minute the whole delay is
-        // scaled down towards zero in proportion to the time left, the way a
-        // person stops thinking and just moves when low. This runs last, so a
-        // low clock overrides any lead-spending above.
+        // The occasional long think: a move that looks like the rest but that
+        // this position, this time, got stared at. Never on the easy ones.
+        if difficulty > 0.25 && Double.random(in: 0...1) < 0.12 {
+            wait *= Double.random(in: 1.8...3.2)
+        }
+
+        // Don't let the tail run away entirely.
+        wait = min(wait, hi * 3.0 + 1.0)
+
+        // Blitz as the flag approaches — overrides everything above, the way a
+        // person stops thinking and just moves when low.
         if let clock, clock < 60 {
-            let urgency = max(0.05, clock / 60.0)
-            base *= urgency
+            wait *= max(0.05, clock / 60.0)
         }
-        return base
+        return max(0.03, wait)
+    }
+
+    /// A move time drawn from a log-normal distribution: `median` is where the
+    /// typical move lands, `sigma` the spread (and the right-skew). This is the
+    /// parametric stand-in for a human move-time policy — the same shape a
+    /// corpus of real games gives per position, a mean with a fat tail — and it
+    /// can later be fit to actual data by setting median/sigma from features
+    /// rather than the hand-tuned blend above. Box–Muller for the normal.
+    private static func humanTime(median: Double, sigma: Double, floor: Double = 0.04) -> TimeInterval {
+        let u1 = Double.random(in: 1e-9...1)
+        let u2 = Double.random(in: 0...1)
+        let z = (-2.0 * log(u1)).squareRoot() * cos(2.0 * Double.pi * u2)
+        return max(floor, median * exp(sigma * z))
     }
 
     /// Compose the island line from whatever is current.
@@ -715,10 +746,11 @@ final class ChessSession: ObservableObject {
         playingOwnMove = true
 
         if mode == .playing {
-            let forced = (await oracle?.legalMoves(from: position)?.count ?? 2) <= 1
+            let legalCount = (await oracle?.legalMoves(from: position)?.count ?? 20)
+            let forced = legalCount <= 1
             let recapture = recaptureOn != nil && move.to == recaptureOn
             let wait = smartDelay(replies, forced: forced, recapture: recapture,
-                                  clock: clock, oppClock: oppClock)
+                                  clock: clock, oppClock: oppClock, moveCount: legalCount)
             ChessDiagnostics.trace(String(format: "play: %@ wait %.2fs (%@)", move.uci, wait,
                 forced ? "forced" : recapture ? "recapture" : "paced"))
             if wait > 0.01 { try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }

@@ -457,12 +457,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // model ids and MCP commands are long.
             guard let controller else { return }
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 820, height: 580),
-                styleMask: [.titled, .closable, .resizable],
+                contentRect: NSRect(x: 0, y: 0, width: 860, height: 600),
+                styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
             window.title = "Visor Settings"
+            // A quieter chrome: the titlebar goes transparent and its text
+            // hides, so the sidebar's material runs to the top of the window
+            // and the traffic lights float over it — the unified look every
+            // well-made macOS settings window has, instead of a grey title strip.
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.isMovableByWindowBackground = true
             window.contentView = NSHostingView(
                 rootView: SettingsView(ai: ai, chat: controller.chat, pushToTalk: pushToTalk))
             window.isReleasedWhenClosed = false

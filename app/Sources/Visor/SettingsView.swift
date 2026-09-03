@@ -58,14 +58,18 @@ struct SettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-            Divider()
             ScrollView {
                 pane
-                    .padding(22)
+                    // Top clears the transparent titlebar; the rest is the one
+                    // margin every pane shares now, instead of each adding its own.
+                    .padding(.horizontal, 26)
+                    .padding(.top, 34)
+                    .padding(.bottom, 28)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .background(Color(nsColor: .windowBackgroundColor))
         }
-        .frame(minWidth: 760, minHeight: 540)
+        .frame(minWidth: 800, minHeight: 560)
         .task { await catalog.loadIfNeeded() }
         .onChange(of: focus.provider) { name in
             // Sent here to fix a key — that's always on the Agents tab.
@@ -74,34 +78,50 @@ struct SettingsView: View {
     }
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("VISOR")
+                .font(.system(size: 11, weight: .bold))
+                .tracking(2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
             ForEach(SettingsTab.allCases) { candidate in
-                Button {
-                    tab = candidate
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: candidate.symbol)
-                            .frame(width: 16)
-                        Text(candidate.title)
-                        Spacer(minLength: 0)
-                    }
-                    .font(.system(size: 12))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: Design.Radius.control)
-                        .fill(tab == candidate ? Color.accentColor.opacity(0.18) : .clear))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                sidebarItem(candidate)
             }
             Spacer()
             Text("Visor \(AppInfo.version)")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
-                .padding(.horizontal, 9)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
         }
         .padding(10)
-        .frame(width: 168)
+        .padding(.top, 28)   // clear the traffic lights over the full-size content
+        .frame(width: 184)
+        .frame(maxHeight: .infinity)
+        .background(.regularMaterial)
+    }
+
+    private func sidebarItem(_ candidate: SettingsTab) -> some View {
+        let selected = tab == candidate
+        return Button { tab = candidate } label: {
+            HStack(spacing: 10) {
+                Image(systemName: candidate.symbol)
+                    .font(.system(size: 12))
+                    .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                    .frame(width: 18)
+                Text(candidate.title)
+                    .font(.system(size: 12.5, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? Color.primary : Color.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(selected ? Color.accentColor.opacity(0.15) : Color.clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -158,7 +178,7 @@ private struct AgentsPane: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Agents").font(.title3).bold()
+            Text("Agents").font(Design.Text.paneTitle)
             Text("Name as many agents as you like. A chat agent answers in the notch and can run on any model OpenRouter offers; a CLI agent runs a local tool like Claude Code or Devin.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -513,7 +533,7 @@ private struct WorkspacePane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Workspace").font(.title3).bold()
+                Text("Workspace").font(Design.Text.paneTitle)
                 Text("Where local CLI agents run, and how you watch them.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -608,36 +628,30 @@ private struct MemoryPane: View {
     @State private var graphModel = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Memory").font(.title3).bold()
-                Text("Visor embeds your chats on-device so agents can recall what you've discussed before. Nothing is sent anywhere to do it, and there's no embedding bill.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        VStack(alignment: .leading, spacing: 22) {
+            SettingsHeader(
+                title: "Memory",
+                subtitle: "Visor embeds your chats on-device so agents can recall what you've discussed before. Nothing is sent anywhere to do it, and there's no embedding bill.")
 
             if !chat.memory.isAvailable {
                 Label("macOS has no embedding model for your locale — chats still work, but without recall of older conversations.",
                       systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange)
+                    .font(Design.Text.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 24) {
-                stat("\(chat.store.summaries.count)", "chats")
-                stat("\(chat.store.summaries.reduce(0) { $0 + $1.messageCount })", "messages")
+            SettingsCard {
+                HStack(spacing: 28) {
+                    stat("\(chat.store.summaries.count)", "chats")
+                    stat("\(chat.store.summaries.reduce(0) { $0 + $1.messageCount })", "messages")
+                }
             }
 
-            Divider()
+            SettingsCard(label: "Knowledge graph") { graphSection }
 
-            graphSection
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("On disk").font(.headline)
+            SettingsCard(label: "On disk") {
                 Text(ChatStore.defaultRoot.appendingPathComponent("chats").path)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(Design.Text.mono)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                 HStack {
@@ -647,8 +661,9 @@ private struct MemoryPane: View {
                     }
                     Button("Rebuild index") { chat.store.rebuildIndex() }
                 }
+                .controlSize(.small)
                 Text("One JSON file per chat, next to your notes — so a corrupt chat costs that chat, not the archive.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Design.Text.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -660,21 +675,20 @@ private struct MemoryPane: View {
 
     /// Facts extracted from conversations.
     private var graphSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Toggle(isOn: Binding(
-                get: { chat.graph.isEnabled },
-                set: { chat.graph.isEnabled = $0; graphOn = $0 })) {
-                    Text("Build a knowledge graph").font(.headline)
-                }
-                .toggleStyle(.switch)
-
-            Text("After each exchange, a cheap model pulls out durable facts — who people are, what projects exist, what you prefer — and stores them as connected claims. Recall then walks those connections instead of matching wording, so asking about someone surfaces what's true of them rather than sentences that sound similar.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 10) {
+            SettingsRow(
+                title: "Build a knowledge graph",
+                caption: "After each exchange, a cheap model pulls out durable facts — who people are, what projects exist, what you prefer — and stores them as connected claims. Recall walks those connections instead of matching wording.") {
+                Toggle("", isOn: Binding(
+                    get: { chat.graph.isEnabled },
+                    set: { chat.graph.isEnabled = $0; graphOn = $0 }))
+                    .labelsHidden().toggleStyle(.switch)
+            }
 
             if chat.graph.isEnabled {
+                Divider().opacity(0.4)
                 HStack(spacing: 8) {
-                    Text("Extract with").font(.caption).foregroundStyle(.secondary)
+                    Text("Extract with").font(Design.Text.caption).foregroundStyle(.secondary)
                     ModelPickerButton(catalog: catalog,
                                       selection: chat.graph.extractionModel) { id in
                         chat.graph.extractionModel = id
@@ -682,10 +696,10 @@ private struct MemoryPane: View {
                     }
                 }
                 Text("Costs one extra request per exchange. Pick something cheap and fast — this wants to be quick, not clever.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Design.Text.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 24) {
+                HStack(spacing: 28) {
                     stat("\(chat.graph.nodes.count)", "things")
                     stat("\(chat.graph.edges.count)", "claims")
                 }
@@ -697,7 +711,7 @@ private struct MemoryPane: View {
     private func stat(_ value: String, _ label: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(value).font(.system(size: 22, weight: .semibold))
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(label).font(Design.Text.caption).foregroundStyle(.secondary)
         }
     }
 }
@@ -725,7 +739,7 @@ private struct MCPPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("MCP").font(.title3).bold()
+                Text("MCP").font(Design.Text.paneTitle)
                 Text("Visor ships an MCP server, so any MCP-aware agent can read your notes and chats — and write back into them. Run one of these once per client.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -984,7 +998,7 @@ private struct VoicePane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Voice").font(.title3).bold()
+                Text("Voice").font(Design.Text.paneTitle)
                 Text("Dictate anywhere on your Mac. The words land at the caret in whatever you were typing in, and every transcript is kept here whether or not it reached a chat.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1554,60 +1568,38 @@ private struct HUDPane: View {
     @AppStorage("visor.hudOnlyMode") private var hudOnly: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("HUD").font(.title3).bold()
-                Text("The full-screen overlay — \(ShortcutSettings.hint(.hud)) from a chat. Changes here apply the next time it's on screen, and while it's open you'll see them as you drag.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        VStack(alignment: .leading, spacing: 22) {
+            SettingsHeader(
+                title: "HUD",
+                subtitle: "The full-screen overlay — \(ShortcutSettings.hint(.hud)) from a chat. Changes apply the next time it's on screen, and while it's open you'll see them as you drag.")
 
-            VStack(alignment: .leading, spacing: 6) {
-                Toggle(isOn: $hudOnly) {
-                    Text("HUD-only mode").font(.callout)
+            SettingsCard(label: "Mode") {
+                SettingsRow(
+                    title: "HUD-only mode",
+                    caption: "When on, \(ShortcutSettings.hint(.toggle)) opens and closes the HUD directly, with no notes or chat card. When off, that key opens the notch card as before and the HUD stays on \(ShortcutSettings.hint(.hud)).") {
+                    Toggle("", isOn: $hudOnly).labelsHidden().toggleStyle(.switch)
                 }
-                .toggleStyle(.switch)
-                Text("When on, \(ShortcutSettings.hint(.toggle)) opens and closes the HUD directly, with no notes or chat card in between. When off, that key opens the notch card as before and the HUD stays on \(ShortcutSettings.hint(.hud)).")
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 10) {
-                    Text("Opacity").font(.caption).frame(width: 70, alignment: .leading)
-                    Slider(value: $glass, in: 0...1)
-                        .frame(width: 220)
-                    Text(String(format: "%.0f%%", glass * 100))
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 44, alignment: .trailing)
+            SettingsCard(label: "Appearance") {
+                SettingsSlider(title: "Opacity", value: $glass, range: 0...1) {
+                    String(format: "%.0f%%", $0 * 100)
                 }
                 // Zero is a real setting, not a broken one: an overlay you want
                 // to read your desktop through is a reasonable thing to want.
                 Text("All the way down is fully clear.")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 10) {
-                    Text("Text size").font(.caption).frame(width: 70, alignment: .leading)
-                    Slider(value: $scale, in: 0.85...1.8)
-                        .frame(width: 220)
-                    Text(String(format: "%.2f×", scale))
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 44, alignment: .trailing)
+                    .font(Design.Text.caption).foregroundStyle(.secondary)
+                Divider().opacity(0.4)
+                SettingsSlider(title: "Text size", value: $scale, range: 0.85...1.8) {
+                    String(format: "%.2f×", $0)
                 }
                 Text("Scales everything in the HUD together, so the layout keeps its proportions.")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(Design.Text.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             Button("Reset to defaults") { glass = 0.8; scale = 1.0; hudOnly = false }
-                .font(.caption)
-
-            Spacer()
+                .controlSize(.small)
         }
-        .padding(16)
     }
 }

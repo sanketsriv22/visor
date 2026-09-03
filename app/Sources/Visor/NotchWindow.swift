@@ -751,6 +751,11 @@ final class NotchController {
     /// for one keystroke, which reads as the app deciding where you wanted
     /// to be. From notes the key does nothing.
     func toggleHUD() {
+        // In HUD-only mode the HUD is the whole app — there's no chat card to
+        // step down to, so ⌘⌃M does exactly what ⌘⌃K does: open it, or put it
+        // away. Dropping to the chat face here is the bug that let the card back
+        // in with HUD-only on.
+        if hudOnlyMode { macroToggle(); return }
         guard ui.expanded else { return }
         if ui.mode.isFullScreen {
             setMode(.chat)
@@ -765,6 +770,9 @@ final class NotchController {
     /// and having a second one that also opens it makes the two shortcuts feel
     /// like the same key. Swapping a surface nobody is looking at isn't a swap.
     func swapMode() {
+        // Nothing to swap to in HUD-only mode — the notes and chat faces aren't
+        // reachable, so the swap key is inert.
+        if hudOnlyMode { return }
         guard ui.expanded else { return }
         // Not from the HUD.
         //
@@ -783,6 +791,12 @@ final class NotchController {
     /// the agent list is right there and switching is the obvious thing to do.
     /// The face only changes when there isn't one showing an agent already.
     func selectAgent(_ index: Int) {
+        if hudOnlyMode {
+            // Stay in the HUD (or bring it up) — never the chat card.
+            showHUDNow()
+            chat.useAgent(at: index)
+            return
+        }
         if !ui.expanded || ui.mode == .notes {
             setMode(.chat)
             showNote()
@@ -793,9 +807,26 @@ final class NotchController {
     /// Open the notch on the chat face with a prompt already running — how
     /// tasks sent to a chat agent surface.
     func runInNotch(prompt: String, agentName: String?) {
-        setMode(.chat)
-        showNote()
+        if hudOnlyMode {
+            showHUDNow()
+        } else {
+            setMode(.chat)
+            showNote()
+        }
         chat.seed(prompt: prompt, agentName: agentName)
+    }
+
+    /// Whether the primary macro opens the HUD rather than the notch card.
+    private var hudOnlyMode: Bool { UserDefaults.standard.bool(forKey: hudOnlyKey) }
+
+    /// Bring the HUD up without ever passing through a card — the HUD-only
+    /// route for anything that would otherwise open chat or notes.
+    private func showHUDNow() {
+        if ui.expanded {
+            if !ui.mode.isFullScreen { setMode(.hud) }
+        } else {
+            expandIntoHUD()
+        }
     }
 
     /// Import a note from an incoming beam URL and slide the note down to show
