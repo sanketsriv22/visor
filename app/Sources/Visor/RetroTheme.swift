@@ -156,6 +156,36 @@ struct RangeSlider: View {
     }
 }
 
+/// A segmented pixel bar you drag to set a value — an arcade power meter rather
+/// than a hairline slider. Reads 0…1; the caller maps it. Used for engine
+/// strength, where a plain slider felt like a form field, not a game.
+struct PixelGauge: View {
+    @Binding var value: Double
+    var segments: Int = 22
+    var enabled: Bool = true
+
+    var body: some View {
+        GeometryReader { geo in
+            let filled = enabled ? Int((value * Double(segments)).rounded()) : 0
+            HStack(spacing: 2) {
+                ForEach(0..<segments, id: \.self) { i in
+                    RoundedRectangle(cornerRadius: 1, style: .continuous)
+                        .fill(i < filled ? Design.Retro.accent : Color.white.opacity(0.09))
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(height: 16)
+            .contentShape(Rectangle())
+            .opacity(enabled ? 1 : 0.4)
+            .gesture(DragGesture(minimumDistance: 0).onChanged { g in
+                guard enabled else { return }
+                value = min(1, max(0, Double(g.location.x / max(1, geo.size.width))))
+            })
+        }
+        .frame(height: 16)
+    }
+}
+
 /// A rectangular, hairlined panel — the theme's card. Sharp corners and a thin
 /// line, the way a box is drawn in text.
 struct RetroPanel<Content: View>: View {

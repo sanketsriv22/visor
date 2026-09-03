@@ -104,36 +104,57 @@ struct ComputerUsePane: View {
         }
     }
 
-    /// How strong the engine plays.
+    /// How strong the engine plays — a pixel power-gauge and a difficulty tier,
+    /// not a slider. Off means full strength; on, you drag it down to a rating.
     private var strengthControl: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text("Engine strength").font(.custom(Design.Text.face, size: 12))
+        let lo = ChessStrength.range.lowerBound
+        let hi = ChessStrength.range.upperBound
+        let on = chess.strength.elo != nil
+        return VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Engine strength").font(Design.Text.rowTitle).foregroundStyle(Design.Retro.text)
                 Spacer()
-                Text(chess.strength.display)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                Text(on ? "\(chess.strength.elo ?? 0)" : "MAX")
+                    .font(.custom(Design.Text.face, size: 18))
+                    .foregroundStyle(Design.Retro.accent)
+                Text(Self.tier(on ? chess.strength.elo : nil))
+                    .font(Design.Text.caption2).foregroundStyle(Design.Retro.dim)
+                    .frame(width: 74, alignment: .trailing)
             }
-            HStack(spacing: Design.Space.normal) {
+            HStack(spacing: 12) {
                 Toggle("", isOn: Binding(
-                    get: { chess.strength.elo != nil },
+                    get: { on },
                     set: { chess.strength = $0 ? ChessStrength(elo: 1500) : ChessStrength(elo: nil) }))
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.small)
-                Slider(value: Binding(
-                    get: { Double(chess.strength.elo ?? 3000) },
-                    set: { chess.strength = ChessStrength(elo: Int($0.rounded())) }),
-                    in: ChessStrength.range, step: 20)
-                    .disabled(chess.strength.elo == nil)
+                PixelGauge(value: Binding(
+                    get: { (Double(chess.strength.elo ?? Int(hi)) - lo) / max(1, hi - lo) },
+                    set: { frac in
+                        let stepped = ((lo + frac * (hi - lo)) / 20).rounded() * 20
+                        chess.strength = ChessStrength(elo: Int(stepped))
+                    }), enabled: on)
             }
             Text("Off is full strength. On, the engine plays down to the rating — "
-               + "it makes weaker moves, not faster ones, so it feels like an "
-               + "opponent of that level. Takes effect on the next game.")
-                .font(Design.Text.caption2).foregroundStyle(.tertiary)
+               + "weaker moves, not faster ones, so it feels like an opponent of "
+               + "that level. Takes effect on the next game.")
+                .font(Design.Text.caption2).foregroundStyle(Design.Retro.dim)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 2)
+    }
+
+    /// A human name for a rating, so the number isn't the only cue.
+    private static func tier(_ elo: Int?) -> String {
+        guard let e = elo else { return "full" }
+        switch e {
+        case ..<1400: return "BEGINNER"
+        case ..<1700: return "CASUAL"
+        case ..<2000: return "CLUB"
+        case ..<2300: return "EXPERT"
+        case ..<2600: return "MASTER"
+        default:      return "GRANDMASTER"
+        }
     }
 
     /// How long to sit on the answer before playing it.
@@ -199,8 +220,19 @@ struct ComputerUsePane: View {
             RequirementRow(
                 met: chess.engine != nil,
                 title: chess.engine.map { "Stockfish — \($0.path)" } ?? "Stockfish isn't installed",
-                fix: chess.engine == nil ? "Install with  brew install stockfish" : nil,
-                action: nil)
+                // Stockfish isn't in the app — it's GPL, so Visor uses the copy
+                // on your machine. The button copies the install command and
+                // opens the download page rather than fetching a binary itself.
+                fix: chess.engine == nil
+                    ? "Not bundled (it's GPL). Run  brew install stockfish  — the command is copied for you."
+                    : nil,
+                action: chess.engine != nil ? nil : ("Get Stockfish", {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString("brew install stockfish", forType: .string)
+                    if let url = URL(string: "https://stockfishchess.org/download/") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }))
 
             RequirementRow(
                 met: chess.hasScreenRecording,
