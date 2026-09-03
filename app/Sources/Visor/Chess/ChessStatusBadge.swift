@@ -28,6 +28,8 @@ final class ChessStatusBadge: NSObject {
     /// becomes a little live picture of who's winning.
     private let evalTrack = CALayer()
     private let evalFill = CALayer()
+    /// The even mark at 50%, so a glance reads "ahead" or "behind", not a level.
+    private let evalMid = CALayer()
     private var hideWork: DispatchWorkItem?
     private var island: Island?
     /// Clicking it stops watching. The other half of ⌘⌃U, and the only control
@@ -68,7 +70,7 @@ final class ChessStatusBadge: NSObject {
         let textWidth = min(maxTextWidth, measured.width)
         let textHeight = measured.height
 
-        let height = max(32, textHeight + 14) + (evalFraction == nil ? 0 : 10)
+        let height = max(32, textHeight + 14) + (evalFraction == nil ? 0 : 22)
         let width = max(132, textWidth + 54)
 
         // Keep the same top-right corner as it grows, so a longer message
@@ -106,19 +108,22 @@ final class ChessStatusBadge: NSObject {
         // NSTextField handed a taller frame sits its baseline near the top of
         // it rather than in the middle — which is what made this look a couple
         // of pixels wrong without it being obvious why.
-        // The eval bar spans the width along the bottom; the text sits above it.
-        let barH: CGFloat = evalFraction == nil ? 0 : 6
+        // A real eval bar along the bottom, full width: white's share fills from
+        // the left, the rest is black's, an even mark down the middle. The text
+        // sits above it.
+        let barH: CGFloat = evalFraction == nil ? 0 : 14
         if let f = evalFraction {
             evalTrack.isHidden = false
-            let inset: CGFloat = 12
+            let inset: CGFloat = 14
             let trackW = width - inset * 2
-            evalTrack.frame = CGRect(x: inset, y: 6, width: trackW, height: barH)
-            evalFill.frame = CGRect(x: 0, y: 0,
-                                    width: max(2, trackW * CGFloat(min(1, max(0, f)))), height: barH)
+            evalTrack.frame = CGRect(x: inset, y: 8, width: trackW, height: barH)
+            let frac = CGFloat(min(1, max(0, f)))
+            evalFill.frame = CGRect(x: 0, y: 0, width: max(3, trackW * frac), height: barH)
+            evalMid.frame = CGRect(x: trackW / 2 - 0.5, y: 0, width: 1, height: barH)
         } else {
             evalTrack.isHidden = true
         }
-        label.frame = CGRect(x: 30, y: (height - textHeight) / 2 + barH / 2 + 3,
+        label.frame = CGRect(x: 30, y: (height - textHeight) / 2 + barH / 2 + 4,
                              width: textWidth + 4, height: textHeight)
 
         panel.alphaValue = 1
@@ -291,30 +296,28 @@ final class ChessStatusBadge: NSObject {
         island.layer?.borderWidth = 1
         island.layer?.borderColor = NSColor.white.withAlphaComponent(0.16).cgColor
         island.layer?.addSublayer(dot)
-        evalTrack.backgroundColor = NSColor(white: 0.16, alpha: 1).cgColor
-        evalTrack.cornerRadius = 3
+        // The unfilled track is black's share, the fill is white's — a real
+        // eval bar, the same idea as the one down the side of a chess site.
+        evalTrack.backgroundColor = NSColor(white: 0.20, alpha: 1).cgColor
+        evalTrack.cornerRadius = 4
         evalTrack.masksToBounds = true
-        evalFill.backgroundColor = NSColor(white: 0.96, alpha: 1).cgColor
+        evalFill.backgroundColor = NSColor(white: 0.97, alpha: 1).cgColor
+        evalMid.backgroundColor = NSColor(white: 0.5, alpha: 0.9).cgColor
         evalTrack.addSublayer(evalFill)
+        evalTrack.addSublayer(evalMid)
         island.layer?.addSublayer(evalTrack)
         island.onClick = { [weak self] in
-            guard let self else { return }
-            if let pending = self.answer {
-                // Clicking the island body — not a button — while it is asking
-                // is a way of saying "neither".
-                self.answer = nil
-                self.clearChoices()
-                pending.resume(returning: nil)
-                return
-            }
-            self.onClick?()
+            // Clicking the island body — not a button — while it is asking is a
+            // way of saying "neither". It no longer stops watching: a stray
+            // click on the pill shouldn't end the game you're watching. Stopping
+            // is the Settings toggle and the shortcut.
+            guard let self, let pending = self.answer else { return }
+            self.answer = nil
+            self.clearChoices()
+            pending.resume(returning: nil)
         }
         island.onMoved = { origin in
             UserDefaults.standard.set(NSStringFromPoint(origin), forKey: Self.originKey)
-        }
-        island.onHover = { [weak self] inside in
-            guard let self, self.answer == nil else { return }
-            self.label.stringValue = inside ? "Stop watching" : self.resting
         }
 
         label.font = .systemFont(ofSize: 12, weight: .medium)
