@@ -27,8 +27,10 @@ private struct MTTouch {
     var zDensity: Float = 0
 }
 
+// A raw pointer, because a pointer-to-Swift-struct isn't C-representable; the
+// callback rebinds it to MTTouch.
 private typealias MTContactCallback =
-    @convention(c) (Int32, UnsafeMutablePointer<MTTouch>?, Int32, Double, Int32) -> Int32
+    @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Double, Int32) -> Int32
 
 /// The frame-by-frame detector. Lives outside the actor because the callback
 /// runs on the framework's own thread; it only hops to the main actor to fire.
@@ -71,9 +73,9 @@ private final class SwipeDetector {
 
 /// The C callback — a top-level function because a `@convention(c)` pointer
 /// can't capture context. Forwards every frame to the detector.
-private func mtFrameCallback(_ device: Int32, _ touches: UnsafeMutablePointer<MTTouch>?,
+private func mtFrameCallback(_ device: Int32, _ touches: UnsafeMutableRawPointer?,
                              _ n: Int32, _ timestamp: Double, _ frame: Int32) -> Int32 {
-    SwipeDetector.shared.frame(touches, n)
+    SwipeDetector.shared.frame(touches?.assumingMemoryBound(to: MTTouch.self), n)
     return 0
 }
 
@@ -96,12 +98,13 @@ final class TrackpadGesture {
     var onSwipe: (() -> Void)?
 
     private var handle: UnsafeMutableRawPointer?
-    private var devices: [CFTypeRef] = []
+    private var devices: [UnsafeRawPointer] = []
     private var started = false
 
+    // MTDeviceRef is an opaque pointer, so it's declared as a raw pointer.
     private typealias CreateListFn = @convention(c) () -> Unmanaged<CFArray>?
-    private typealias RegisterFn = @convention(c) (CFTypeRef, MTContactCallback) -> Void
-    private typealias StartFn = @convention(c) (CFTypeRef, Int32) -> Void
+    private typealias RegisterFn = @convention(c) (UnsafeRawPointer, MTContactCallback) -> Void
+    private typealias StartFn = @convention(c) (UnsafeRawPointer, Int32) -> Void
 
     /// Load the framework and start listening. Safe to call once at launch; the
     /// detector itself checks the Settings toggle, so this can run always and
@@ -123,7 +126,7 @@ final class TrackpadGesture {
         let count = CFArrayGetCount(listRef)
         for i in 0..<count {
             guard let raw = CFArrayGetValueAtIndex(listRef, i) else { continue }
-            let device = unsafeBitCast(raw, to: CFTypeRef.self)
+            let device = UnsafeRawPointer(raw)
             register(device, mtFrameCallback)
             start(device, 0)
             devices.append(device)
