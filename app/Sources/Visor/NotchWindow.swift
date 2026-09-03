@@ -874,6 +874,12 @@ final class NotchController {
         collapseFromHUD()
     }
 
+    /// Toggle the HUD — the four-finger swipe-down action. Down opens it, down
+    /// again closes it, so there's no up-swipe to compete with Mission Control.
+    func toggleHUDGesture() {
+        if ui.expanded, ui.mode.isFullScreen { hideHUDGesture() } else { showHUDGesture() }
+    }
+
     func macroToggle() {
         guard UserDefaults.standard.bool(forKey: hudOnlyKey) else {
             toggle()

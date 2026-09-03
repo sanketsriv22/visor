@@ -1,9 +1,17 @@
 import AppKit
 import SwiftUI
 
-/// The floating box you drive general computer use from — type a task, run it,
-/// watch the steps, stop it. A borderless panel that floats over everything so
-/// you can see the agent work on whatever's underneath.
+/// A borderless panel that can still take keyboard focus. Borderless panels
+/// return false for `canBecomeKey` by default, which is why the task field
+/// couldn't be typed into.
+private final class KeyablePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
+/// The box you drive general computer use from — type a task, run it, watch the
+/// steps, stop it. A small card anchored under the notch, so it reads as one of
+/// Visor's notch interfaces rather than a big island floating mid-screen.
 @MainActor
 final class ComputerUseUI {
     static let shared = ComputerUseUI()
@@ -14,20 +22,20 @@ final class ComputerUseUI {
     func show() {
         let p = ensurePanel()
         if let screen = NSScreen.main {
-            let f = screen.visibleFrame
-            p.setFrameOrigin(NSPoint(x: f.midX - p.frame.width / 2, y: f.maxY - p.frame.height - 90))
+            let f = screen.frame
+            p.setFrameOrigin(NSPoint(x: f.midX - p.frame.width / 2, y: f.maxY - p.frame.height - 8))
         }
-        p.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        p.makeKeyAndOrderFront(nil)
     }
 
     func hide() { panel?.orderOut(nil) }
 
     private func ensurePanel() -> NSPanel {
         if let panel { return panel }
-        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 480, height: 200),
-                        styleMask: [.borderless, .nonactivatingPanel],
-                        backing: .buffered, defer: false)
+        let p = KeyablePanel(contentRect: NSRect(x: 0, y: 0, width: 380, height: 150),
+                             styleMask: [.borderless],
+                             backing: .buffered, defer: false)
         p.level = .floating
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         p.isOpaque = false
@@ -44,6 +52,7 @@ private struct ComputerUseView: View {
     @ObservedObject private var agent = ComputerUseAgent.shared
     let onClose: () -> Void
     @State private var task = ""
+    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
@@ -62,8 +71,9 @@ private struct ComputerUseView: View {
             HStack(spacing: 8) {
                 TextField("Tell your Mac what to do…", text: $task)
                     .textFieldStyle(.plain)
-                    .font(.custom(Design.Text.face, size: 15))
+                    .font(.custom(Design.Text.face, size: 14))
                     .foregroundStyle(Design.Retro.text)
+                    .focused($focused)
                     .onSubmit(run)
                 if agent.running {
                     Button("Stop", action: agent.stop).tint(.red)
@@ -97,11 +107,12 @@ private struct ComputerUseView: View {
                 }
             }
         }
-        .padding(15)
-        .frame(width: 480)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Design.Retro.bg))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Design.Retro.line, lineWidth: 1))
+        .padding(14)
+        .frame(width: 380)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Design.Retro.bg))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Design.Retro.line, lineWidth: 1))
         .environment(\.colorScheme, .dark)
+        .onAppear { DispatchQueue.main.async { focused = true } }
     }
 
     private func run() {

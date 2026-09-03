@@ -134,9 +134,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             self?.bindShortcuts()
         }
 
-        // Four-finger swipe down opens the HUD, up closes it. The tap runs
-        // always; the detector checks the Settings toggle, so it does nothing
-        // until enabled.
+        // Four-finger swipe down opens the HUD, up closes it. Visor's read is
+        // passive — it can't consume the system gesture — so for up=close not to
+        // also fire Mission Control, that gesture must be turned off in System
+        // Settings (the Settings toggle says so). The tap runs always; the
+        // detector checks the Settings toggle, so it's inert until enabled.
         TrackpadGesture.shared.onSwipe = { [weak self] direction in
             switch direction {
             case .down: self?.controller?.showHUDGesture()
