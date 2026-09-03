@@ -40,6 +40,10 @@ enum ChessDOM {
         /// the pacing speed up as the flag approaches, the way a person blitzes
         /// when low. nil for an untimed game or a clock we can't read.
         let clockSeconds: Double?
+        /// The opponent's remaining time, read from the top clock. Lets the
+        /// pacing spend the clock lead it has: when we're well ahead, the hard
+        /// moves can take a little longer. nil when there's no clock to read.
+        let opponentSeconds: Double?
     }
 
     enum ReadError: LocalizedError {
@@ -60,7 +64,7 @@ enum ChessDOM {
     /// bottom. Written to run on either site and to say which it found.
     private static let script = #"""
     (function(){
-      var out={site:'none',pieces:[],plies:0,flipped:false,highlights:[],board:null,clock:null};
+      var out={site:'none',pieces:[],plies:0,flipped:false,highlights:[],board:null,clock:null,oppClock:null};
       function clockSeconds(sel){
         var el=document.querySelector(sel); if(!el) return null;
         var t=(el.textContent||'').trim();
@@ -79,6 +83,7 @@ enum ChessDOM {
         out.site='chess.com';
         out.board=screenRect(cb);
         out.clock=clockSeconds('.clock-bottom, [class*="clock-bottom"]');
+        out.oppClock=clockSeconds('.clock-top, [class*="clock-top"]');
         out.flipped=cb.classList.contains('flipped');
         var ps=cb.querySelectorAll('.piece');
         for(var i=0;i<ps.length;i++){
@@ -107,6 +112,7 @@ enum ChessDOM {
         out.site='lichess';
         out.board=screenRect((cg.closest('cg-container')||cg.closest('.cg-wrap')||cg));
         out.clock=clockSeconds('.rclock-bottom .time, .rclock-bottom time');
+        out.oppClock=clockSeconds('.rclock-top .time, .rclock-top time');
         var wrap=cg.closest('.cg-wrap')||cg.parentElement;
         out.flipped=!!(wrap&&wrap.classList.contains('orientation-black'));
         var r=cg.getBoundingClientRect(),sq=r.width/8;
@@ -275,8 +281,10 @@ enum ChessDOM {
         }
         position.castling = rights
         let clock = obj["clock"] as? Double
+        let oppClock = obj["oppClock"] as? Double
         return Reading(position: position, flipped: flipped, site: site,
                        plies: plies, lastMove: lastMove, boardRect: boardRect,
-                       clockSeconds: (clock ?? 0) > 0 ? clock : nil)
+                       clockSeconds: (clock ?? 0) > 0 ? clock : nil,
+                       opponentSeconds: (oppClock ?? 0) > 0 ? oppClock : nil)
     }
 }

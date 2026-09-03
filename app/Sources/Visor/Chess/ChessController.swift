@@ -379,9 +379,9 @@ final class ChessController: ObservableObject {
                         guard let self, case .watching = session.state, !text.isEmpty else { return }
                         self.badge.show(text, evalFraction: Self.evalFill(session.evalCp))
                     }
-                // Clicking the island stops it, which is the other half of the
-                // shortcut and the only control most people will ever see.
-                self.badge.onClick = { [weak self] in self?.stop() }
+                // The island no longer stops on a click — a stray click on a
+                // pill sitting over your game shouldn't end it. Stopping is the
+                // Settings toggle and the watch-board shortcut.
             } catch {
                 self.fail(error.localizedDescription)
                 self.session = nil
