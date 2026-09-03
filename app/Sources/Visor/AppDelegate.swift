@@ -240,6 +240,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         // are gone; run-mode lives in Settings → Workspace.
         item.button?.action = #selector(toggleMenuPanel)
         item.button?.target = self
+        // Fire on mouse-DOWN, like every other menu-bar app: the dropdown and
+        // the lit icon appear the instant you press, not when you release. The
+        // default is mouse-up, which is why it felt laggy and the highlight
+        // "re-selected" on release.
+        _ = (item.button?.cell as? NSButtonCell)?.sendAction(on: [.leftMouseDown])
         statusItem = item
     }
 
@@ -254,11 +259,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         popover.appearance = NSAppearance(named: VisorTheme.current.isDark ? .darkAqua : .aqua)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         installMenuClickMonitor()
-        // Light the icon on the NEXT runloop tick — after the click's mouse-up
-        // has ended the button's own tracking (which un-highlights it). Doing it
-        // now or in popoverDidShow (both before mouse-up) gets wiped, which is
-        // why the lit state wasn't sticking.
-        DispatchQueue.main.async { [weak self] in self?.statusItem?.button?.highlight(true) }
+        // Light it now — the action fires on mouse-down, so the icon lights the
+        // moment you press, and stays lit while the popover is up (cleared in
+        // popoverDidClose).
+        button.highlight(true)
     }
 
     private func closeMenuPanel() {
