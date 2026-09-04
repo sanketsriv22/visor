@@ -17,7 +17,9 @@ final class ComputerUseUI {
     static let shared = ComputerUseUI()
     private var panel: NSPanel?
 
-    func toggle() { (panel?.isVisible ?? false) ? hide() : show() }
+    var isVisible: Bool { panel?.isVisible ?? false }
+
+    func toggle() { isVisible ? hide() : show() }
 
     func show() {
         let p = ensurePanel()
@@ -138,16 +140,16 @@ struct ComputerUseCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Color.clear.frame(height: topInset)   // clear the physical notch
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 header
                 field
                 statusLine
                 if !agent.log.isEmpty { logView }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 12)
-            .padding(.bottom, 16)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(\.colorScheme, .dark)
@@ -212,14 +214,14 @@ struct ComputerUseCard: View {
             VStack(alignment: .leading, spacing: 3) {
                 ForEach(Array(agent.log.enumerated()), id: \.offset) { _, line in
                     Text("› \(line)")
-                        .font(.custom(Design.Text.face, size: 11))
+                        .font(.custom(Design.Text.face, size: 10))
                         .foregroundStyle(Design.Retro.faint)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .lineLimit(1)
                 }
             }
         }
-        .frame(maxHeight: 130)
+        .frame(maxHeight: 40)
     }
 
     private func run() {

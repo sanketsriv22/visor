@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private var statusItem: NSStatusItem?
     private var menuPopover: NSPopover?
     private var menuClickMonitor: Any?
+    private var menuUpMonitor: Any?
     private let updater = Updater()
     private let ai = AIRunner()
     private var sendToMenu: NSMenu?
@@ -260,18 +261,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         popover.appearance = NSAppearance(named: VisorTheme.current.isDark ? .darkAqua : .aqua)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         installMenuClickMonitor()
-        // Light it now, and keep it lit. `highlight(true)` doesn't persist: the
-        // button runs its own mouse tracking and clears the highlight on
-        // mouse-UP, which is why the lit state kept vanishing the moment you
-        // released. The button's `state` is not touched by tracking, and
-        // NSStatusBarButton draws `.on` with the selected background — so this
-        // stays lit until we set it back to `.off` on close.
-        button.state = .on
+        // Light it now. The button runs its own mouse tracking and clears the
+        // highlight on mouse-UP — which is why the lit state vanished the moment
+        // you released — so `installMenuClickMonitor` also re-lights it after
+        // each of our own mouse-ups while the popover is open. This first call
+        // covers the interval before that mouse-up lands.
+        button.highlight(true)
     }
 
     private func closeMenuPanel() {
         menuPopover?.performClose(nil)
-        statusItem?.button?.state = .off
+        statusItem?.button?.highlight(false)
         removeMenuClickMonitor()
     }
 
@@ -279,20 +279,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     /// outside it — but not on the icon, whose own click is the toggle (letting
     /// that through would close-then-reopen).
     private func installMenuClickMonitor() {
-        guard menuClickMonitor == nil else { return }
-        menuClickMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            guard let self, let button = self.statusItem?.button, let window = button.window else {
-                self?.closeMenuPanel(); return
+        if menuClickMonitor == nil {
+            menuClickMonitor = NSEvent.addGlobalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+                guard let self, let button = self.statusItem?.button, let window = button.window else {
+                    self?.closeMenuPanel(); return
+                }
+                let iconRect = window.convertToScreen(button.convert(button.bounds, to: nil))
+                if !iconRect.contains(NSEvent.mouseLocation) { self.closeMenuPanel() }
             }
-            let iconRect = window.convertToScreen(button.convert(button.bounds, to: nil))
-            if !iconRect.contains(NSEvent.mouseLocation) { self.closeMenuPanel() }
+        }
+        // The button un-highlights itself on our own mouse-UP (its push-button
+        // tracking). Re-light it right after, on the next runloop tick, so the
+        // icon stays lit for as long as the popover is open — matching how a
+        // native menu keeps its item highlighted while open.
+        if menuUpMonitor == nil {
+            menuUpMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] event in
+                guard let self, self.menuPopover?.isShown == true else { return event }
+                DispatchQueue.main.async { self.statusItem?.button?.highlight(true) }
+                return event
+            }
         }
     }
 
     private func removeMenuClickMonitor() {
         if let m = menuClickMonitor { NSEvent.removeMonitor(m) }
         menuClickMonitor = nil
+        if let m = menuUpMonitor { NSEvent.removeMonitor(m) }
+        menuUpMonitor = nil
     }
 
     private func ensureMenuPopover() -> NSPopover {
@@ -323,7 +337,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     func popoverDidClose(_ notification: Notification) {
-        statusItem?.button?.state = .off
+        statusItem?.button?.highlight(false)
         removeMenuClickMonitor()
     }
 

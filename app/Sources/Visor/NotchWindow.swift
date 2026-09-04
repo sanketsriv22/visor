@@ -139,10 +139,10 @@ final class NotchController {
         // size so returning from the HUD lands on a card that's already there,
         // rather than one animating up from nothing.
         case .hud:   return CGSize(width: chatCardWidth, height: chatCardHeight)
-        // Computer Use rides the chat card's footprint so it stays inside the
-        // window union and needs no resize — room for a task field, a status
-        // line, and a running log of steps.
-        case .computerUse: return CGSize(width: chatCardWidth, height: chatCardHeight)
+        // Computer Use is a short, wide strip — a little narrower than chat and
+        // much shorter: a task field, a status line, and a couple of recent
+        // steps, no more. Stays inside the window union so nothing resizes.
+        case .computerUse: return CGSize(width: 500, height: 156)
         }
     }
 
@@ -642,23 +642,44 @@ final class NotchController {
         if mode.isFullScreen { showHUD() } else { hideHUD() }
     }
 
-    /// Open the Computer Use face in the notch and leave it up. It stays visible
-    /// for the whole task — the agent drives other apps while this card reports
-    /// each step, so you always see what it's doing — until you close it or
-    /// switch faces. Called from the menu bar.
+    /// Bring up the Computer Use face and leave it up. It stays visible for the
+    /// whole task — the agent drives other apps while this card reports each
+    /// step — until you close it or switch faces.
+    ///
+    /// This expands straight into the computer-use card rather than going
+    /// through `toggle()`, deliberately: in HUD-only mode `toggle()` resumes
+    /// into the HUD, which is why Computer Use wasn't appearing there.
     func openComputerUse() {
-        setMode(.computerUse)
-        if !ui.expanded { toggle() }
+        UserDefaults.standard.set(VisorMode.computerUse.rawValue, forKey: modeKey)
+        if ui.expanded {
+            setMode(.computerUse)
+            return
+        }
+        applyFrame(expanded: true)
+        ui.settling = true
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.95)) {
+            ui.mode = .computerUse
+            ui.expanded = true
+        }
+        panel.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.ui.settling = false
+        }
     }
 
-    /// Toggle the Computer Use face: close the notch if it's already the face on
-    /// show, otherwise open it.
+    /// Menu-bar entry point.
+    ///
+    /// - If Computer Use is already the notch face, put it away.
+    /// - If the dynamic island is up, put it away.
+    /// - If some *other* interface is already open (a card face or the HUD),
+    ///   don't clobber it — run Computer Use as a dynamic island alongside it.
+    /// - Otherwise (nothing open, HUD-only mode included) bring it up as the
+    ///   notch face.
     func toggleComputerUse() {
-        if ui.expanded && ui.mode == .computerUse {
-            toggle()
-        } else {
-            openComputerUse()
-        }
+        if ComputerUseUI.shared.isVisible { ComputerUseUI.shared.hide(); return }
+        if ui.expanded && ui.mode == .computerUse { toggle(); return }
+        if ui.expanded { ComputerUseUI.shared.show(); return }
+        openComputerUse()
     }
 
     /// Start or stop dictating.
