@@ -56,6 +56,7 @@ final class ComputerUseAgent: ObservableObject {
 
     private func run(_ instruction: String) async {
         var history: [String] = []
+        var misses = 0   // consecutive turns with no usable action
 
         // One persistent capture for the whole task — the screen-recording
         // indicator stays steadily lit instead of blinking each step, and each
@@ -103,8 +104,16 @@ final class ComputerUseAgent: ObservableObject {
                                             appName: frontApp?.localizedName,
                                             elements: elements,
                                             history: history, hint: hint) else {
-                finish("The model didn't return a usable action."); return
+                // A single empty/unparseable reply shouldn't end the whole task —
+                // it's usually a transient hiccup. Retry a few times before
+                // giving up.
+                misses += 1
+                if misses >= 4 { finish("The model kept returning nothing usable — stopped."); return }
+                status = "Step \(step) — retrying…"
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                continue
             }
+            misses = 0
             if Task.isCancelled { break }
 
             switch action {
@@ -225,8 +234,9 @@ final class ComputerUseAgent: ObservableObject {
         (\(imageW)×\(imageH) pixels, top-left origin).
 
         PREFER acting on elements by id — they are exact, so you never have to \
-        guess coordinates. Reply with ONE JSON object and NOTHING else, a short \
-        "reason" first, then the action:
+        guess coordinates. Reply with ONE JSON object and NOTHING else. Keep \
+        "reason" to ONE short sentence so the action is never cut off, then the \
+        action fields:
         {"reason":"...","action":"click","id":<id>}                    (click/press an element: buttons, links, results, fields)
         {"reason":"...","action":"type","id":<id>,"text":"...","submit":true}  (focus that field, type, and — if submit is true — press Return)
         {"reason":"...","action":"key","key":"cmd+k"}                   (also: return, tab, escape, cmd+a, cmd+c, cmd+v, cmd+f, cmd+n, up, down, left, right)
@@ -257,6 +267,12 @@ final class ComputerUseAgent: ObservableObject {
         element. If you typed and nothing changed, PRESS RETURN — do not click the \
         search field again.
         - Do ONE step per turn, then re-read the fresh element list.
+        - Be DECISIVE: every turn output exactly one action that moves the task \
+        forward. Never reply with only prose or a reason and no action, and never \
+        just re-observe without acting.
+        - When you have reached the target (e.g. the person's conversation is \
+        open), DO THE NEXT REAL STEP immediately — click the message field, type \
+        the message, press Return — don't stop to look again.
         - NEVER repeat an action that didn't change anything — pick a different \
         element or search instead.
         - Use "fail" only if the task is truly impossible.
@@ -287,7 +303,7 @@ final class ComputerUseAgent: ObservableObject {
 
         let body: [String: Any] = [
             "model": model,
-            "max_tokens": 512,
+            "max_tokens": 700,
             "messages": [
                 ["role": "system", "content": system],
                 ["role": "user", "content": [
@@ -313,13 +329,37 @@ final class ComputerUseAgent: ObservableObject {
 
     // MARK: Parsing + geometry
 
+    /// Pull the first complete JSON object out of the reply, brace-matched so a
+    /// trailing example or prose (or the "reason" text's own braces) can't break
+    /// it — the old first-`{`-to-last-`}` grab did. Tolerates ``` fences.
+    private static func extractJSON(_ raw: String) -> [String: Any]? {
+        let text = raw.replacingOccurrences(of: "```json", with: "")
+                      .replacingOccurrences(of: "```", with: "")
+        let chars = Array(text)
+        guard let start = chars.firstIndex(of: "{") else { return nil }
+        var depth = 0, inString = false, escaped = false, end: Int?
+        for i in start..<chars.count {
+            let c = chars[i]
+            if escaped { escaped = false; continue }
+            if c == "\\" { escaped = true; continue }
+            if c == "\"" { inString.toggle(); continue }
+            if inString { continue }
+            if c == "{" { depth += 1 }
+            else if c == "}" { depth -= 1; if depth == 0 { end = i; break } }
+        }
+        let slice: String
+        if let end { slice = String(chars[start...end]) }
+        else if let last = chars.lastIndex(of: "}"), last > start { slice = String(chars[start...last]) }
+        else { return nil }
+        guard let data = slice.data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return o
+    }
+
     private static func parse(_ text: String) -> Action? {
-        // Pull the first {...} out of the reply, tolerating prose or code fences.
-        guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}"),
-              start < end,
-              let data = String(text[start...end]).data(using: .utf8),
-              let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let action = o["action"] as? String
+        guard let o = extractJSON(text),
+              let action = (o["action"] as? String)?.lowercased()
         else { return nil }
         func num(_ v: Any?) -> Double? { (v as? NSNumber)?.doubleValue }
         func d(_ k: String) -> Double { num(o[k]) ?? 0 }
