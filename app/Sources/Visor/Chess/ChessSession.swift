@@ -682,10 +682,11 @@ final class ChessSession: ObservableObject {
             if delta > 5 {
                 // Spend the surplus on HARD moves, the way a person does — an
                 // easy move stays quick even when we're sitting on a clock lead,
-                // so an obvious retake isn't dragged out just because we have
-                // time. Difficulty scales how much of the surplus we spend here.
-                let surplus = min((delta - 5) * 0.4, 9.0)
-                median += surplus * (0.25 + 0.75 * difficulty)
+                // while a genuinely hard move is free to eat the extra time.
+                // Pure difficulty scaling: ~0 on an obvious move, the full
+                // surplus on a hard one.
+                let surplus = min((delta - 5) * 0.5, 11.0)
+                median += surplus * difficulty
                 blitzOK = false          // we have time to spend; don't also blitz
             } else if delta < -5 {
                 median = min(median, lo + span * 0.15)
@@ -709,7 +710,7 @@ final class ChessSession: ObservableObject {
             wait *= max(0.1, ours / 20.0)
         }
 
-        return max(0.03, min(wait, 15.0))
+        return max(0.03, min(wait, 20.0))
     }
 
     /// A move time drawn from a log-normal distribution: `median` is where the
