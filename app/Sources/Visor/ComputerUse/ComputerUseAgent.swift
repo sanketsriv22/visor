@@ -67,7 +67,10 @@ final class ComputerUseAgent: ObservableObject {
 
     private func run(_ instruction: String) async {
         var history: [String] = []
-        var misses = 0   // consecutive turns with no usable action
+        var misses = 0            // consecutive turns with no usable action
+        var lastSig: String?      // fingerprint of last step's element list
+        var lastActed: String?    // the action we took last step
+        var ineffective: [String] = []   // actions that changed nothing — don't repeat
 
         // One persistent capture for the whole task — the screen-recording
         // indicator stays steadily lit instead of blinking each step, and each
@@ -105,11 +108,27 @@ final class ComputerUseAgent: ObservableObject {
             let elements = (AXScanner.trusted && frontApp != nil)
                 ? AXScanner.snapshot(pid: frontApp!.processIdentifier)
                 : []
+            let inBrowser = Self.isBrowser(frontApp?.bundleIdentifier)
 
-            // Spot a stall: the same action three times running, or a run of
-            // clicks with no typing, means it's flailing rather than making
-            // progress — tell it to change tack instead of repeating itself.
-            let hint = Self.stuckHint(history)
+            // No-progress detector: if the screen's elements are identical to
+            // last step after we clicked/typed, that action did NOTHING — record
+            // it so we can tell the model to stop repeating it. This is what
+            // breaks the "click Sign Up 17 times" loop the hint alone couldn't.
+            let sig = elements.map { "\($0.role)|\($0.label)" }.joined(separator: "\n")
+            if let lastSig, lastSig == sig, let lastActed,
+               lastActed.hasPrefix("Clicked") || lastActed.hasPrefix("Typed"),
+               !ineffective.contains(lastActed) {
+                ineffective.append(lastActed)
+            }
+
+            // Spot a stall and fold in the do-not-repeat list.
+            var hints = [Self.stuckHint(history)].compactMap { $0 }
+            if !ineffective.isEmpty {
+                hints.append("These actions changed NOTHING and are dead ends — do NOT do them again: "
+                    + ineffective.suffix(6).joined(separator: "; ")
+                    + ". Try a DIFFERENT element, SCROLL to reveal more, or use a keyboard shortcut.")
+            }
+            let hint = hints.isEmpty ? nil : hints.joined(separator: "\n")
             guard let action = await decide(instruction: instruction, png: cap.data,
                                             imageW: cap.w, imageH: cap.h,
                                             appName: frontApp?.localizedName,
@@ -132,9 +151,13 @@ final class ComputerUseAgent: ObservableObject {
                 guard let node = elements.first(where: { $0.id == eid }) else {
                     note("Couldn't find element #\(eid) — it may have changed", &history); break
                 }
-                // Press by reference when we can (no mouse movement, more
-                // reliable); otherwise click its centre.
-                if !AXScanner.press(node) { DesktopActuator.click(at: node.center) }
+                // In a browser, always use a real mouse click: AXPress on web
+                // links/buttons frequently does NOT navigate, which was the whole
+                // sign-up loop. In native apps, AXPress first (no mouse movement,
+                // works off-screen), falling back to a click.
+                if inBrowser || !AXScanner.press(node) {
+                    DesktopActuator.click(at: node.center)
+                }
                 note("Clicked \(Self.name(node))", &history)
             case let .typeElement(eid, t, submit):
                 guard let node = elements.first(where: { $0.id == eid }) else {
@@ -184,8 +207,13 @@ final class ComputerUseAgent: ObservableObject {
             case let .fail(msg):
                 finish(msg.isEmpty ? "Couldn't finish this one." : "Couldn't finish — \(msg)"); return
             }
-            // A short beat for the screen to settle before the next look.
-            try? await Task.sleep(nanoseconds: 450_000_000)
+            // Remember what we just did and the screen it acted on, so next step
+            // can tell whether it changed anything.
+            lastActed = history.last
+            lastSig = sig
+            // Let the screen settle before the next look — longer in a browser,
+            // where a click often triggers a page load.
+            try? await Task.sleep(nanoseconds: inBrowser ? 900_000_000 : 550_000_000)
         }
         finish(Task.isCancelled ? "Stopped." : "Reached the \(maxSteps)-step limit.")
     }
@@ -213,6 +241,12 @@ final class ComputerUseAgent: ObservableObject {
             return "You're stuck — three actions with no progress. STOP repeating that. To reach a PERSON or conversation, open the quick-switcher / new-message (⌘K in Slack or Discord, ⌘N in Messages), TYPE the name, then press Return to open it — do NOT use message search (⌘F), which searches text, not people. If you already typed a query and nothing happened, press Return (or Down then Return) to pick the top result instead of clicking the search field again."
         }
         return nil
+    }
+
+    private static func isBrowser(_ bundleID: String?) -> Bool {
+        guard let id = bundleID?.lowercased() else { return false }
+        return ["safari", "chrome", "firefox", "edge", "arc", "brave", "thebrowser",
+                "vivaldi", "opera", "orion"].contains { id.contains($0) }
     }
 
     /// A human-readable name for an element, for the step log.
@@ -284,6 +318,13 @@ final class ComputerUseAgent: ObservableObject {
         - PREFER keyboard shortcuts (key actions) and element ids over pixel \
         clicks. Only click by pixel x,y when there is no matching element AND no \
         shortcut — and NEVER pixel-click the same spot twice.
+        - ON THE WEB: to go to a site use {"action":"open_url",...} — do NOT press \
+        ⌘T or open tabs yourself. A click that leaves the element list unchanged \
+        did nothing or the page is still loading: WAIT a step, or SCROLL down to \
+        reveal the real control, or pick a DIFFERENT element — never click the \
+        same label again. Sign-up / login / "Get started" buttons usually load a \
+        NEW page; after clicking one, re-read before deciding, and if a form (name, \
+        email, password fields) appears, fill THOSE.
         - Do ONE step per turn, then re-read the fresh element list.
         - Be DECISIVE: every turn output exactly one action that moves the task \
         forward. Never reply with only prose or a reason and no action, and never \
