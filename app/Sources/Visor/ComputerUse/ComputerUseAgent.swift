@@ -256,16 +256,23 @@ final class ComputerUseAgent: ObservableObject {
         - FIND THINGS BY SEARCHING, NOT SCANNING. To reach a person, conversation, \
         file, message, or setting, use search, TYPE the name, then select the \
         result. Do not click around hoping to spot it.
-        - TO MESSAGE / DM A PERSON (Slack, Discord, Teams, Messages): open the \
-        quick-switcher or new-message compose — usually ⌘K (Slack/Discord) or ⌘N \
-        (Messages) — NOT the message-search box (⌘F searches text, not people). \
-        Then type the person's name and PRESS RETURN (or Down then Return) to open \
-        the conversation with the top match — do not wait for a clickable result. \
-        Then click the message input, type the message, and press Return to send. \
-        The fastest form is {"action":"type","id":<search field>,"text":"<name>","submit":true}.
+        - TO MESSAGE / DM A PERSON, do EXACTLY these steps and do not click around:
+          1) Open the quick-switcher with the KEY, not a click: \
+        {"action":"key","key":"cmd+k"} (Slack/Discord) or "cmd+n" (Messages). Do \
+        NOT pixel-click looking for a search box.
+          2) Into the switcher field, type ONLY the person's NAME and submit: \
+        {"action":"type","id":<field>,"text":"Ian","submit":true}. Type the NAME \
+        here — NEVER the message text.
+          3) That opens their conversation. Now type the MESSAGE into the message \
+        input and send: {"action":"type","id":<message field>,"text":"<the message>","submit":true}.
+          Keep them separate: the NAME goes in the switcher, the MESSAGE goes in \
+        the message box. Never use message search (⌘F — it searches text, not people).
         - After typing a query, the result often does NOT appear as its own \
         element. If you typed and nothing changed, PRESS RETURN — do not click the \
         search field again.
+        - PREFER keyboard shortcuts (key actions) and element ids over pixel \
+        clicks. Only click by pixel x,y when there is no matching element AND no \
+        shortcut — and NEVER pixel-click the same spot twice.
         - Do ONE step per turn, then re-read the fresh element list.
         - Be DECISIVE: every turn output exactly one action that moves the task \
         forward. Never reply with only prose or a reason and no action, and never \
