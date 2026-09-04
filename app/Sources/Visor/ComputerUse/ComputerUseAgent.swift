@@ -83,8 +83,13 @@ final class ComputerUseAgent: ObservableObject {
                 finish("Couldn't capture the screen — is Screen Recording granted?"); return
             }
             status = "Step \(step) — looking at the screen…"
+            // Spot a stall: the same action three times running, or a run of
+            // clicks with no typing, means it's flailing rather than making
+            // progress — tell it to change tack instead of repeating itself.
+            let hint = Self.stuckHint(history)
             guard let action = await decide(instruction: instruction, png: cap.data,
-                                            imageW: cap.w, imageH: cap.h, history: history) else {
+                                            imageW: cap.w, imageH: cap.h,
+                                            history: history, hint: hint) else {
                 finish("The model didn't return a usable action."); return
             }
             if Task.isCancelled { break }
@@ -138,44 +143,67 @@ final class ComputerUseAgent: ObservableObject {
         status = message
     }
 
+    /// A nudge when the recent actions show a stall — the same action repeated,
+    /// or a run of clicks with nothing typed — so the model breaks out of the
+    /// loop and searches instead of grinding on the same wrong target.
+    private static func stuckHint(_ history: [String]) -> String? {
+        let recent = Array(history.suffix(4))
+        guard recent.count >= 3 else { return nil }
+        if Set(history.suffix(3)).count == 1 {
+            return "You have taken the SAME action three times with no progress — the target is wrong. STOP repeating it. Use the app's search or quick-switcher (a search field, or ⌘K / ⌘F) and TYPE what you're looking for, or pick a different element."
+        }
+        if recent.count == 4, recent.allSatisfy({ $0.hasPrefix("click") || $0.hasPrefix("double") }) {
+            return "Several clicks in a row with no typing and little progress. If you're trying to find something, use the app's search/quick-switcher (⌘K or ⌘F) and TYPE its name rather than clicking around."
+        }
+        return nil
+    }
+
     // MARK: Vision call
 
     private func decide(instruction: String, png: Data, imageW: Int, imageH: Int,
-                        history: [String]) async -> Action? {
+                        history: [String], hint: String?) async -> Action? {
         guard let key = Keychain.get(OpenRouterClient.sharedKeyAccount) else { return nil }
         let system = """
         You operate a real macOS desktop to accomplish the user's task. Each turn \
         you get a SCREENSHOT that is exactly \(imageW)×\(imageH) pixels, origin \
-        top-left. Reply with ONE JSON object and NOTHING else — the single next \
-        action:
-        {"action":"open","app":"Slack"}   (launch or switch to an app by name — ALWAYS prefer this over clicking Dock/Finder icons)
-        {"action":"open_url","url":"https://example.com"}   (open a web address in the default browser — use this for ANY website/URL task)
-        {"action":"click","x":<int>,"y":<int>}
-        {"action":"double_click","x":<int>,"y":<int>}
-        {"action":"type","text":"..."}
-        {"action":"key","key":"return"}   (also: tab, escape, cmd+a, cmd+c, cmd+v, cmd+space, up, down, left, right)
-        {"action":"scroll","lines":<int, + = down, - = up>}
-        {"action":"done","summary":"..."}
-        {"action":"fail","reason":"..."}
+        top-left. Reply with ONE JSON object and NOTHING else. Put a short \
+        "reason" first (what you see and why this action), then the action fields:
+        {"reason":"...","action":"open","app":"Slack"}   (launch or switch to an app by name — ALWAYS prefer this over clicking Dock/Finder icons)
+        {"reason":"...","action":"open_url","url":"https://example.com"}   (open a web address in the default browser — use this for ANY website/URL task)
+        {"reason":"...","action":"click","x":<int>,"y":<int>}
+        {"reason":"...","action":"double_click","x":<int>,"y":<int>}
+        {"reason":"...","action":"type","text":"..."}
+        {"reason":"...","action":"key","key":"return"}   (also: tab, escape, cmd+a, cmd+c, cmd+v, cmd+k, cmd+f, cmd+space, up, down, left, right)
+        {"reason":"...","action":"scroll","lines":<int, + = down, - = up>}
+        {"reason":"...","action":"done","summary":"..."}
+        {"reason":"why it can't be done","action":"fail"}
         Rules:
-        - x,y are PIXELS within this \(imageW)×\(imageH) image (not percentages, not 0–1).
-        - If the app you need for the task is not clearly visible on screen, your \
-        FIRST action must be {"action":"open","app":"<name>"} — do NOT click around \
-        Finder or the Desktop hunting for it, and do NOT give up just because the \
-        screen shows the wrong app.
+        - x,y are PIXELS within this \(imageW)×\(imageH) image (not percentages, not 0–1). Aim at the CENTER of the target.
+        - If the app you need is not clearly visible, your FIRST action must be \
+        {"action":"open","app":"<name>"} — never click around Finder or the \
+        Desktop hunting for it, and never give up just because the screen shows \
+        the wrong app.
+        - FIND THINGS BY SEARCHING, NOT SCANNING. To reach a person, conversation, \
+        file, message, or setting, use the app's search or quick-switcher — a \
+        search field, or the ⌘K / ⌘F shortcut — then TYPE the name and pick from \
+        the results. Do not scan the screen and click around hoping to spot it.
         - To enter text you MUST first click the target field, then on the NEXT \
-        turn use "type".
-        - Do one small step per turn and re-check the new screenshot. Only use \
-        "fail" if the task is truly impossible, never just because the current \
-        screen isn't the app you want.
+        turn use "type". After typing a search query, the match usually appears in \
+        a dropdown/list — click it or press return/down-then-return to select it.
+        - Do ONE small step per turn and re-check the new screenshot.
+        - NEVER repeat an action that already failed to change the screen. If a \
+        click did nothing, the target was wrong — switch to search or a keyboard \
+        shortcut instead of clicking the same area again.
+        - Use "fail" only if the task is truly impossible.
         """
         let historyText = history.isEmpty ? "(nothing yet)" : history.suffix(10).joined(separator: "\n")
-        let userText = "Task: \(instruction)\n\nActions you've already taken:\n\(historyText)\n\nHere is the current screen. Give the next single action as JSON."
+        var userText = "Task: \(instruction)\n\nActions you've already taken:\n\(historyText)\n\nHere is the current screen. Give the next single action as JSON."
+        if let hint { userText += "\n\n⚠️ \(hint)" }
         let dataURI = "data:image/png;base64," + png.base64EncodedString()
 
         let body: [String: Any] = [
             "model": model,
-            "max_tokens": 300,
+            "max_tokens": 512,
             "messages": [
                 ["role": "system", "content": system],
                 ["role": "user", "content": [
