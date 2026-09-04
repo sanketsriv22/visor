@@ -66,6 +66,14 @@ final class ComputerUseAgent: ObservableObject {
     }
 
     private func run(_ instruction: String) async {
+        // Hand focus back to the user's real app. Visor is frontmost right now
+        // because you just typed the task into its card — if we don't step aside,
+        // the agent scans and clicks Visor's OWN window (it was clicking its own
+        // COPY button). Deactivating brings the previously-active app forward
+        // without hiding the card.
+        NSApplication.shared.deactivate()
+        try? await Task.sleep(nanoseconds: 350_000_000)
+
         var history: [String] = []
         var misses = 0            // consecutive turns with no usable action
         var lastSig: String?      // fingerprint of last step's element list
@@ -104,7 +112,12 @@ final class ComputerUseAgent: ObservableObject {
             // exact elements and frames, so the model picks a real element by id
             // instead of guessing pixel coordinates. This is what makes it stop
             // click-looping. Falls back gracefully to pixels if AX is empty.
-            let frontApp = NSWorkspace.shared.frontmostApplication
+            // The target app — never Visor itself. If Visor is somehow frontmost
+            // (you clicked its card), fall back to the topmost window behind it.
+            var frontApp = NSWorkspace.shared.frontmostApplication
+            if frontApp == nil || frontApp?.bundleIdentifier == Bundle.main.bundleIdentifier {
+                frontApp = Self.topmostAppExcludingVisor()
+            }
             let elements = (AXScanner.trusted && frontApp != nil)
                 ? AXScanner.snapshot(pid: frontApp!.processIdentifier)
                 : []
@@ -288,6 +301,28 @@ final class ComputerUseAgent: ObservableObject {
             counts[key] = (( counts[key]?.n ?? 0) + 1, h)
         }
         return counts.values.filter { $0.n >= 3 }.map { $0.label }
+    }
+
+    /// The app owning the topmost on-screen normal window that isn't Visor —
+    /// i.e. what's actually behind our card. Uses the window list because it's
+    /// z-ordered front-to-back, unlike `runningApplications`.
+    private static func topmostAppExcludingVisor() -> NSRunningApplication? {
+        let mine = ProcessInfo.processInfo.processIdentifier
+        let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let infos = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]]
+        else { return nil }
+        for info in infos {
+            guard let pidNum = info[kCGWindowOwnerPID as String] as? NSNumber else { continue }
+            let pid = pidNum.int32Value
+            if pid == mine { continue }
+            let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
+            if layer != 0 { continue }   // normal window layer only (skip menus, HUDs)
+            if let app = NSRunningApplication(processIdentifier: pid),
+               app.activationPolicy == .regular {
+                return app
+            }
+        }
+        return nil
     }
 
     private static func isBrowser(_ bundleID: String?) -> Bool {
