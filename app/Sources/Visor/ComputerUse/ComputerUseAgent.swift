@@ -128,6 +128,18 @@ final class ComputerUseAgent: ObservableObject {
                     + ineffective.suffix(6).joined(separator: "; ")
                     + ". Try a DIFFERENT element, SCROLL to reveal more, or use a keyboard shortcut.")
             }
+            // Repeated-target detector: the same click 3+ times is a loop even
+            // when the page scrolled a little between tries (which defeats the
+            // identical-screen check above). Common on marketing pages whose nav
+            // links just scroll.
+            let repeated = Self.repeatedTargets(history)
+            if !repeated.isEmpty {
+                hints.append("You have already tried these 3+ times and they are NOT working: "
+                    + repeated.joined(separator: "; ")
+                    + ". They are dead ends — STOP clicking them. Do something completely different: "
+                    + "SCROLL down to look for a form, open a likely signup/login URL with open_url "
+                    + "(e.g. an app./login. subdomain), or if there is genuinely no signup here, use fail.")
+            }
             let hint = hints.isEmpty ? nil : hints.joined(separator: "\n")
             guard let action = await decide(instruction: instruction, png: cap.data,
                                             imageW: cap.w, imageH: cap.h,
@@ -241,6 +253,21 @@ final class ComputerUseAgent: ObservableObject {
             return "You're stuck — three actions with no progress. STOP repeating that. To reach a PERSON or conversation, open the quick-switcher / new-message (⌘K in Slack or Discord, ⌘N in Messages), TYPE the name, then press Return to open it — do NOT use message search (⌘F), which searches text, not people. If you already typed a query and nothing happened, press Return (or Down then Return) to pick the top result instead of clicking the search field again."
         }
         return nil
+    }
+
+    /// Targets clicked/typed 3+ times across the whole run, normalised so
+    /// slightly different labels for the same thing collapse together. These are
+    /// loops even when the page scrolled between tries.
+    private static func repeatedTargets(_ history: [String]) -> [String] {
+        func norm(_ s: String) -> String {
+            String(s.lowercased().filter { $0 != "\"" }.prefix(26))
+        }
+        var counts: [String: (n: Int, label: String)] = [:]
+        for h in history where h.hasPrefix("Clicked") || h.hasPrefix("Typed") {
+            let key = norm(h)
+            counts[key] = (( counts[key]?.n ?? 0) + 1, h)
+        }
+        return counts.values.filter { $0.n >= 3 }.map { $0.label }
     }
 
     private static func isBrowser(_ bundleID: String?) -> Bool {
