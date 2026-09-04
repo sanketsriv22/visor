@@ -27,9 +27,9 @@ final class ComputerUseAgent: ObservableObject {
     private let endpoint = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
 
     private enum Action {
-        case clickElement(Int), typeElement(Int, String)   // by Accessibility element
+        case clickElement(Int), typeElement(Int, String, Bool)   // by Accessibility element (submit?)
         case click(Double, Double), doubleClick(Double, Double)   // by pixel (fallback)
-        case type(String), key(String), scroll(Int)
+        case type(String, Bool), key(String), scroll(Int)        // type (submit?)
         case openApp(String), openURL(String)
         case done(String), fail(String)
     }
@@ -110,51 +110,59 @@ final class ComputerUseAgent: ObservableObject {
             switch action {
             case let .clickElement(eid):
                 guard let node = elements.first(where: { $0.id == eid }) else {
-                    note("click #\(eid) — no such element", &history); break
+                    note("Couldn't find element #\(eid) — it may have changed", &history); break
                 }
                 // Press by reference when we can (no mouse movement, more
                 // reliable); otherwise click its centre.
                 if !AXScanner.press(node) { DesktopActuator.click(at: node.center) }
-                note("click #\(eid) \(node.label.isEmpty ? node.role : node.label)", &history)
-            case let .typeElement(eid, t):
+                note("Clicked \(Self.name(node))", &history)
+            case let .typeElement(eid, t, submit):
                 guard let node = elements.first(where: { $0.id == eid }) else {
-                    note("type #\(eid) — no such element", &history); break
+                    note("Couldn't find element #\(eid) — it may have changed", &history); break
                 }
                 // Focus the field with a click, then type as real key events so
                 // the app's search/handlers fire.
                 DesktopActuator.click(at: node.center)
                 try? await Task.sleep(nanoseconds: 160_000_000)
                 DesktopActuator.type(t)
-                note("type \"\(t.prefix(30))\" → #\(eid) \(node.label)", &history)
+                if submit {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    DesktopActuator.key("return")
+                }
+                note("Typed \"\(t.prefix(30))\" into \(Self.name(node))\(submit ? " and pressed Return" : "")", &history)
             case let .click(x, y):
                 DesktopActuator.click(at: Self.map(x, y, ratio: cap.ratio, origin: frame.origin, scale: frame.scale))
-                note("click (\(Int(x)), \(Int(y)))", &history)
+                note("Clicked at (\(Int(x)), \(Int(y)))", &history)
             case let .doubleClick(x, y):
                 DesktopActuator.doubleClick(at: Self.map(x, y, ratio: cap.ratio, origin: frame.origin, scale: frame.scale))
-                note("double-click (\(Int(x)), \(Int(y)))", &history)
-            case let .type(t):
+                note("Double-clicked at (\(Int(x)), \(Int(y)))", &history)
+            case let .type(t, submit):
                 DesktopActuator.type(t)
-                note("type \"\(t.prefix(40))\"", &history)
+                if submit {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    DesktopActuator.key("return")
+                }
+                note("Typed \"\(t.prefix(40))\"\(submit ? " and pressed Return" : "")", &history)
             case let .key(k):
                 DesktopActuator.key(k)
-                note("key \(k)", &history)
+                note("Pressed \(Self.keyLabel(k))", &history)
             case let .scroll(n):
                 DesktopActuator.scroll(lines: n)
-                note("scroll \(n)", &history)
+                note("Scrolled \(n > 0 ? "down" : "up")", &history)
             case let .openApp(name):
                 Self.openApp(name)
-                note("open \(name)", &history)
+                note("Opened \(name)", &history)
                 // Apps take a beat to launch and come forward.
                 try? await Task.sleep(nanoseconds: 1_100_000_000)
             case let .openURL(url):
                 Self.openURL(url)
-                note("open \(url)", &history)
+                note("Opened \(url)", &history)
                 // The browser needs a moment to launch and load the page.
                 try? await Task.sleep(nanoseconds: 1_400_000_000)
             case let .done(msg):
-                finish("Done — \(msg)"); return
+                finish(msg.isEmpty ? "Done." : "Done — \(msg)"); return
             case let .fail(msg):
-                finish("Gave up — \(msg)"); return
+                finish(msg.isEmpty ? "Couldn't finish this one." : "Couldn't finish — \(msg)"); return
             }
             // A short beat for the screen to settle before the next look.
             try? await Task.sleep(nanoseconds: 450_000_000)
@@ -178,15 +186,27 @@ final class ComputerUseAgent: ObservableObject {
     /// or a run of clicks with nothing typed — so the model breaks out of the
     /// loop and searches instead of grinding on the same wrong target.
     private static func stuckHint(_ history: [String]) -> String? {
-        let recent = Array(history.suffix(4))
-        guard recent.count >= 3 else { return nil }
-        if Set(history.suffix(3)).count == 1 {
-            return "You have taken the SAME action three times with no progress — the target is wrong. STOP repeating it. Use the app's search or quick-switcher (a search field, or ⌘K / ⌘F) and TYPE what you're looking for, or pick a different element."
-        }
-        if recent.count == 4, recent.allSatisfy({ $0.hasPrefix("click") || $0.hasPrefix("double") }) {
-            return "Several clicks in a row with no typing and little progress. If you're trying to find something, use the app's search/quick-switcher (⌘K or ⌘F) and TYPE its name rather than clicking around."
+        let recent = Array(history.suffix(3))
+        guard recent.count == 3 else { return nil }
+        let allClicks = recent.allSatisfy { $0.hasPrefix("Clicked") || $0.hasPrefix("Double") }
+        if Set(recent).count == 1 || allClicks {
+            return "You're stuck — three actions with no progress. STOP repeating that. To reach a PERSON or conversation, open the quick-switcher / new-message (⌘K in Slack or Discord, ⌘N in Messages), TYPE the name, then press Return to open it — do NOT use message search (⌘F), which searches text, not people. If you already typed a query and nothing happened, press Return (or Down then Return) to pick the top result instead of clicking the search field again."
         }
         return nil
+    }
+
+    /// A human-readable name for an element, for the step log.
+    private static func name(_ node: AXScanner.Node) -> String {
+        if !node.label.isEmpty { return "\"\(node.label)\"" }
+        return node.role.hasPrefix("AX") ? String(node.role.dropFirst(2)).lowercased() : node.role
+    }
+
+    /// A key combo written the way a person reads it: ⌘K, Return, Esc.
+    private static func keyLabel(_ k: String) -> String {
+        let map = ["cmd": "⌘", "command": "⌘", "shift": "⇧", "opt": "⌥", "option": "⌥",
+                   "alt": "⌥", "ctrl": "⌃", "control": "⌃", "return": "Return", "enter": "Return",
+                   "escape": "Esc", "esc": "Esc", "tab": "Tab", "space": "Space"]
+        return k.split(separator: "+").map { map[$0.lowercased()] ?? $0.uppercased() }.joined()
     }
 
     // MARK: Vision call
@@ -208,8 +228,8 @@ final class ComputerUseAgent: ObservableObject {
         guess coordinates. Reply with ONE JSON object and NOTHING else, a short \
         "reason" first, then the action:
         {"reason":"...","action":"click","id":<id>}                    (click/press an element: buttons, links, results, fields)
-        {"reason":"...","action":"type","id":<id>,"text":"..."}        (focus that field and type into it)
-        {"reason":"...","action":"key","key":"return"}                 (also: tab, escape, cmd+a, cmd+c, cmd+v, cmd+k, cmd+f, up, down, left, right)
+        {"reason":"...","action":"type","id":<id>,"text":"...","submit":true}  (focus that field, type, and — if submit is true — press Return)
+        {"reason":"...","action":"key","key":"cmd+k"}                   (also: return, tab, escape, cmd+a, cmd+c, cmd+v, cmd+f, cmd+n, up, down, left, right)
         {"reason":"...","action":"scroll","lines":<int, + down / - up>}
         {"reason":"...","action":"open","app":"Slack"}                 (launch/switch to an app — works across Spaces; prefer over hunting for it)
         {"reason":"...","action":"open_url","url":"https://..."}       (open a web address in the default browser)
@@ -224,12 +244,18 @@ final class ComputerUseAgent: ObservableObject {
         - If the app you need isn't frontmost, your FIRST action is \
         {"action":"open","app":"<name>"}. Never give up because the wrong app shows.
         - FIND THINGS BY SEARCHING, NOT SCANNING. To reach a person, conversation, \
-        file, message, or setting, click the search field element (or press \
-        ⌘K / ⌘F), TYPE the name, then click the matching RESULT element that \
-        appears next turn. Do not click around hoping to spot it.
-        - To enter text, use {"action":"type","id":...} on a text field — it \
-        focuses the field first. After typing a query the result shows up as a NEW \
-        element next turn; click it (or press down then return).
+        file, message, or setting, use search, TYPE the name, then select the \
+        result. Do not click around hoping to spot it.
+        - TO MESSAGE / DM A PERSON (Slack, Discord, Teams, Messages): open the \
+        quick-switcher or new-message compose — usually ⌘K (Slack/Discord) or ⌘N \
+        (Messages) — NOT the message-search box (⌘F searches text, not people). \
+        Then type the person's name and PRESS RETURN (or Down then Return) to open \
+        the conversation with the top match — do not wait for a clickable result. \
+        Then click the message input, type the message, and press Return to send. \
+        The fastest form is {"action":"type","id":<search field>,"text":"<name>","submit":true}.
+        - After typing a query, the result often does NOT appear as its own \
+        element. If you typed and nothing changed, PRESS RETURN — do not click the \
+        search field again.
         - Do ONE step per turn, then re-read the fresh element list.
         - NEVER repeat an action that didn't change anything — pick a different \
         element or search instead.
@@ -298,6 +324,7 @@ final class ComputerUseAgent: ObservableObject {
         func num(_ v: Any?) -> Double? { (v as? NSNumber)?.doubleValue }
         func d(_ k: String) -> Double { num(o[k]) ?? 0 }
         func elementID() -> Int? { (o["id"] as? NSNumber)?.intValue ?? (o["element"] as? NSNumber)?.intValue }
+        func flag(_ k: String) -> Bool { (o[k] as? NSNumber)?.boolValue ?? (o[k] as? Bool) ?? false }
         // Coordinates in whatever shape the model used: x/y fields, or an
         // array under coordinate/point/etc. Missing coords → no click, rather
         // than the (0,0) corner it was hitting every time.
@@ -329,8 +356,9 @@ final class ComputerUseAgent: ObservableObject {
             guard let c = coords() else { return nil }; return .doubleClick(c.0, c.1)
         case "type":
             let text = (o["text"] as? String) ?? ""
-            if let eid = elementID() { return .typeElement(eid, text) }
-            return .type(text)
+            let submit = flag("submit") || flag("enter") || flag("press_return") || flag("return")
+            if let eid = elementID() { return .typeElement(eid, text, submit) }
+            return .type(text, submit)
         case "key":          return .key((o["key"] as? String) ?? "")
         case "scroll":       return .scroll(Int(d("lines")))
         case "done":         return .done((o["summary"] as? String) ?? "")
