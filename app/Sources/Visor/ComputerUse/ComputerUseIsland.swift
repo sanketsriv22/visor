@@ -292,3 +292,64 @@ struct ComputerUseCard: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { copied = false }
     }
 }
+
+/// A small, always-interactive STOP pill shown while a computer-use task runs.
+/// The Computer Use card itself is made pure-display during a run (so it can't
+/// swallow the agent's input), which also disables its own Stop button — so this
+/// separate panel, kept OUT of the pass-through, is how you stop a run. Anchored
+/// at the bottom-centre, away from where the agent usually clicks.
+@MainActor
+final class StopHUD {
+    static let shared = StopHUD()
+    static let windowID = NSUserInterfaceItemIdentifier("visor.cu.stop")
+    private var panel: NSPanel?
+
+    func show() {
+        let p = panel ?? make()
+        if let screen = NSScreen.main {
+            let f = screen.frame
+            p.setFrameOrigin(NSPoint(x: f.midX - p.frame.width / 2, y: f.minY + 42))
+        }
+        p.ignoresMouseEvents = false
+        p.orderFrontRegardless()
+        panel = p
+    }
+
+    func hide() { panel?.orderOut(nil) }
+
+    private func make() -> NSPanel {
+        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 132, height: 40),
+                        styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered, defer: false)
+        p.level = .statusBar
+        p.identifier = Self.windowID
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = true
+        p.isFloatingPanel = true
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.contentView = NSHostingView(rootView: StopHUDView())
+        panel = p
+        return p
+    }
+}
+
+private struct StopHUDView: View {
+    @ObservedObject private var agent = ComputerUseAgent.shared
+
+    var body: some View {
+        Button(action: agent.stop) {
+            HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 2).fill(Color.white).frame(width: 9, height: 9)
+                Text("STOP")
+                    .font(.custom(Design.Text.face, size: 12)).tracking(2)
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal, 18).padding(.vertical, 10)
+            .background(Capsule().fill(Color.red.opacity(0.92)))
+            .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .environment(\.colorScheme, .dark)
+    }
+}

@@ -75,9 +75,15 @@ final class ComputerUseAgent: ObservableObject {
         NSApplication.shared.deactivate()
         try? await Task.sleep(nanoseconds: 350_000_000)
 
-        // Card becomes pure display for the whole run — no swallowing input.
+        // Card becomes pure display for the whole run — no swallowing input —
+        // and a separate, always-clickable STOP pill appears since the card's own
+        // Stop button is now inert.
         setOverlaysPassthrough(true)
-        defer { setOverlaysPassthrough(false) }
+        StopHUD.shared.show()
+        defer {
+            setOverlaysPassthrough(false)
+            StopHUD.shared.hide()
+        }
 
         trace = CUTrace(task: instruction)
         var history: [String] = []
@@ -262,6 +268,9 @@ final class ComputerUseAgent: ObservableObject {
     /// Restored when the run ends, so the card is interactive again.
     private func setOverlaysPassthrough(_ on: Bool) {
         for w in NSApp.windows where w.level.rawValue >= NSWindow.Level.floating.rawValue {
+            // The STOP pill must stay clickable — it's the only way to stop a run
+            // now that the card is display-only.
+            if w.identifier == StopHUD.windowID { continue }
             w.ignoresMouseEvents = on
             if on, w.isKeyWindow { w.resignKey() }
         }
