@@ -73,11 +73,12 @@ final class ComputerUseAgent: ObservableObject {
         for step in 1...maxSteps {
             if Task.isCancelled { break }
             // Prefer the live stream frame; fall back to a one-shot if the first
-            // frame hasn't landed yet.
-            let frame: DesktopCapture.Frame? = capture.grab()
-                ?? (try? await ChessScreen.capture()).map {
-                    DesktopCapture.Frame(image: $0.image, origin: $0.origin, scale: $0.scale)
-                }
+            // frame hasn't landed yet. (Kept out of `??` — its right side is a
+            // synchronous autoclosure and can't hold an `await`.)
+            var frame = capture.grab()
+            if frame == nil, let shot = try? await ChessScreen.capture() {
+                frame = DesktopCapture.Frame(image: shot.image, origin: shot.origin, scale: shot.scale)
+            }
             guard let frame, let cap = Self.encode(frame.image) else {
                 finish("Couldn't capture the screen — is Screen Recording granted?"); return
             }
