@@ -648,7 +648,10 @@ final class ChessSession: ObservableObject {
         // we're sitting on a clock lead — playing the obvious ones instantly is
         // part of looking human.
         if forced { return Double.random(in: 0...0.12) }
-        if recapture { return Self.humanTime(median: lo + span * 0.12, sigma: 0.4) }
+        // A recapture is an obvious move — snap it, near the fast end and capped
+        // low no matter how wide the latency band is, and never subject to the
+        // clock-parity spend below (this returns before it).
+        if recapture { return min(Self.humanTime(median: lo + min(span * 0.10, 0.45), sigma: 0.35), 1.6) }
 
         // How much thought this move wants, 0…1 — how close the decision is (the
         // gap to the second-best move) and how busy the board is (legal-move
@@ -677,7 +680,12 @@ final class ChessSession: ObservableObject {
         if let ours = clock, let opp = oppClock {
             let delta = ours - opp
             if delta > 5 {
-                median += min((delta - 5) * 0.4, 9.0)
+                // Spend the surplus on HARD moves, the way a person does — an
+                // easy move stays quick even when we're sitting on a clock lead,
+                // so an obvious retake isn't dragged out just because we have
+                // time. Difficulty scales how much of the surplus we spend here.
+                let surplus = min((delta - 5) * 0.4, 9.0)
+                median += surplus * (0.25 + 0.75 * difficulty)
                 blitzOK = false          // we have time to spend; don't also blitz
             } else if delta < -5 {
                 median = min(median, lo + span * 0.15)
