@@ -75,6 +75,10 @@ final class ComputerUseAgent: ObservableObject {
         NSApplication.shared.deactivate()
         try? await Task.sleep(nanoseconds: 350_000_000)
 
+        // Card becomes pure display for the whole run — no swallowing input.
+        setOverlaysPassthrough(true)
+        defer { setOverlaysPassthrough(false) }
+
         trace = CUTrace(task: instruction)
         var history: [String] = []
         var misses = 0            // consecutive turns with no usable action
@@ -184,9 +188,9 @@ final class ComputerUseAgent: ObservableObject {
                 // clicks go through clickThrough so they reach the page, not
                 // Visor's own card sitting over the top of the screen.
                 if inBrowser {
-                    await clickThrough { DesktopActuator.click(at: node.center) }
+                    DesktopActuator.click(at: node.center)
                 } else if !AXScanner.press(node) {
-                    await clickThrough { DesktopActuator.click(at: node.center) }
+                    DesktopActuator.click(at: node.center)
                 }
                 note("Clicked \(Self.name(node))", &history)
             case let .typeElement(eid, t, submit):
@@ -195,7 +199,7 @@ final class ComputerUseAgent: ObservableObject {
                 }
                 // Focus the field with a click, then type as real key events so
                 // the app's search/handlers fire.
-                await clickThrough { DesktopActuator.click(at: node.center) }
+                DesktopActuator.click(at: node.center)
                 try? await Task.sleep(nanoseconds: 160_000_000)
                 DesktopActuator.type(t)
                 if submit {
@@ -204,12 +208,10 @@ final class ComputerUseAgent: ObservableObject {
                 }
                 note("Typed \"\(t.prefix(30))\" into \(Self.name(node))\(submit ? " and pressed Return" : "")", &history)
             case let .click(x, y):
-                let p = Self.map(x, y, ratio: cap.ratio, origin: frame.origin, scale: frame.scale)
-                await clickThrough { DesktopActuator.click(at: p) }
+                DesktopActuator.click(at: Self.map(x, y, ratio: cap.ratio, origin: frame.origin, scale: frame.scale))
                 note("Clicked at (\(Int(x)), \(Int(y)))", &history)
             case let .doubleClick(x, y):
-                let p = Self.map(x, y, ratio: cap.ratio, origin: frame.origin, scale: frame.scale)
-                await clickThrough { DesktopActuator.doubleClick(at: p) }
+                DesktopActuator.doubleClick(at: Self.map(x, y, ratio: cap.ratio, origin: frame.origin, scale: frame.scale))
                 note("Double-clicked at (\(Int(x)), \(Int(y)))", &history)
             case let .type(t, submit):
                 DesktopActuator.type(t)
@@ -251,19 +253,18 @@ final class ComputerUseAgent: ObservableObject {
         finish(Task.isCancelled ? "Stopped." : "Reached the \(maxSteps)-step limit.")
     }
 
-    /// Post a synthetic pointer action with Visor's own overlay windows made
-    /// click-through, so the click lands on the app underneath rather than on
-    /// Visor's Computer Use card. The card floats at top-centre — right where a
-    /// website's nav bar sits — so without this, clicks on top-of-page targets
-    /// hit Visor and do nothing. Restored right after the event is hit-tested.
-    private func clickThrough(_ body: () -> Void) async {
-        let overlays = NSApp.windows.filter {
-            $0.isVisible && $0.level.rawValue >= NSWindow.Level.floating.rawValue
+    /// Make Visor's own floating windows pure display for the length of a run:
+    /// they ignore the mouse and give up key focus, so every synthetic click,
+    /// scroll, and keystroke (and the user's own typing) reaches the target app
+    /// instead of being swallowed by the Computer Use card. The card sits at the
+    /// top-centre over web nav bars and holds the text field's focus, so without
+    /// this the agent scrolls its own log and can't click or type into the page.
+    /// Restored when the run ends, so the card is interactive again.
+    private func setOverlaysPassthrough(_ on: Bool) {
+        for w in NSApp.windows where w.level.rawValue >= NSWindow.Level.floating.rawValue {
+            w.ignoresMouseEvents = on
+            if on, w.isKeyWindow { w.resignKey() }
         }
-        overlays.forEach { $0.ignoresMouseEvents = true }
-        body()
-        try? await Task.sleep(nanoseconds: 140_000_000)
-        overlays.forEach { $0.ignoresMouseEvents = false }
     }
 
     private func note(_ what: String, _ history: inout [String]) {

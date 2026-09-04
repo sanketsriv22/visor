@@ -680,6 +680,9 @@ final class NotchController {
     /// - Otherwise (nothing open, HUD-only mode included) bring it up as the
     ///   notch face.
     func toggleComputerUse() {
+        // While a task is running the card is display-only (it can't swallow the
+        // agent's input), so the menu-bar entry is how you stop it.
+        if ComputerUseAgent.shared.running { ComputerUseAgent.shared.stop(); return }
         if ComputerUseUI.shared.isVisible { ComputerUseUI.shared.hide(); return }
         if ui.expanded && ui.mode == .computerUse { toggle(); return }
         if ui.expanded { ComputerUseUI.shared.show(); return }
