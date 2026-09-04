@@ -35,6 +35,7 @@ final class ComputerUseAgent: ObservableObject {
     let maxSteps = 25
 
     private var task: Task<Void, Never>?
+    private var trace: CUTrace?
     private let endpoint = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
 
     private enum Action {
@@ -74,6 +75,7 @@ final class ComputerUseAgent: ObservableObject {
         NSApplication.shared.deactivate()
         try? await Task.sleep(nanoseconds: 350_000_000)
 
+        trace = CUTrace(task: instruction)
         var history: [String] = []
         var misses = 0            // consecutive turns with no usable action
         var lastSig: String?      // fingerprint of last step's element list
@@ -158,7 +160,7 @@ final class ComputerUseAgent: ObservableObject {
                                             imageW: cap.w, imageH: cap.h,
                                             appName: frontApp?.localizedName,
                                             elements: elements,
-                                            history: history, hint: hint) else {
+                                            history: history, hint: hint, step: step) else {
                 // A single empty/unparseable reply shouldn't end the whole task —
                 // it's usually a transient hiccup. Retry a few times before
                 // giving up.
@@ -239,6 +241,7 @@ final class ComputerUseAgent: ObservableObject {
             }
             // Remember what we just did and the screen it acted on, so next step
             // can tell whether it changed anything.
+            trace?.action(step, history.last ?? "(no action)")
             lastActed = history.last
             lastSig = sig
             // Let the screen settle before the next look — longer in a browser,
@@ -272,6 +275,8 @@ final class ComputerUseAgent: ObservableObject {
     private func finish(_ message: String) {
         running = false
         task = nil
+        trace?.finish(message)
+        trace = nil
         status = message
     }
 
@@ -349,7 +354,7 @@ final class ComputerUseAgent: ObservableObject {
 
     private func decide(instruction: String, png: Data, imageW: Int, imageH: Int,
                         appName: String?, elements: [AXScanner.Node],
-                        history: [String], hint: String?) async -> Action? {
+                        history: [String], hint: String?, step: Int) async -> Action? {
         guard let key = Keychain.get(OpenRouterClient.sharedKeyAccount) else { return nil }
         let system = """
         You operate a real macOS desktop to accomplish the user's task, one action \
@@ -468,7 +473,14 @@ final class ComputerUseAgent: ObservableObject {
               let choices = obj["choices"] as? [[String: Any]],
               let message = choices.first?["message"] as? [String: Any],
               let content = message["content"] as? String
-        else { return nil }
+        else {
+            trace?.turn(step, png: png, appName: appName ?? "?", model: model,
+                        elements: elementText, request: userText,
+                        response: "(no response — network or decode error)")
+            return nil
+        }
+        trace?.turn(step, png: png, appName: appName ?? "?", model: model,
+                    elements: elementText, request: userText, response: content)
         return Self.parse(content)
     }
 
