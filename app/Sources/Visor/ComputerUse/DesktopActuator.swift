@@ -95,6 +95,7 @@ enum DesktopActuator {
         "return": 36, "enter": 36, "tab": 48, "space": 49, "delete": 51,
         "escape": 53, "esc": 53, "left": 123, "right": 124, "down": 125, "up": 126,
         "a": 0, "c": 8, "v": 9, "x": 7, "z": 6, "f": 3, "l": 37, "t": 17, "w": 13,
+        "k": 40, "g": 5, "n": 45, "s": 1, "e": 14, "r": 15, "p": 35, "d": 2,
         "home": 115, "end": 119, "pageup": 116, "pagedown": 121,
     ]
 }

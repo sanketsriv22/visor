@@ -27,7 +27,8 @@ final class ComputerUseAgent: ObservableObject {
     private let endpoint = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
 
     private enum Action {
-        case click(Double, Double), doubleClick(Double, Double)
+        case clickElement(Int), typeElement(Int, String)   // by Accessibility element
+        case click(Double, Double), doubleClick(Double, Double)   // by pixel (fallback)
         case type(String), key(String), scroll(Int)
         case openApp(String), openURL(String)
         case done(String), fail(String)
@@ -83,18 +84,48 @@ final class ComputerUseAgent: ObservableObject {
                 finish("Couldn't capture the screen — is Screen Recording granted?"); return
             }
             status = "Step \(step) — looking at the screen…"
+
+            // Read the real UI: the frontmost app's Accessibility tree gives us
+            // exact elements and frames, so the model picks a real element by id
+            // instead of guessing pixel coordinates. This is what makes it stop
+            // click-looping. Falls back gracefully to pixels if AX is empty.
+            let frontApp = NSWorkspace.shared.frontmostApplication
+            let elements = (AXScanner.trusted && frontApp != nil)
+                ? AXScanner.snapshot(pid: frontApp!.processIdentifier)
+                : []
+
             // Spot a stall: the same action three times running, or a run of
             // clicks with no typing, means it's flailing rather than making
             // progress — tell it to change tack instead of repeating itself.
             let hint = Self.stuckHint(history)
             guard let action = await decide(instruction: instruction, png: cap.data,
                                             imageW: cap.w, imageH: cap.h,
+                                            appName: frontApp?.localizedName,
+                                            elements: elements,
                                             history: history, hint: hint) else {
                 finish("The model didn't return a usable action."); return
             }
             if Task.isCancelled { break }
 
             switch action {
+            case let .clickElement(eid):
+                guard let node = elements.first(where: { $0.id == eid }) else {
+                    note("click #\(eid) — no such element", &history); break
+                }
+                // Press by reference when we can (no mouse movement, more
+                // reliable); otherwise click its centre.
+                if !AXScanner.press(node) { DesktopActuator.click(at: node.center) }
+                note("click #\(eid) \(node.label.isEmpty ? node.role : node.label)", &history)
+            case let .typeElement(eid, t):
+                guard let node = elements.first(where: { $0.id == eid }) else {
+                    note("type #\(eid) — no such element", &history); break
+                }
+                // Focus the field with a click, then type as real key events so
+                // the app's search/handlers fire.
+                DesktopActuator.click(at: node.center)
+                try? await Task.sleep(nanoseconds: 160_000_000)
+                DesktopActuator.type(t)
+                note("type \"\(t.prefix(30))\" → #\(eid) \(node.label)", &history)
             case let .click(x, y):
                 DesktopActuator.click(at: Self.map(x, y, ratio: cap.ratio, origin: frame.origin, scale: frame.scale))
                 note("click (\(Int(x)), \(Int(y)))", &history)
@@ -161,43 +192,70 @@ final class ComputerUseAgent: ObservableObject {
     // MARK: Vision call
 
     private func decide(instruction: String, png: Data, imageW: Int, imageH: Int,
+                        appName: String?, elements: [AXScanner.Node],
                         history: [String], hint: String?) async -> Action? {
         guard let key = Keychain.get(OpenRouterClient.sharedKeyAccount) else { return nil }
         let system = """
-        You operate a real macOS desktop to accomplish the user's task. Each turn \
-        you get a SCREENSHOT that is exactly \(imageW)×\(imageH) pixels, origin \
-        top-left. Reply with ONE JSON object and NOTHING else. Put a short \
-        "reason" first (what you see and why this action), then the action fields:
-        {"reason":"...","action":"open","app":"Slack"}   (launch or switch to an app by name — ALWAYS prefer this over clicking Dock/Finder icons)
-        {"reason":"...","action":"open_url","url":"https://example.com"}   (open a web address in the default browser — use this for ANY website/URL task)
-        {"reason":"...","action":"click","x":<int>,"y":<int>}
-        {"reason":"...","action":"double_click","x":<int>,"y":<int>}
-        {"reason":"...","action":"type","text":"..."}
-        {"reason":"...","action":"key","key":"return"}   (also: tab, escape, cmd+a, cmd+c, cmd+v, cmd+k, cmd+f, cmd+space, up, down, left, right)
-        {"reason":"...","action":"scroll","lines":<int, + = down, - = up>}
+        You operate a real macOS desktop to accomplish the user's task, one action \
+        per turn.
+
+        You are given: the frontmost app, a numbered list of that app's real, \
+        interactive UI ELEMENTS read from macOS Accessibility (each has an id, a \
+        role, and a label), and a screenshot for visual context \
+        (\(imageW)×\(imageH) pixels, top-left origin).
+
+        PREFER acting on elements by id — they are exact, so you never have to \
+        guess coordinates. Reply with ONE JSON object and NOTHING else, a short \
+        "reason" first, then the action:
+        {"reason":"...","action":"click","id":<id>}                    (click/press an element: buttons, links, results, fields)
+        {"reason":"...","action":"type","id":<id>,"text":"..."}        (focus that field and type into it)
+        {"reason":"...","action":"key","key":"return"}                 (also: tab, escape, cmd+a, cmd+c, cmd+v, cmd+k, cmd+f, up, down, left, right)
+        {"reason":"...","action":"scroll","lines":<int, + down / - up>}
+        {"reason":"...","action":"open","app":"Slack"}                 (launch/switch to an app — works across Spaces; prefer over hunting for it)
+        {"reason":"...","action":"open_url","url":"https://..."}       (open a web address in the default browser)
         {"reason":"...","action":"done","summary":"..."}
         {"reason":"why it can't be done","action":"fail"}
+
+        If — and only if — what you need is NOT in the element list, you may click \
+        by pixel: {"reason":"...","action":"click","x":<int>,"y":<int>} on the \
+        \(imageW)×\(imageH) screenshot (aim at the target's centre).
+
         Rules:
-        - x,y are PIXELS within this \(imageW)×\(imageH) image (not percentages, not 0–1). Aim at the CENTER of the target.
-        - If the app you need is not clearly visible, your FIRST action must be \
-        {"action":"open","app":"<name>"} — never click around Finder or the \
-        Desktop hunting for it, and never give up just because the screen shows \
-        the wrong app.
+        - If the app you need isn't frontmost, your FIRST action is \
+        {"action":"open","app":"<name>"}. Never give up because the wrong app shows.
         - FIND THINGS BY SEARCHING, NOT SCANNING. To reach a person, conversation, \
-        file, message, or setting, use the app's search or quick-switcher — a \
-        search field, or the ⌘K / ⌘F shortcut — then TYPE the name and pick from \
-        the results. Do not scan the screen and click around hoping to spot it.
-        - To enter text you MUST first click the target field, then on the NEXT \
-        turn use "type". After typing a search query, the match usually appears in \
-        a dropdown/list — click it or press return/down-then-return to select it.
-        - Do ONE small step per turn and re-check the new screenshot.
-        - NEVER repeat an action that already failed to change the screen. If a \
-        click did nothing, the target was wrong — switch to search or a keyboard \
-        shortcut instead of clicking the same area again.
+        file, message, or setting, click the search field element (or press \
+        ⌘K / ⌘F), TYPE the name, then click the matching RESULT element that \
+        appears next turn. Do not click around hoping to spot it.
+        - To enter text, use {"action":"type","id":...} on a text field — it \
+        focuses the field first. After typing a query the result shows up as a NEW \
+        element next turn; click it (or press down then return).
+        - Do ONE step per turn, then re-read the fresh element list.
+        - NEVER repeat an action that didn't change anything — pick a different \
+        element or search instead.
         - Use "fail" only if the task is truly impossible.
         """
+        let elementText = elements.isEmpty
+            ? "(none read — Accessibility may be off; use the screenshot and pixel clicks)"
+            : elements.map { e in
+                let role = e.role.hasPrefix("AX") ? String(e.role.dropFirst(2)) : e.role
+                let val = e.value.map { " = \"\($0.prefix(40))\"" } ?? ""
+                return "[\(e.id)] \(role) \"\(e.label)\"\(val)"
+            }.joined(separator: "\n")
         let historyText = history.isEmpty ? "(nothing yet)" : history.suffix(10).joined(separator: "\n")
-        var userText = "Task: \(instruction)\n\nActions you've already taken:\n\(historyText)\n\nHere is the current screen. Give the next single action as JSON."
+        var userText = """
+        Task: \(instruction)
+
+        Frontmost app: \(appName ?? "unknown")
+
+        Interactive elements (pick by id):
+        \(elementText)
+
+        Actions you've already taken:
+        \(historyText)
+
+        Give the next single action as JSON.
+        """
         if let hint { userText += "\n\n⚠️ \(hint)" }
         let dataURI = "data:image/png;base64," + png.base64EncodedString()
 
@@ -239,6 +297,7 @@ final class ComputerUseAgent: ObservableObject {
         else { return nil }
         func num(_ v: Any?) -> Double? { (v as? NSNumber)?.doubleValue }
         func d(_ k: String) -> Double { num(o[k]) ?? 0 }
+        func elementID() -> Int? { (o["id"] as? NSNumber)?.intValue ?? (o["element"] as? NSNumber)?.intValue }
         // Coordinates in whatever shape the model used: x/y fields, or an
         // array under coordinate/point/etc. Missing coords → no click, rather
         // than the (0,0) corner it was hitting every time.
@@ -262,9 +321,16 @@ final class ComputerUseAgent: ObservableObject {
                 || (name.contains(".") && !name.contains(" ") && !name.lowercased().hasSuffix(".app"))
             if looksURL { return .openURL(name) }
             return name.isEmpty ? nil : .openApp(name)
-        case "click":        guard let c = coords() else { return nil }; return .click(c.0, c.1)
-        case "double_click": guard let c = coords() else { return nil }; return .doubleClick(c.0, c.1)
-        case "type":         return .type((o["text"] as? String) ?? "")
+        case "click", "press", "tap":
+            if let eid = elementID() { return .clickElement(eid) }
+            guard let c = coords() else { return nil }; return .click(c.0, c.1)
+        case "double_click":
+            if let eid = elementID() { return .clickElement(eid) }
+            guard let c = coords() else { return nil }; return .doubleClick(c.0, c.1)
+        case "type":
+            let text = (o["text"] as? String) ?? ""
+            if let eid = elementID() { return .typeElement(eid, text) }
+            return .type(text)
         case "key":          return .key((o["key"] as? String) ?? "")
         case "scroll":       return .scroll(Int(d("lines")))
         case "done":         return .done((o["summary"] as? String) ?? "")
