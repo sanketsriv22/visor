@@ -25,8 +25,9 @@ final class ComputerUseAgent: ObservableObject {
     static let defaultModel = "anthropic/claude-haiku-4.5"
     /// The fast vision models offered in the picker (label, OpenRouter id).
     static let models: [(name: String, id: String)] = [
-        ("Haiku 4.5 · fast", "anthropic/claude-haiku-4.5"),
-        ("Gemini 2.5 Flash · fastest", "google/gemini-2.5-flash"),
+        ("Gemini 2.5 Flash-Lite · fastest", "google/gemini-2.5-flash-lite"),
+        ("Gemini 2.5 Flash · fast", "google/gemini-2.5-flash"),
+        ("Haiku 4.5 · fast + reliable", "anthropic/claude-haiku-4.5"),
         ("GPT-4o mini · fast", "openai/gpt-4o-mini"),
         ("Sonnet · most accurate", "anthropic/claude-sonnet-5"),
     ]
