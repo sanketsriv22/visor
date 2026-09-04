@@ -136,7 +136,13 @@ struct ComputerUseCard: View {
     let onClose: () -> Void
     @State private var task = ""
     @State private var copied = false
+    @AppStorage(ComputerUseAgent.modelKey) private var modelID = ComputerUseAgent.defaultModel
     @FocusState private var focused: Bool
+
+    private var modelLabel: String {
+        let name = ComputerUseAgent.models.first { $0.id == modelID }?.name ?? modelID
+        return name.split(separator: "·").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? name
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -163,6 +169,19 @@ struct ComputerUseCard: View {
                 .font(.custom(Design.Text.face, size: 12)).tracking(2)
                 .foregroundStyle(Design.Retro.text)
             Spacer()
+            Menu {
+                ForEach(ComputerUseAgent.models, id: \.id) { m in
+                    Button(m.name) { modelID = m.id }
+                }
+            } label: {
+                Text(modelLabel)
+                    .font(.custom(Design.Text.face, size: 9)).tracking(1)
+                    .foregroundStyle(Design.Retro.dim)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .disabled(agent.running)
             if agent.running {
                 Button(action: agent.stop) {
                     Text("STOP")

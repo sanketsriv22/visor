@@ -18,9 +18,19 @@ final class ComputerUseAgent: ObservableObject {
     @Published private(set) var status = "Type a task and press ⏎."
     @Published private(set) var log: [String] = []
 
-    /// A vision-capable model; the user can change it, but this reads the
-    /// screenshot, so it must accept images.
-    var model = "anthropic/claude-sonnet-5"
+    /// The vision model, chosen in the card. It must accept images. Defaults to
+    /// a fast one — with the Accessibility element list doing the grounding, the
+    /// model just picks an id, so it doesn't need to be a heavyweight.
+    static let modelKey = "visor.cu.model"
+    static let defaultModel = "anthropic/claude-haiku-4.5"
+    /// The fast vision models offered in the picker (label, OpenRouter id).
+    static let models: [(name: String, id: String)] = [
+        ("Haiku 4.5 · fast", "anthropic/claude-haiku-4.5"),
+        ("Gemini 2.5 Flash · fastest", "google/gemini-2.5-flash"),
+        ("GPT-4o mini · fast", "openai/gpt-4o-mini"),
+        ("Sonnet · most accurate", "anthropic/claude-sonnet-5"),
+    ]
+    var model: String { UserDefaults.standard.string(forKey: Self.modelKey) ?? Self.defaultModel }
     let maxSteps = 25
 
     private var task: Task<Void, Never>?
