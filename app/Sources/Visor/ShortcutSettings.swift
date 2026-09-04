@@ -69,7 +69,7 @@ final class ShortcutSettings: ObservableObject {
     static let shared = ShortcutSettings()
 
     enum Action: String, CaseIterable, Identifiable, Codable {
-        case toggle, swapMode, hud, dictate, watchBoard
+        case toggle, swapMode, hud, dictate, watchBoard, computerUse
         case agent1, agent2, agent3, agent4, agent5
 
         var id: String { rawValue }
@@ -81,6 +81,7 @@ final class ShortcutSettings: ObservableObject {
             case .hud:      return "Expand to the HUD"
             case .dictate:  return "Dictate"
             case .watchBoard: return "Watch a chess board"
+            case .computerUse: return "Computer Use (open / stop)"
             case .agent1:   return "Agent 1"
             case .agent2:   return "Agent 2"
             case .agent3:   return "Agent 3"
@@ -99,6 +100,7 @@ final class ShortcutSettings: ObservableObject {
             case .hud:      return Chord(keyCode: UInt32(kVK_ANSI_M), modifiers: cmdCtrl)
             case .dictate:  return Chord(keyCode: UInt32(kVK_ANSI_V), modifiers: cmdCtrl)
             case .watchBoard: return Chord(keyCode: UInt32(kVK_ANSI_U), modifiers: cmdCtrl)
+            case .computerUse: return Chord(keyCode: UInt32(kVK_ANSI_C), modifiers: cmdCtrl)
             case .agent1:   return Chord(keyCode: UInt32(kVK_ANSI_1), modifiers: cmdCtrl)
             case .agent2:   return Chord(keyCode: UInt32(kVK_ANSI_2), modifiers: cmdCtrl)
             case .agent3:   return Chord(keyCode: UInt32(kVK_ANSI_3), modifiers: cmdCtrl)

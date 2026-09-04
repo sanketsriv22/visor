@@ -497,6 +497,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
                 case .swapMode: controller.swapMode()
                 case .hud:      controller.toggleHUD()
                 case .dictate:  controller.toggleDictation()
+                case .computerUse: controller.toggleComputerUse()
                 case .agent1:   controller.selectAgent(0)
                 case .agent2:   controller.selectAgent(1)
                 case .agent3:   controller.selectAgent(2)
