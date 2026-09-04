@@ -24,13 +24,14 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
 /// Which surface the notch is showing. Visor is one window with two faces,
 /// not two windows.
 enum VisorMode: String, CaseIterable, Identifiable, Codable {
-    case notes, chat, hud
+    case notes, chat, hud, computerUse
 
     var id: String { rawValue }
 
     /// The two faces the switcher offers. HUD is entered from chat rather than
     /// picked from a list — it's the same conversation at another scale, not a
-    /// third sibling.
+    /// third sibling. Computer Use is launched from the menu bar / a hotkey and
+    /// runs a task, so it isn't a face you idly flip to either.
     static var switchable: [VisorMode] { [.notes, .chat] }
 
     /// HUD covers the screen, so the window has to be resized for it rather
@@ -39,9 +40,10 @@ enum VisorMode: String, CaseIterable, Identifiable, Codable {
 
     var title: String {
         switch self {
-        case .notes: return "Notes"
-        case .chat:  return "Chat"
-        case .hud:   return "HUD"
+        case .notes:       return "Notes"
+        case .chat:        return "Chat"
+        case .hud:         return "HUD"
+        case .computerUse: return "Computer Use"
         }
     }
 
@@ -49,9 +51,10 @@ enum VisorMode: String, CaseIterable, Identifiable, Codable {
         switch self {
         // Not "checklist": the note is a note that happens to hold tasks, and
         // the generic checklist glyph read as clip-art next to the chat bubble.
-        case .notes: return "note.text"
-        case .chat:  return "bubble.left.and.bubble.right"
-        case .hud:   return "rectangle.inset.filled.and.person.filled"
+        case .notes:       return "note.text"
+        case .chat:        return "bubble.left.and.bubble.right"
+        case .hud:         return "rectangle.inset.filled.and.person.filled"
+        case .computerUse: return "cursorarrow.rays"
         }
     }
 }
@@ -136,6 +139,10 @@ final class NotchController {
         // size so returning from the HUD lands on a card that's already there,
         // rather than one animating up from nothing.
         case .hud:   return CGSize(width: chatCardWidth, height: chatCardHeight)
+        // Computer Use rides the chat card's footprint so it stays inside the
+        // window union and needs no resize — room for a task field, a status
+        // line, and a running log of steps.
+        case .computerUse: return CGSize(width: chatCardWidth, height: chatCardHeight)
         }
     }
 
@@ -633,6 +640,25 @@ final class NotchController {
         // SwiftUI on both sides.
         withAnimation(curve) { ui.mode = mode }
         if mode.isFullScreen { showHUD() } else { hideHUD() }
+    }
+
+    /// Open the Computer Use face in the notch and leave it up. It stays visible
+    /// for the whole task — the agent drives other apps while this card reports
+    /// each step, so you always see what it's doing — until you close it or
+    /// switch faces. Called from the menu bar.
+    func openComputerUse() {
+        setMode(.computerUse)
+        if !ui.expanded { toggle() }
+    }
+
+    /// Toggle the Computer Use face: close the notch if it's already the face on
+    /// show, otherwise open it.
+    func toggleComputerUse() {
+        if ui.expanded && ui.mode == .computerUse {
+            toggle()
+        } else {
+            openComputerUse()
+        }
     }
 
     /// Start or stop dictating.

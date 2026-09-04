@@ -209,6 +209,10 @@ struct StickyRootView: View {
                              notchWidth: ui.notchSize.width,
                              mode: ui.mode, onMode: onMode,
                              onHUD: { onMode(.hud) }, onClose: onToggle)
+                case .computerUse:
+                    ComputerUseCard(topInset: ui.notchSize.height,
+                                    notchWidth: ui.notchSize.width,
+                                    onClose: onToggle)
                 }
             }
             // Short and eased: the shape's travel should read as the motion,

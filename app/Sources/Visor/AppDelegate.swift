@@ -260,14 +260,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         popover.appearance = NSAppearance(named: VisorTheme.current.isDark ? .darkAqua : .aqua)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         installMenuClickMonitor()
-        // Light it now — the action fires on mouse-down, so the icon lights the
-        // moment you press, and stays lit while the popover is up (cleared in
-        // popoverDidClose).
-        button.highlight(true)
+        // Light it now, and keep it lit. `highlight(true)` doesn't persist: the
+        // button runs its own mouse tracking and clears the highlight on
+        // mouse-UP, which is why the lit state kept vanishing the moment you
+        // released. The button's `state` is not touched by tracking, and
+        // NSStatusBarButton draws `.on` with the selected background — so this
+        // stays lit until we set it back to `.off` on close.
+        button.state = .on
     }
 
     private func closeMenuPanel() {
         menuPopover?.performClose(nil)
+        statusItem?.button?.state = .off
         removeMenuClickMonitor()
     }
 
@@ -310,7 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             version: AppInfo.version,
             computerUseOn: ComputerUseAgent.shared.running,
             onOpenVisor:    { close(); self.controller?.showNote() },
-            onComputerUse:  { close(); ComputerUseUI.shared.toggle() },
+            onComputerUse:  { close(); self.controller?.toggleComputerUse() },
             onDictate:      { close(); self.controller?.toggleDictation() },
             onSettings:     { close(); self.openSettings() },
             onWhatsNew:     { close(); self.openReleases() },
@@ -319,7 +323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     func popoverDidClose(_ notification: Notification) {
-        statusItem?.button?.highlight(false)
+        statusItem?.button?.state = .off
         removeMenuClickMonitor()
     }
 

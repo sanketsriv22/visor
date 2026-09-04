@@ -29,6 +29,7 @@ final class ComputerUseAgent: ObservableObject {
     private enum Action {
         case click(Double, Double), doubleClick(Double, Double)
         case type(String), key(String), scroll(Int)
+        case openApp(String), openURL(String)
         case done(String), fail(String)
     }
 
@@ -54,10 +55,30 @@ final class ComputerUseAgent: ObservableObject {
 
     private func run(_ instruction: String) async {
         var history: [String] = []
+
+        // One persistent capture for the whole task — the screen-recording
+        // indicator stays steadily lit instead of blinking each step, and each
+        // grab is just reading the latest delivered frame.
+        let capture = DesktopCapture()
+        do {
+            try await capture.start()
+        } catch {
+            finish("Couldn't start screen capture — is Screen Recording granted?")
+            return
+        }
+        defer { capture.stop() }
+        // Let the stream deliver its first frame before we look.
+        try? await Task.sleep(nanoseconds: 500_000_000)
+
         for step in 1...maxSteps {
             if Task.isCancelled { break }
-            guard let shot = try? await ChessScreen.capture(),
-                  let cap = Self.encode(shot.image) else {
+            // Prefer the live stream frame; fall back to a one-shot if the first
+            // frame hasn't landed yet.
+            let frame: DesktopCapture.Frame? = capture.grab()
+                ?? (try? await ChessScreen.capture()).map {
+                    DesktopCapture.Frame(image: $0.image, origin: $0.origin, scale: $0.scale)
+                }
+            guard let frame, let cap = Self.encode(frame.image) else {
                 finish("Couldn't capture the screen — is Screen Recording granted?"); return
             }
             status = "Step \(step) — looking at the screen…"
@@ -69,10 +90,10 @@ final class ComputerUseAgent: ObservableObject {
 
             switch action {
             case let .click(x, y):
-                DesktopActuator.click(at: Self.map(x, y, ratio: cap.ratio, shot: shot))
+                DesktopActuator.click(at: Self.map(x, y, ratio: cap.ratio, origin: frame.origin, scale: frame.scale))
                 note("click (\(Int(x)), \(Int(y)))", &history)
             case let .doubleClick(x, y):
-                DesktopActuator.doubleClick(at: Self.map(x, y, ratio: cap.ratio, shot: shot))
+                DesktopActuator.doubleClick(at: Self.map(x, y, ratio: cap.ratio, origin: frame.origin, scale: frame.scale))
                 note("double-click (\(Int(x)), \(Int(y)))", &history)
             case let .type(t):
                 DesktopActuator.type(t)
@@ -83,6 +104,16 @@ final class ComputerUseAgent: ObservableObject {
             case let .scroll(n):
                 DesktopActuator.scroll(lines: n)
                 note("scroll \(n)", &history)
+            case let .openApp(name):
+                Self.openApp(name)
+                note("open \(name)", &history)
+                // Apps take a beat to launch and come forward.
+                try? await Task.sleep(nanoseconds: 1_100_000_000)
+            case let .openURL(url):
+                Self.openURL(url)
+                note("open \(url)", &history)
+                // The browser needs a moment to launch and load the page.
+                try? await Task.sleep(nanoseconds: 1_400_000_000)
             case let .done(msg):
                 finish("Done — \(msg)"); return
             case let .fail(msg):
@@ -112,19 +143,30 @@ final class ComputerUseAgent: ObservableObject {
                         history: [String]) async -> Action? {
         guard let key = Keychain.get(OpenRouterClient.sharedKeyAccount) else { return nil }
         let system = """
-        You operate a macOS screen to accomplish the user's task. Each turn you get \
-        a SCREENSHOT that is exactly \(imageW)×\(imageH) pixels, origin top-left. \
-        Reply with ONE JSON object and NOTHING else — the single next action:
+        You operate a real macOS desktop to accomplish the user's task. Each turn \
+        you get a SCREENSHOT that is exactly \(imageW)×\(imageH) pixels, origin \
+        top-left. Reply with ONE JSON object and NOTHING else — the single next \
+        action:
+        {"action":"open","app":"Slack"}   (launch or switch to an app by name — ALWAYS prefer this over clicking Dock/Finder icons)
+        {"action":"open_url","url":"https://example.com"}   (open a web address in the default browser — use this for ANY website/URL task)
         {"action":"click","x":<int>,"y":<int>}
         {"action":"double_click","x":<int>,"y":<int>}
         {"action":"type","text":"..."}
-        {"action":"key","key":"return"}   (also: tab, escape, cmd+a, cmd+v, up, down, left, right)
+        {"action":"key","key":"return"}   (also: tab, escape, cmd+a, cmd+c, cmd+v, cmd+space, up, down, left, right)
         {"action":"scroll","lines":<int, + = down, - = up>}
         {"action":"done","summary":"..."}
         {"action":"fail","reason":"..."}
-        Rules: x,y are PIXELS within this \(imageW)×\(imageH) image (not percentages, \
-        not 0–1). To enter text you MUST first click the text field, then on the NEXT \
-        turn use "type". Do one small step per turn and re-check the new screenshot.
+        Rules:
+        - x,y are PIXELS within this \(imageW)×\(imageH) image (not percentages, not 0–1).
+        - If the app you need for the task is not clearly visible on screen, your \
+        FIRST action must be {"action":"open","app":"<name>"} — do NOT click around \
+        Finder or the Desktop hunting for it, and do NOT give up just because the \
+        screen shows the wrong app.
+        - To enter text you MUST first click the target field, then on the NEXT \
+        turn use "type".
+        - Do one small step per turn and re-check the new screenshot. Only use \
+        "fail" if the task is truly impossible, never just because the current \
+        screen isn't the app you want.
         """
         let historyText = history.isEmpty ? "(nothing yet)" : history.suffix(10).joined(separator: "\n")
         let userText = "Task: \(instruction)\n\nActions you've already taken:\n\(historyText)\n\nHere is the current screen. Give the next single action as JSON."
@@ -181,6 +223,16 @@ final class ComputerUseAgent: ObservableObject {
             return nil
         }
         switch action {
+        case "open_url", "goto", "url", "navigate":
+            let u = (o["url"] as? String) ?? (o["text"] as? String) ?? (o["app"] as? String) ?? ""
+            return u.isEmpty ? nil : .openURL(u)
+        case "open", "open_app", "launch":
+            // A URL under "open" (models do this) goes to the browser.
+            let name = (o["app"] as? String) ?? (o["name"] as? String) ?? (o["url"] as? String) ?? (o["text"] as? String) ?? ""
+            let looksURL = name.contains("://") || name.hasPrefix("www.")
+                || (name.contains(".") && !name.contains(" ") && !name.lowercased().hasSuffix(".app"))
+            if looksURL { return .openURL(name) }
+            return name.isEmpty ? nil : .openApp(name)
         case "click":        guard let c = coords() else { return nil }; return .click(c.0, c.1)
         case "double_click": guard let c = coords() else { return nil }; return .doubleClick(c.0, c.1)
         case "type":         return .type((o["text"] as? String) ?? "")
@@ -190,6 +242,41 @@ final class ComputerUseAgent: ObservableObject {
         case "fail":         return .fail((o["reason"] as? String) ?? "")
         default:             return nil
         }
+    }
+
+    /// Launch or switch to an app by name. Prefer this over clicking Dock/Finder
+    /// icons — it works no matter which Space or app is currently in front.
+    private static func openApp(_ name: String) {
+        let ws = NSWorkspace.shared
+        let clean = name.replacingOccurrences(of: ".app", with: "")
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+
+        // Already running? Just bring it forward.
+        if let app = ws.runningApplications.first(where: {
+            $0.localizedName?.caseInsensitiveCompare(clean) == .orderedSame
+        }) {
+            app.activate(options: [.activateIgnoringOtherApps])
+            return
+        }
+        // Otherwise find the bundle in the usual places and launch it.
+        for dir in ["/Applications", "/System/Applications",
+                    ("~/Applications" as NSString).expandingTildeInPath] {
+            let url = URL(fileURLWithPath: dir).appendingPathComponent("\(clean).app")
+            if FileManager.default.fileExists(atPath: url.path) {
+                ws.openApplication(at: url, configuration: config, completionHandler: nil)
+                return
+            }
+        }
+    }
+
+    /// Open a web address in the user's default browser. Accepts bare hosts
+    /// ("xyz.com") as well as full URLs.
+    private static func openURL(_ raw: String) {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !s.contains("://") { s = "https://" + s }
+        guard let url = URL(string: s) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     /// PNG of the capture, downscaled to a sane width, and the ratio from the
@@ -212,10 +299,9 @@ final class ComputerUseAgent: ObservableObject {
 
     /// Model coordinates (scaled screenshot pixels) → a global screen point.
     private static func map(_ x: Double, _ y: Double, ratio: CGFloat,
-                            shot: ChessScreen.Shot) -> CGPoint {
+                            origin: CGPoint, scale: CGFloat) -> CGPoint {
         let px = CGFloat(x) * ratio            // back to original image pixels
         let py = CGFloat(y) * ratio
-        return CGPoint(x: shot.origin.x + px / shot.scale,
-                       y: shot.origin.y + py / shot.scale)
+        return CGPoint(x: origin.x + px / scale, y: origin.y + py / scale)
     }
 }
