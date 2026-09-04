@@ -57,22 +57,22 @@ final class ComputerUseAgent: ObservableObject {
         for step in 1...maxSteps {
             if Task.isCancelled { break }
             guard let shot = try? await ChessScreen.capture(),
-                  let (png, ratio) = Self.encode(shot.image) else {
+                  let cap = Self.encode(shot.image) else {
                 finish("Couldn't capture the screen — is Screen Recording granted?"); return
             }
-            status = "Step \(step): looking…"
-            guard let action = await decide(instruction: instruction, png: png,
-                                            history: history) else {
+            status = "Step \(step) — looking at the screen…"
+            guard let action = await decide(instruction: instruction, png: cap.data,
+                                            imageW: cap.w, imageH: cap.h, history: history) else {
                 finish("The model didn't return a usable action."); return
             }
             if Task.isCancelled { break }
 
             switch action {
             case let .click(x, y):
-                DesktopActuator.click(at: Self.map(x, y, ratio: ratio, shot: shot))
+                DesktopActuator.click(at: Self.map(x, y, ratio: cap.ratio, shot: shot))
                 note("click (\(Int(x)), \(Int(y)))", &history)
             case let .doubleClick(x, y):
-                DesktopActuator.doubleClick(at: Self.map(x, y, ratio: ratio, shot: shot))
+                DesktopActuator.doubleClick(at: Self.map(x, y, ratio: cap.ratio, shot: shot))
                 note("double-click (\(Int(x)), \(Int(y)))", &history)
             case let .type(t):
                 DesktopActuator.type(t)
@@ -88,8 +88,8 @@ final class ComputerUseAgent: ObservableObject {
             case let .fail(msg):
                 finish("Gave up — \(msg)"); return
             }
-            // Let the screen settle before the next look.
-            try? await Task.sleep(nanoseconds: 900_000_000)
+            // A short beat for the screen to settle before the next look.
+            try? await Task.sleep(nanoseconds: 450_000_000)
         }
         finish(Task.isCancelled ? "Stopped." : "Reached the \(maxSteps)-step limit.")
     }
@@ -108,23 +108,26 @@ final class ComputerUseAgent: ObservableObject {
 
     // MARK: Vision call
 
-    private func decide(instruction: String, png: Data, history: [String]) async -> Action? {
+    private func decide(instruction: String, png: Data, imageW: Int, imageH: Int,
+                        history: [String]) async -> Action? {
         guard let key = Keychain.get(OpenRouterClient.sharedKeyAccount) else { return nil }
         let system = """
-        You control a macOS screen to accomplish the user's task. You are shown a \
-        screenshot. Reply with ONE JSON object and nothing else, choosing the single \
-        next action:
-        {"action":"click","x":<px>,"y":<px>} — coordinates in screenshot pixels
-        {"action":"double_click","x":<px>,"y":<px>}
-        {"action":"type","text":"..."} — types at the current focus
-        {"action":"key","key":"return|tab|escape|cmd+a|..."}
-        {"action":"scroll","lines":<+down/-up>}
-        {"action":"done","summary":"..."} — the task is complete
-        {"action":"fail","reason":"..."} — it can't be done
-        Take one small step at a time. Click a field before typing into it.
+        You operate a macOS screen to accomplish the user's task. Each turn you get \
+        a SCREENSHOT that is exactly \(imageW)×\(imageH) pixels, origin top-left. \
+        Reply with ONE JSON object and NOTHING else — the single next action:
+        {"action":"click","x":<int>,"y":<int>}
+        {"action":"double_click","x":<int>,"y":<int>}
+        {"action":"type","text":"..."}
+        {"action":"key","key":"return"}   (also: tab, escape, cmd+a, cmd+v, up, down, left, right)
+        {"action":"scroll","lines":<int, + = down, - = up>}
+        {"action":"done","summary":"..."}
+        {"action":"fail","reason":"..."}
+        Rules: x,y are PIXELS within this \(imageW)×\(imageH) image (not percentages, \
+        not 0–1). To enter text you MUST first click the text field, then on the NEXT \
+        turn use "type". Do one small step per turn and re-check the new screenshot.
         """
-        let historyText = history.isEmpty ? "(none yet)" : history.suffix(8).joined(separator: "\n")
-        let userText = "Task: \(instruction)\n\nActions so far:\n\(historyText)\n\nThe screenshot follows. Give the next action as JSON."
+        let historyText = history.isEmpty ? "(nothing yet)" : history.suffix(10).joined(separator: "\n")
+        let userText = "Task: \(instruction)\n\nActions you've already taken:\n\(historyText)\n\nHere is the current screen. Give the next single action as JSON."
         let dataURI = "data:image/png;base64," + png.base64EncodedString()
 
         let body: [String: Any] = [
@@ -163,10 +166,23 @@ final class ComputerUseAgent: ObservableObject {
               let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let action = o["action"] as? String
         else { return nil }
-        func d(_ k: String) -> Double { (o[k] as? Double) ?? Double(o[k] as? Int ?? 0) }
+        func num(_ v: Any?) -> Double? { (v as? NSNumber)?.doubleValue }
+        func d(_ k: String) -> Double { num(o[k]) ?? 0 }
+        // Coordinates in whatever shape the model used: x/y fields, or an
+        // array under coordinate/point/etc. Missing coords → no click, rather
+        // than the (0,0) corner it was hitting every time.
+        func coords() -> (Double, Double)? {
+            if let x = num(o["x"]), let y = num(o["y"]) { return (x, y) }
+            for k in ["coordinate", "coordinates", "point", "pos", "xy", "location"] {
+                if let a = o[k] as? [Any], a.count >= 2, let x = num(a[0]), let y = num(a[1]) {
+                    return (x, y)
+                }
+            }
+            return nil
+        }
         switch action {
-        case "click":        return .click(d("x"), d("y"))
-        case "double_click": return .doubleClick(d("x"), d("y"))
+        case "click":        guard let c = coords() else { return nil }; return .click(c.0, c.1)
+        case "double_click": guard let c = coords() else { return nil }; return .doubleClick(c.0, c.1)
         case "type":         return .type((o["text"] as? String) ?? "")
         case "key":          return .key((o["key"] as? String) ?? "")
         case "scroll":       return .scroll(Int(d("lines")))
@@ -178,7 +194,8 @@ final class ComputerUseAgent: ObservableObject {
 
     /// PNG of the capture, downscaled to a sane width, and the ratio from the
     /// scaled pixels the model sees back to the original image pixels.
-    private static func encode(_ image: CGImage, maxWidth: CGFloat = 1400) -> (Data, CGFloat)? {
+    private static func encode(_ image: CGImage, maxWidth: CGFloat = 1200)
+        -> (data: Data, ratio: CGFloat, w: Int, h: Int)? {
         let w = CGFloat(image.width), h = CGFloat(image.height)
         let ratio = w > maxWidth ? w / maxWidth : 1
         let outW = Int(w / ratio), outH = Int(h / ratio)
@@ -190,7 +207,7 @@ final class ComputerUseAgent: ObservableObject {
         guard let scaled = ctx.makeImage() else { return nil }
         let rep = NSBitmapImageRep(cgImage: scaled)
         guard let data = rep.representation(using: .png, properties: [:]) else { return nil }
-        return (data, ratio)
+        return (data, ratio, outW, outH)
     }
 
     /// Model coordinates (scaled screenshot pixels) → a global screen point.
