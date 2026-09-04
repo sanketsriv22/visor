@@ -157,6 +157,9 @@ final class ComputerUseAgent: ObservableObject {
             // when the page scrolled a little between tries (which defeats the
             // identical-screen check above). Common on marketing pages whose nav
             // links just scroll.
+            if let last = history.last, last.hasPrefix("Couldn't find element") {
+                hints.append("The element id you chose does not exist. The list is renumbered EVERY turn — use ONLY an id shown in the current list above (0 to \(max(elements.count - 1, 0))).")
+            }
             let repeated = Self.repeatedTargets(history)
             if !repeated.isEmpty {
                 hints.append("You have already tried these 3+ times and they are NOT working: "
@@ -415,6 +418,10 @@ final class ComputerUseAgent: ObservableObject {
         - PREFER keyboard shortcuts (key actions) and element ids over pixel \
         clicks. Only click by pixel x,y when there is no matching element AND no \
         shortcut — and NEVER pixel-click the same spot twice.
+        - TO USE THE WEB, ALWAYS use {"action":"open_url","url":"..."} — it opens \
+        the user's DEFAULT browser. NEVER open Safari or Chrome by name with \
+        "open". If you don't know the exact URL, open_url a search instead: \
+        "https://www.google.com/search?q=<your terms>", then click a result.
         - ON THE WEB: to go to a site use {"action":"open_url",...} — do NOT press \
         ⌘T or open tabs yourself. A click that leaves the element list unchanged \
         did nothing or the page is still loading: WAIT a step, or SCROLL down to \
