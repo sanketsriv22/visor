@@ -146,7 +146,7 @@ final class NotchController {
         // Computer Use: a wide card — narrower than chat — with a task field, a
         // status line, and a readable, copyable step log. Stays inside the
         // window union so nothing resizes.
-        case .computerUse: return CGSize(width: 520, height: 300)
+        case .computerUse: return CGSize(width: 516, height: 232)
         }
     }
 

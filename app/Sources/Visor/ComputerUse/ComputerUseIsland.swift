@@ -139,6 +139,9 @@ struct ComputerUseCard: View {
     @AppStorage(ComputerUseAgent.modelKey) private var modelID = ComputerUseAgent.defaultModel
     @FocusState private var focused: Bool
 
+    private var canRun: Bool {
+        !task.trimmingCharacters(in: .whitespaces).isEmpty && !agent.running
+    }
     private var modelLabel: String {
         let name = ComputerUseAgent.models.first { $0.id == modelID }?.name ?? modelID
         return name.split(separator: "·").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? name
@@ -147,14 +150,13 @@ struct ComputerUseCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Color.clear.frame(height: topInset)   // clear the physical notch
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 9) {
                 header
                 field
-                statusLine
-                logView
+                if agent.running || !agent.log.isEmpty { logSection } else { hint }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .padding(.horizontal, 15)
+            .padding(.top, 5)
             .padding(.bottom, 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -163,10 +165,10 @@ struct ComputerUseCard: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            RetroIcon(Glyph.computer, size: 13, color: Design.Retro.accent)
+        HStack(spacing: 7) {
+            RetroIcon(Glyph.computer, size: 11, color: Design.Retro.accent)
             Text("COMPUTER USE")
-                .font(.custom(Design.Text.face, size: 12)).tracking(2)
+                .font(.custom(Design.Text.face, size: 11)).tracking(2.5)
                 .foregroundStyle(Design.Retro.text)
             Spacer()
             Menu {
@@ -175,65 +177,77 @@ struct ComputerUseCard: View {
                 }
             } label: {
                 Text(modelLabel)
-                    .font(.custom(Design.Text.face, size: 9)).tracking(1)
+                    .font(.custom(Design.Text.face, size: 9)).tracking(0.5)
                     .foregroundStyle(Design.Retro.dim)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
             .disabled(agent.running)
-            if agent.running {
-                Button(action: agent.stop) {
-                    Text("STOP")
-                        .font(.custom(Design.Text.face, size: 10)).tracking(1)
-                        .foregroundStyle(.red)
-                }
-                .buttonStyle(.plain)
-            }
             Button(action: onClose) {
-                RetroIcon(Glyph.close, size: 12, color: Design.Retro.dim)
+                RetroIcon(Glyph.close, size: 11, color: Design.Retro.dim)
             }
             .buttonStyle(.plain)
         }
     }
 
     private var field: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 9) {
             TextField("Tell your Mac what to do…", text: $task)
                 .textFieldStyle(.plain)
-                .font(.custom(Design.Text.face, size: 14))
+                .font(.custom(Design.Text.face, size: 13))
                 .foregroundStyle(Design.Retro.text)
                 .focused($focused)
-                .onSubmit(run)
+                .onSubmit { if canRun { agent.start(task) } }
                 .disabled(agent.running)
-            if !agent.running {
-                Button("Run", action: run)
-                    .disabled(task.trimmingCharacters(in: .whitespaces).isEmpty)
+            runButton
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 6)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Design.Retro.panel))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .stroke(agent.running ? Design.Retro.accent.opacity(0.55) : Design.Retro.line, lineWidth: 1))
+    }
+
+    private var runButton: some View {
+        Button {
+            if agent.running { agent.stop() } else if canRun { agent.start(task) }
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(agent.running ? Color.red.opacity(0.9)
+                          : (canRun ? Design.Retro.accent : Design.Retro.line.opacity(0.5)))
+                    .frame(width: 30, height: 26)
+                if agent.running {
+                    RoundedRectangle(cornerRadius: 2).fill(.white).frame(width: 8, height: 8)
+                } else {
+                    Text("\u{23CE}")
+                        .font(.custom(Design.Text.face, size: 13))
+                        .foregroundStyle(canRun ? Design.Retro.bg : Design.Retro.dim)
+                }
             }
         }
-        .padding(11)
-        .background(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous)
-            .fill(Design.Retro.panel))
-        .overlay(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous)
-            .stroke(Design.Retro.line, lineWidth: 1))
+        .buttonStyle(.plain)
+        .disabled(!agent.running && !canRun)
     }
 
-    private var statusLine: some View {
-        HStack(spacing: 6) {
-            if agent.running { DotMatrixIndicator(size: 9) }
-            Text(agent.status)
-                .font(.custom(Design.Text.face, size: 11))
-                .foregroundStyle(agent.running ? Design.Retro.accent : Design.Retro.dim)
-                .lineLimit(1)
-        }
+    private var hint: some View {
+        Text("Type a task and press \u{23CE}  \u{2014}  e.g. \"DM Sarah on Slack: running late\"")
+            .font(.custom(Design.Text.face, size: 10))
+            .foregroundStyle(Design.Retro.faint)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 2)
     }
 
-    private var logView: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text("STEPS")
-                    .font(.custom(Design.Text.face, size: 9)).tracking(2)
-                    .foregroundStyle(Design.Retro.dim)
+    private var logSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                if agent.running { DotMatrixIndicator(size: 8) }
+                Text(agent.status)
+                    .font(.custom(Design.Text.face, size: 10))
+                    .foregroundStyle(agent.running ? Design.Retro.accent : Design.Retro.dim)
+                    .lineLimit(1)
                 Spacer()
                 if !agent.log.isEmpty {
                     Button(action: copyLog) {
@@ -248,39 +262,37 @@ struct ComputerUseCard: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 3) {
                         if agent.log.isEmpty {
-                            Text(agent.running ? "Starting…" : "No steps yet — type a task above and Run.")
-                                .font(.custom(Design.Text.face, size: 11))
+                            Text(agent.running ? "Starting\u{2026}" : "No steps yet.")
+                                .font(.custom(Design.Text.face, size: 10))
                                 .foregroundStyle(Design.Retro.faint)
                         } else {
                             ForEach(Array(agent.log.enumerated()), id: \.offset) { i, line in
-                                Text("\(i + 1). \(line)")
-                                    .font(.custom(Design.Text.face, size: 11))
-                                    .foregroundStyle(Design.Retro.text.opacity(0.85))
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .id(i)
+                                HStack(alignment: .top, spacing: 7) {
+                                    Text("\(i + 1)")
+                                        .font(.custom(Design.Text.face, size: 10))
+                                        .foregroundStyle(Design.Retro.dim)
+                                        .frame(width: 15, alignment: .trailing)
+                                    Text(line)
+                                        .font(.custom(Design.Text.face, size: 10))
+                                        .foregroundStyle(Design.Retro.text.opacity(0.82))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .id(i)
                             }
                         }
                     }
-                    .padding(9)
+                    .padding(8)
                 }
-                .frame(maxWidth: .infinity, minHeight: 120, maxHeight: 130, alignment: .topLeading)
-                .background(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous)
-                    .fill(Design.Retro.panel))
-                .overlay(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous)
-                    .stroke(Design.Retro.line, lineWidth: 1))
+                .frame(maxWidth: .infinity)
+                .frame(height: 84)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Design.Retro.panel.opacity(0.45)))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Design.Retro.line, lineWidth: 1))
                 .onChange(of: agent.log.count) { _ in
-                    if let last = agent.log.indices.last {
-                        withAnimation { proxy.scrollTo(last, anchor: .bottom) }
-                    }
+                    if let last = agent.log.indices.last { withAnimation { proxy.scrollTo(last, anchor: .bottom) } }
                 }
             }
         }
-    }
-
-    private func run() {
-        guard !agent.running else { return }
-        agent.start(task)
     }
 
     private func copyLog() {
