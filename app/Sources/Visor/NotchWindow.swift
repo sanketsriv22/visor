@@ -139,10 +139,10 @@ final class NotchController {
         // size so returning from the HUD lands on a card that's already there,
         // rather than one animating up from nothing.
         case .hud:   return CGSize(width: chatCardWidth, height: chatCardHeight)
-        // Computer Use is a short, wide strip — a little narrower than chat and
-        // much shorter: a task field, a status line, and a couple of recent
-        // steps, no more. Stays inside the window union so nothing resizes.
-        case .computerUse: return CGSize(width: 500, height: 156)
+        // Computer Use: a wide card — narrower than chat — with a task field, a
+        // status line, and a readable, copyable step log. Stays inside the
+        // window union so nothing resizes.
+        case .computerUse: return CGSize(width: 520, height: 300)
         }
     }
 

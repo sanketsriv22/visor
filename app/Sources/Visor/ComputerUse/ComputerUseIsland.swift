@@ -135,6 +135,7 @@ struct ComputerUseCard: View {
     let notchWidth: CGFloat
     let onClose: () -> Void
     @State private var task = ""
+    @State private var copied = false
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -144,8 +145,7 @@ struct ComputerUseCard: View {
                 header
                 field
                 statusLine
-                if !agent.log.isEmpty { logView }
-                Spacer(minLength: 0)
+                logView
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -210,22 +210,66 @@ struct ComputerUseCard: View {
     }
 
     private var logView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 3) {
-                ForEach(Array(agent.log.enumerated()), id: \.offset) { _, line in
-                    Text("› \(line)")
-                        .font(.custom(Design.Text.face, size: 10))
-                        .foregroundStyle(Design.Retro.faint)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .lineLimit(1)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text("STEPS")
+                    .font(.custom(Design.Text.face, size: 9)).tracking(2)
+                    .foregroundStyle(Design.Retro.dim)
+                Spacer()
+                if !agent.log.isEmpty {
+                    Button(action: copyLog) {
+                        Text(copied ? "COPIED" : "COPY")
+                            .font(.custom(Design.Text.face, size: 9)).tracking(1)
+                            .foregroundStyle(copied ? Design.Retro.accent : Design.Retro.dim)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 3) {
+                        if agent.log.isEmpty {
+                            Text(agent.running ? "Starting…" : "No steps yet — type a task above and Run.")
+                                .font(.custom(Design.Text.face, size: 11))
+                                .foregroundStyle(Design.Retro.faint)
+                        } else {
+                            ForEach(Array(agent.log.enumerated()), id: \.offset) { i, line in
+                                Text("\(i + 1). \(line)")
+                                    .font(.custom(Design.Text.face, size: 11))
+                                    .foregroundStyle(Design.Retro.text.opacity(0.85))
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .id(i)
+                            }
+                        }
+                    }
+                    .padding(9)
+                }
+                .frame(maxWidth: .infinity, minHeight: 120, maxHeight: 130, alignment: .topLeading)
+                .background(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous)
+                    .fill(Design.Retro.panel))
+                .overlay(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous)
+                    .stroke(Design.Retro.line, lineWidth: 1))
+                .onChange(of: agent.log.count) { _ in
+                    if let last = agent.log.indices.last {
+                        withAnimation { proxy.scrollTo(last, anchor: .bottom) }
+                    }
                 }
             }
         }
-        .frame(maxHeight: 40)
     }
 
     private func run() {
         guard !agent.running else { return }
         agent.start(task)
+    }
+
+    private func copyLog() {
+        var lines = ["Task: \(task)", "Status: \(agent.status)", ""]
+        lines += agent.log.enumerated().map { "\($0.offset + 1). \($0.element)" }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { copied = false }
     }
 }
