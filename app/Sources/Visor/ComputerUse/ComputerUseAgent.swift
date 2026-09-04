@@ -164,11 +164,14 @@ final class ComputerUseAgent: ObservableObject {
                     note("Couldn't find element #\(eid) — it may have changed", &history); break
                 }
                 // In a browser, always use a real mouse click: AXPress on web
-                // links/buttons frequently does NOT navigate, which was the whole
-                // sign-up loop. In native apps, AXPress first (no mouse movement,
-                // works off-screen), falling back to a click.
-                if inBrowser || !AXScanner.press(node) {
-                    DesktopActuator.click(at: node.center)
+                // links/buttons frequently does NOT navigate. In native apps,
+                // AXPress first (no mouse movement, works off-screen). Real
+                // clicks go through clickThrough so they reach the page, not
+                // Visor's own card sitting over the top of the screen.
+                if inBrowser {
+                    await clickThrough { DesktopActuator.click(at: node.center) }
+                } else if !AXScanner.press(node) {
+                    await clickThrough { DesktopActuator.click(at: node.center) }
                 }
                 note("Clicked \(Self.name(node))", &history)
             case let .typeElement(eid, t, submit):
@@ -177,7 +180,7 @@ final class ComputerUseAgent: ObservableObject {
                 }
                 // Focus the field with a click, then type as real key events so
                 // the app's search/handlers fire.
-                DesktopActuator.click(at: node.center)
+                await clickThrough { DesktopActuator.click(at: node.center) }
                 try? await Task.sleep(nanoseconds: 160_000_000)
                 DesktopActuator.type(t)
                 if submit {
@@ -186,10 +189,12 @@ final class ComputerUseAgent: ObservableObject {
                 }
                 note("Typed \"\(t.prefix(30))\" into \(Self.name(node))\(submit ? " and pressed Return" : "")", &history)
             case let .click(x, y):
-                DesktopActuator.click(at: Self.map(x, y, ratio: cap.ratio, origin: frame.origin, scale: frame.scale))
+                let p = Self.map(x, y, ratio: cap.ratio, origin: frame.origin, scale: frame.scale)
+                await clickThrough { DesktopActuator.click(at: p) }
                 note("Clicked at (\(Int(x)), \(Int(y)))", &history)
             case let .doubleClick(x, y):
-                DesktopActuator.doubleClick(at: Self.map(x, y, ratio: cap.ratio, origin: frame.origin, scale: frame.scale))
+                let p = Self.map(x, y, ratio: cap.ratio, origin: frame.origin, scale: frame.scale)
+                await clickThrough { DesktopActuator.doubleClick(at: p) }
                 note("Double-clicked at (\(Int(x)), \(Int(y)))", &history)
             case let .type(t, submit):
                 DesktopActuator.type(t)
@@ -228,6 +233,21 @@ final class ComputerUseAgent: ObservableObject {
             try? await Task.sleep(nanoseconds: inBrowser ? 900_000_000 : 550_000_000)
         }
         finish(Task.isCancelled ? "Stopped." : "Reached the \(maxSteps)-step limit.")
+    }
+
+    /// Post a synthetic pointer action with Visor's own overlay windows made
+    /// click-through, so the click lands on the app underneath rather than on
+    /// Visor's Computer Use card. The card floats at top-centre — right where a
+    /// website's nav bar sits — so without this, clicks on top-of-page targets
+    /// hit Visor and do nothing. Restored right after the event is hit-tested.
+    private func clickThrough(_ body: () -> Void) async {
+        let overlays = NSApp.windows.filter {
+            $0.isVisible && $0.level.rawValue >= NSWindow.Level.floating.rawValue
+        }
+        overlays.forEach { $0.ignoresMouseEvents = true }
+        body()
+        try? await Task.sleep(nanoseconds: 140_000_000)
+        overlays.forEach { $0.ignoresMouseEvents = false }
     }
 
     private func note(_ what: String, _ history: inout [String]) {
