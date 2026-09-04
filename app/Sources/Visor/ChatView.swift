@@ -610,14 +610,14 @@ struct ModeSwitcher: View {
     let mode: VisorMode
     let onSelect: (VisorMode) -> Void
 
-    /// Two 24pt pills with 2pt between them. Fixed, because the note and chat
+    /// Three 24pt pills with 2pt between them. Fixed, because the note and chat
     /// cards each reserve exactly this much space for the switcher that the
     /// root draws over them.
-    static let width: CGFloat = 50
+    static let width: CGFloat = 76
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(VisorMode.switchable) { candidate in
+            ForEach(VisorMode.pickable) { candidate in
                 Button { onSelect(candidate) } label: {
                     Image(systemName: candidate.symbol)
                         .font(.system(size: 9, weight: .semibold))
@@ -628,7 +628,9 @@ struct ModeSwitcher: View {
                 // The selected fill is the style's business now, so the
                 // switcher's "on" state matches every other on state.
                 .buttonStyle(.visor(active: candidate == mode))
-                .help("\(candidate.title) — \(ShortcutSettings.hint(.swapMode)) swaps from anywhere")
+                .help(candidate == .computerUse
+                      ? "Computer Use — click to open"
+                      : "\(candidate.title) — \(ShortcutSettings.hint(.swapMode)) swaps from anywhere")
             }
         }
         .animation(.easeInOut(duration: 0.15), value: mode)

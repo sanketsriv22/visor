@@ -32,9 +32,11 @@ enum AXScanner {
 
     /// The interactive elements of an app's focused window (falling back to the
     /// whole app), numbered for the model to pick from.
-    static func snapshot(pid: pid_t, limit: Int = 110) -> [Node] {
+    static func snapshot(pid: pid_t, limit: Int = 90) -> [Node] {
         let app = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(app, 1.5)
+        // Short timeout: each attribute read is a cross-process call, and a slow
+        // app must not stall the whole step. 0.3s is plenty for a responsive one.
+        AXUIElementSetMessagingTimeout(app, 0.3)
         // Electron/Chromium apps (Slack, VS Code, Discord, Chrome…) build their
         // accessibility tree lazily, only once a client asks. Without this flag
         // their element list comes back empty — which is exactly the apps we
@@ -78,7 +80,7 @@ enum AXScanner {
 
     private static func walk(_ el: AXUIElement, out: inout [Node],
                              counter: inout Int, visited: inout Int, limit: Int) {
-        if out.count >= limit || visited > 6000 { return }
+        if out.count >= limit || visited > 2500 { return }
         visited += 1
 
         let role = str(el, kAXRoleAttribute as String) ?? ""
@@ -95,16 +97,18 @@ enum AXScanner {
     }
 
     private static func node(from el: AXUIElement, role: String, id: Int) -> Node? {
-        let acts = actions(el)
-        // Keep it if it's a role we care about, or anything that can be pressed.
-        guard interesting.contains(role) || acts.contains("AXPress") else { return nil }
-        // Enabled and on-screen only.
+        // Cheap gate FIRST: the role is one string read. Only elements of a role
+        // we care about pay for the frame/value/label/action reads below — that's
+        // what keeps the walk from doing ten cross-process calls on every one of
+        // thousands of nodes.
+        guard interesting.contains(role) else { return nil }
         if let enabled = copy(el, kAXEnabledAttribute as String) as? Bool, !enabled { return nil }
         guard let frame = frame(el), frame.width > 3, frame.height > 3 else { return nil }
         guard NSScreen.screens.contains(where: { $0.frame.intersects(flip(frame)) }) else { return nil }
 
         let value = str(el, kAXValueAttribute as String)
         let label = bestLabel(el, role: role, value: value)
+        let acts = actions(el)   // only for kept elements — needed for press()
         // Drop unlabeled, unpressable filler (containers that slipped through).
         if label.isEmpty, value == nil, !acts.contains("AXPress") { return nil }
 

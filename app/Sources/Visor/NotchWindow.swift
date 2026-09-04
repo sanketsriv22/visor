@@ -28,11 +28,15 @@ enum VisorMode: String, CaseIterable, Identifiable, Codable {
 
     var id: String { rawValue }
 
-    /// The two faces the switcher offers. HUD is entered from chat rather than
-    /// picked from a list — it's the same conversation at another scale, not a
-    /// third sibling. Computer Use is launched from the menu bar / a hotkey and
-    /// runs a task, so it isn't a face you idly flip to either.
+    /// The faces the ⌘⌃ swap key cycles through — notes and chat only. HUD is
+    /// entered from chat, and Computer Use runs a task, so neither belongs in a
+    /// blind keyboard cycle.
     static var switchable: [VisorMode] { [.notes, .chat] }
+
+    /// The faces the on-screen switcher offers as clickable icons. Computer Use
+    /// is here — you can click straight to it — but it's deliberately not in
+    /// `switchable`, so the swap key still only flips notes/chat.
+    static var pickable: [VisorMode] { [.notes, .chat, .computerUse] }
 
     /// HUD covers the screen, so the window has to be resized for it rather
     /// than sharing the fixed union the other two live in.

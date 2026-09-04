@@ -312,7 +312,11 @@ final class ComputerUseAgent: ObservableObject {
             "model": model,
             "max_tokens": 700,
             "messages": [
-                ["role": "system", "content": system],
+                // Cache the big static system prompt so every turn after the
+                // first reuses it instead of re-processing it — faster and cheaper.
+                ["role": "system", "content": [
+                    ["type": "text", "text": system, "cache_control": ["type": "ephemeral"]],
+                ]],
                 ["role": "user", "content": [
                     ["type": "text", "text": userText],
                     ["type": "image_url", "image_url": ["url": dataURI]],
@@ -451,7 +455,7 @@ final class ComputerUseAgent: ObservableObject {
 
     /// PNG of the capture, downscaled to a sane width, and the ratio from the
     /// scaled pixels the model sees back to the original image pixels.
-    private static func encode(_ image: CGImage, maxWidth: CGFloat = 1200)
+    private static func encode(_ image: CGImage, maxWidth: CGFloat = 960)
         -> (data: Data, ratio: CGFloat, w: Int, h: Int)? {
         let w = CGFloat(image.width), h = CGFloat(image.height)
         let ratio = w > maxWidth ? w / maxWidth : 1
@@ -459,7 +463,7 @@ final class ComputerUseAgent: ObservableObject {
         guard let ctx = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8,
                                   bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        ctx.interpolationQuality = .medium
+        ctx.interpolationQuality = .low
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: outW, height: outH))
         guard let scaled = ctx.makeImage() else { return nil }
         let rep = NSBitmapImageRep(cgImage: scaled)
