@@ -826,6 +826,10 @@ final class ChatController: ObservableObject {
 
     /// Let the pending calls run. `always` adds them to this agent's standing
     /// permissions.
+    /// Forget a pending approval without answering it — the introduction
+    /// abandoning a real agent that then failed.
+    func dropPending() { pendingApproval = nil }
+
     func approvePending(always: Bool) {
         guard let pending = pendingApproval else { return }
         pendingApproval = nil

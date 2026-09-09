@@ -656,9 +656,12 @@ enum DesignLab {
                     .fill(Color.black)
                     .frame(width: notch.width, height: notch.height)
                     .offset(x: notchRect.minX)
-                // Always mounted, as in the app: the root draws the card only
-                // while `ui.expanded`, so an open captured with --frames shows
-                // the card and the scrim's hole growing together.
+                // The scrim: in the app a window beneath the notch's, here a
+                // sheet beneath the root view. The root is always mounted, as
+                // in the app, so an open captured with --frames shows the card
+                // growing over the dimmed screen.
+                Rectangle().fill(Color.black.opacity(step == .intro ? 0.88 : 0.74))
+                    .frame(width: bounds.width, height: bounds.height)
                 StickyRootView(store: notes, ui: ui, ai: ai, chat: chat,
                                onToggle: {}, onMode: { ui.mode = $0 })
                     .frame(width: bounds.width, height: bounds.height, alignment: .top)

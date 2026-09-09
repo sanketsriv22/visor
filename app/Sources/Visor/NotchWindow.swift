@@ -637,6 +637,14 @@ final class NotchController {
         if ui.mode.isFullScreen { hudPanel?.orderFront(nil) }
     }
 
+    /// Slip a window in directly beneath the notch's, at the same level: the
+    /// introduction's scrim. The card, the switcher and the HUD then draw over
+    /// it as themselves, with their own edges and shadow, and nothing has to
+    /// be cut out of anything.
+    func order(_ window: NSWindow, belowNotch: Bool) {
+        window.order(.below, relativeTo: panel.windowNumber)
+    }
+
     /// Step the panel below ordinary windows while a system dialog is up.
     ///
     /// The notch has to sit at `.statusBar` to draw over the menu bar, but that

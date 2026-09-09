@@ -151,6 +151,13 @@ for f in "$REPO/app/Sources/Visor/Resources"/hero-*.png "$REPO/app/Sources/Visor
     [ -f "$f" ] && cp "$f" "$APP/Contents/Resources/"
 done
 
+# The introduction's narration: the script, and the clips rendered from it
+# by scripts/narration.py, one folder per bundled voice.
+cp "$REPO/app/Sources/Visor/Resources/narration.json" "$APP/Contents/Resources/"
+if [ -d "$REPO/app/Sources/Visor/Resources/narration" ]; then
+    cp -R "$REPO/app/Sources/Visor/Resources/narration" "$APP/Contents/Resources/narration"
+fi
+
 # Bundle the changelog so the app can show "What's New" offline.
 cp "$REPO/CHANGELOG.md" "$APP/Contents/Resources/CHANGELOG.md" 2>/dev/null || true
 

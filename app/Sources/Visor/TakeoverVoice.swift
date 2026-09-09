@@ -1,85 +1,202 @@
 import AVFoundation
-import Foundation
+import AppKit
+import Combine
+import SwiftUI
 
-/// The introduction's voice and sound.
-///
-/// HeyClicky's tutorial is narrated: a voice says what is about to happen
-/// while it draws, and the pace of the tour is the pace of the speech.
-/// This does the same with the system's best English voice, and adds a
-/// few quiet synthesised cues — a rise for the reveal, a tick for a beat,
-/// a two-note chime for a success — so moments land in the ear as well as
-/// the eye. Both can be muted; the preference persists.
+/// The introduction's script: every line it can say, by id. The text is the
+/// caption and the fallback for a system voice; the id names a bundled
+/// clip (`Resources/narration/<voice>/<id>.m4a`), rendered ahead of time
+/// with a neural voice by `scripts/narration.py` — the same way HeyClicky
+/// ships its lines as audio rather than asking the Mac to read them.
+enum Narration {
+    struct Line: Equatable {
+        let id: String
+        let text: String
+        init(_ id: String, text: String? = nil) {
+            self.id = id
+            self.text = text ?? Narration.script[id] ?? id
+        }
+    }
+
+    static let script: [String: String] = {
+        guard let url = Bundle.main.resourceURL?.appendingPathComponent("narration.json"),
+              let data = try? Data(contentsOf: url),
+              let dict = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
+        return dict
+    }()
+
+    /// A voice the narrator can use: one of the bundled neural voices, or any
+    /// voice installed on the Mac.
+    struct Voice: Identifiable, Equatable {
+        enum Kind: Equatable { case bundled(folder: String), system(identifier: String) }
+        let kind: Kind
+        let name: String
+        let detail: String
+
+        var id: String {
+            switch kind {
+            case .bundled(let folder): return "visor:\(folder)"
+            case .system(let identifier): return "system:\(identifier)"
+            }
+        }
+
+        static func from(id: String) -> Voice? {
+            if id.hasPrefix("visor:") {
+                let folder = String(id.dropFirst(6))
+                return bundled.first { if case .bundled(let f) = $0.kind { return f == folder }; return false }
+            }
+            if id.hasPrefix("system:") {
+                let identifier = String(id.dropFirst(7))
+                guard let v = AVSpeechSynthesisVoice(identifier: identifier) else { return nil }
+                return Voice(kind: .system(identifier: identifier), name: v.name, detail: Self.quality(v))
+            }
+            return nil
+        }
+
+        /// The bundled voices, in the order they're offered. Only the ones
+        /// whose clips actually shipped are listed.
+        static let bundled: [Voice] = {
+            let all: [(String, String, String)] = [
+                ("heart", "Heart", "warm, American"),
+                ("sky", "Sky", "clear, American"),
+                ("george", "George", "measured, British"),
+                ("michael", "Michael", "easy, American"),
+                ("emma", "Emma", "bright, British"),
+            ]
+            return all.compactMap { folder, name, detail in
+                guard let root = Bundle.main.resourceURL?.appendingPathComponent("narration/\(folder)"),
+                      FileManager.default.fileExists(atPath: root.appendingPathComponent("intro.hi.m4a").path)
+                else { return nil }
+                return Voice(kind: .bundled(folder: folder), name: name, detail: detail)
+            }
+        }()
+
+        /// The Mac's English voices, best first: premium, enhanced, then the
+        /// compact ones that ship by default.
+        static var system: [Voice] {
+            AVSpeechSynthesisVoice.speechVoices()
+                .filter { $0.language.hasPrefix("en") }
+                .filter { !$0.name.contains("(") }
+                .sorted { rank($0) == rank($1) ? $0.name < $1.name : rank($0) < rank($1) }
+                .map { Voice(kind: .system(identifier: $0.identifier), name: $0.name, detail: quality($0)) }
+        }
+
+        private static func rank(_ v: AVSpeechSynthesisVoice) -> Int {
+            switch v.quality { case .premium: return 0; case .enhanced: return 1; default: return 2 }
+        }
+
+        static func quality(_ v: AVSpeechSynthesisVoice) -> String {
+            let region = Locale.current.localizedString(forRegionCode: String(v.language.suffix(2))) ?? v.language
+            switch v.quality {
+            case .premium:  return "\(region) · premium"
+            case .enhanced: return "\(region) · enhanced"
+            default:        return "\(region) · compact"
+            }
+        }
+
+        /// The default: the first bundled voice, else the best system voice.
+        static var preferred: Voice {
+            if let v = bundled.first { return v }
+            return system.first ?? Voice(kind: .system(identifier: ""), name: "Default", detail: "")
+        }
+    }
+}
+
+/// The voice of the introduction. Says lines in order, one at a time, and
+/// calls back when they have all been heard — the tour's clock. Bundled
+/// clips play as audio; a system voice speaks the text; muted, each line
+/// shows for about as long as it would take to hear.
 @MainActor
-final class Narrator: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+final class Narrator: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
     static let voiceKey = "visor.intro.voice"
+    static let voiceOnKey = "visor.intro.voiceOn"
     static let soundKey = "visor.intro.sound"
 
-    @Published var voiceOn: Bool = UserDefaults.standard.object(forKey: Narrator.voiceKey) as? Bool ?? true {
-        didSet { if !silent { UserDefaults.standard.set(voiceOn, forKey: Self.voiceKey) }; if !voiceOn { synth.stopSpeaking(at: .immediate) } }
+    @Published var voiceOn: Bool = UserDefaults.standard.object(forKey: Narrator.voiceOnKey) as? Bool ?? true {
+        didSet {
+            if !silent { UserDefaults.standard.set(voiceOn, forKey: Self.voiceOnKey) }
+            if !voiceOn { interrupt() }
+        }
     }
     @Published var soundOn: Bool = UserDefaults.standard.object(forKey: Narrator.soundKey) as? Bool ?? true {
         didSet { if !silent { UserDefaults.standard.set(soundOn, forKey: Self.soundKey) } }
     }
     /// What is being said right now, for the caption.
     @Published private(set) var line: String = ""
+    /// A second, smaller line under the caption — the reason something failed.
+    @Published var detail: String? = nil
     @Published private(set) var speaking = false
 
+    var voice: Narration.Voice {
+        didSet { if !silent { UserDefaults.standard.set(voice.id, forKey: Self.voiceKey) } }
+    }
+
     private let synth = AVSpeechSynthesizer()
-    private var queue: [String] = []
+    private var player: AVAudioPlayer?
+    private var queue: [Narration.Line] = []
     private var completion: (() -> Void)?
     private var fallbackTimer: DispatchWorkItem?
-    /// The utterance in flight, so a cancel from the mute switch continues
-    /// the tour while a cancel from `stop()` does not.
     private var current: AVSpeechUtterance?
-    private let voice: AVSpeechSynthesisVoice?
+    /// The voice a Settings preview is using, so its second line matches.
+    private var previewVoice: Narration.Voice?
     /// A narrator that never makes a sound and never touches preferences —
     /// the Design Lab's.
     let silent: Bool
 
+    static var savedVoice: Narration.Voice {
+        (UserDefaults.standard.string(forKey: voiceKey)).flatMap(Narration.Voice.from(id:)) ?? .preferred
+    }
+
     init(silent: Bool = false) {
         self.silent = silent
-        // The best English voice installed: premium, then enhanced, then
-        // whatever the system has. Siri voices aren't offered to apps.
-        let english = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("en") }
-        func rank(_ v: AVSpeechSynthesisVoice) -> Int {
-            switch v.quality {
-            case .premium: return 3
-            case .enhanced: return 2
-            default: return 1
-            }
-        }
-        let preferred = ["Ava", "Zoe", "Evan", "Samantha", "Daniel", "Karen", "Moira"]
-        voice = english.sorted { a, b in
-            if rank(a) != rank(b) { return rank(a) > rank(b) }
-            let ia = preferred.firstIndex { a.name.hasPrefix($0) } ?? 99
-            let ib = preferred.firstIndex { b.name.hasPrefix($0) } ?? 99
-            return ia < ib
-        }.first
+        self.voice = Narrator.savedVoice
         super.init()
         synth.delegate = self
         if silent { voiceOn = false; soundOn = false }
     }
 
-    /// Say these lines in order, showing each as the caption, then call
-    /// `then`. Muted, the caption still shows and the beat still waits about
-    /// as long as the line would take to hear.
-    func say(_ lines: [String], then: @escaping () -> Void) {
+    /// Say these lines in order, showing each as the caption, then call `then`.
+    func say(_ lines: [Narration.Line], then: @escaping () -> Void) {
         stop()
         queue = lines
         completion = then
         next()
     }
 
+    func say(_ ids: [String], then: @escaping () -> Void) {
+        say(ids.map { Narration.Line($0) }, then: then)
+    }
+
     /// A caption without speech, for the Design Lab.
     func show(_ text: String) { line = text }
+
+    /// Hear a voice, in Settings.
+    func preview(_ voice: Narration.Voice) {
+        stop()
+        speaking = true
+        speakOrPlay(Narration.Line("intro.hi"), using: voice)
+        previewVoice = voice
+        queue = [Narration.Line("intro.notch")]
+        completion = { [weak self] in self?.previewVoice = nil }
+    }
 
     func stop() {
         fallbackTimer?.cancel()
         queue.removeAll()
         completion = nil
+        previewVoice = nil
+        interrupt()
+        detail = nil
+    }
+
+    /// Stop the sound without dropping the queue: the mute switch.
+    private func interrupt() {
         current = nil
         synth.stopSpeaking(at: .immediate)
+        player?.stop()
+        player = nil
         speaking = false
+        if !queue.isEmpty || completion != nil { wait(0.5) }
     }
 
     private func next() {
@@ -90,23 +207,47 @@ final class Narrator: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
             done?()
             return
         }
-        let text = queue.removeFirst()
-        line = text
+        let item = queue.removeFirst()
+        line = item.text
         speaking = true
-        if voiceOn {
-            let utterance = AVSpeechUtterance(string: text)
-            utterance.voice = voice
-            utterance.rate = 0.47
-            utterance.pitchMultiplier = 1.0
-            utterance.volume = 0.9
-            utterance.postUtteranceDelay = 0.45
-            current = utterance
-            synth.speak(utterance)
+        if voiceOn || previewVoice != nil {
+            speakOrPlay(item, using: previewVoice ?? voice)
         } else {
-            let seconds = 0.9 + Double(text.count) * 0.055
-            let work = DispatchWorkItem { [weak self] in self?.next() }
-            fallbackTimer = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+            wait(0.9 + Double(item.text.count) * 0.055)
+        }
+    }
+
+    private func wait(_ seconds: TimeInterval) {
+        fallbackTimer?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.next() }
+        fallbackTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+
+    private func speakOrPlay(_ item: Narration.Line, using voice: Narration.Voice) {
+        if case .bundled(let folder) = voice.kind,
+           let url = Bundle.main.resourceURL?.appendingPathComponent("narration/\(folder)/\(item.id).m4a"),
+           let player = try? AVAudioPlayer(contentsOf: url) {
+            player.delegate = self
+            player.volume = 1
+            self.player = player
+            player.play()
+            return
+        }
+        let utterance = AVSpeechUtterance(string: item.text)
+        if case .system(let identifier) = voice.kind { utterance.voice = AVSpeechSynthesisVoice(identifier: identifier) }
+        utterance.rate = 0.47
+        utterance.volume = 0.9
+        utterance.postUtteranceDelay = 0.35
+        current = utterance
+        synth.speak(utterance)
+    }
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in
+            guard player === self.player else { return }
+            self.player = nil
+            self.wait(0.35)
         }
     }
 
@@ -118,80 +259,60 @@ final class Narrator: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         }
     }
 
-    /// Muted mid-line: carry on at reading speed rather than stall.
-    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        Task { @MainActor in
-            guard utterance === self.current else { return }
-            self.current = nil
-            let seconds = 0.6
-            let work = DispatchWorkItem { [weak self] in self?.next() }
-            self.fallbackTimer = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
-        }
-    }
-
     // MARK: Cues
 
     enum Cue { case reveal, beat, success, stop }
 
     func play(_ cue: Cue) {
-        guard soundOn else { return }
+        guard soundOn, !silent else { return }
         SoundCues.shared.play(cue)
     }
 }
 
-/// Small synthesised sounds, generated once and played through one engine.
-/// No files to bundle; nothing to license; and they match the accent's
-/// character — soft, pure, brief.
+/// Four small sounds, synthesised so nothing has to be bundled: a soft
+/// rise for the reveal, a tick for a beat, a two-note lift for a success,
+/// a low thud for a stop.
 final class SoundCues {
     static let shared = SoundCues()
     private let engine = AVAudioEngine()
-    private let player = AVAudioPlayerNode()
+    private let node = AVAudioPlayerNode()
     private var buffers: [Narrator.Cue: AVAudioPCMBuffer] = [:]
-    private let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
+    private let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
 
     private init() {
-        engine.attach(player)
-        engine.connect(player, to: engine.mainMixerNode, format: format)
+        engine.attach(node)
+        engine.connect(node, to: engine.mainMixerNode, format: format)
         engine.mainMixerNode.outputVolume = 0.5
-        buffers[.reveal]  = render(duration: 1.6) { t in
-            // A slow rise: two partials sweeping up with a soft attack.
-            let f = 220.0 + 330.0 * min(1, t / 1.2)
-            let env = min(1, t / 0.5) * exp(-max(0, t - 0.9) * 2.4)
-            return (sin(2 * .pi * f * t) * 0.6 + sin(2 * .pi * f * 2.01 * t) * 0.25) * env * 0.35
-        }
-        buffers[.beat]    = render(duration: 0.28) { t in
-            let env = exp(-t * 18)
-            return sin(2 * .pi * 880 * t) * env * 0.22
-        }
-        buffers[.success] = render(duration: 1.1) { t in
-            // Two notes a fifth apart, the second entering a beat later.
-            let a = sin(2 * .pi * 659.25 * t) * exp(-t * 3.2)
-            let b = t > 0.16 ? sin(2 * .pi * 987.77 * (t - 0.16)) * exp(-(t - 0.16) * 2.8) : 0
-            return (a * 0.5 + b * 0.5) * 0.4
-        }
-        buffers[.stop]    = render(duration: 0.5) { t in
-            let env = exp(-t * 7)
-            return sin(2 * .pi * 392 * t) * env * 0.3
-        }
-    }
-
-    private func render(duration: Double, _ sample: (Double) -> Double) -> AVAudioPCMBuffer {
-        let frames = AVAudioFrameCount(duration * format.sampleRate)
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
-        buffer.frameLength = frames
-        for i in 0..<Int(frames) {
-            let v = Float(sample(Double(i) / format.sampleRate))
-            buffer.floatChannelData![0][i] = v
-            buffer.floatChannelData![1][i] = v
-        }
-        return buffer
+        buffers[.reveal] = tone([(330, 0.0), (440, 0.18), (660, 0.36)], length: 0.7, attack: 0.15, decay: 0.5)
+        buffers[.beat] = tone([(880, 0.0)], length: 0.09, attack: 0.005, decay: 0.08)
+        buffers[.success] = tone([(523, 0.0), (784, 0.12)], length: 0.45, attack: 0.01, decay: 0.3)
+        buffers[.stop] = tone([(110, 0.0)], length: 0.3, attack: 0.005, decay: 0.28)
     }
 
     func play(_ cue: Narrator.Cue) {
         guard let buffer = buffers[cue] else { return }
         if !engine.isRunning { try? engine.start() }
-        if !player.isPlaying { player.play() }
-        player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
+        node.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+        if !node.isPlaying { node.play() }
+    }
+
+    private func tone(_ notes: [(Double, Double)], length: Double, attack: Double, decay: Double) -> AVAudioPCMBuffer? {
+        let rate = format.sampleRate
+        let frames = AVAudioFrameCount(length * rate)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return nil }
+        buffer.frameLength = frames
+        let data = buffer.floatChannelData![0]
+        for i in 0..<Int(frames) {
+            let t = Double(i) / rate
+            var sample = 0.0
+            for (freq, start) in notes where t >= start {
+                let local = t - start
+                let env = min(1, local / attack) * exp(-local / decay)
+                sample += sin(2 * .pi * freq * local) * env * 0.35
+                sample += sin(2 * .pi * freq * 2 * local) * env * 0.08
+            }
+            data[i] = Float(sample)
+        }
+        return buffer
     }
 }

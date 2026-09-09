@@ -2,13 +2,14 @@ import AppKit
 import AVFoundation
 import SwiftUI
 
-/// The introduction's picture, kept deliberately quiet: a dark scrim that
-/// fades up over the Mac with the real card cut out of it; the welcome
-/// video, or the mark rising out of the notch; one caption that follows
-/// the voice; a single centred card for the one form and the goodbye; a
+/// The introduction's overlay, kept deliberately quiet: the welcome video,
+/// or the mark rising out of the notch; one caption that follows the
+/// voice; a single centred card for the one form and the goodbye; a
 /// hand-drawn ring around the real thing to press; a thin line of
-/// progress along the bottom. Nothing blinks, nothing scans, nothing
-/// hops. The pace is the pace of speech.
+/// progress along the bottom. The dark sheet behind the product is a
+/// separate window beneath the notch's (see `TakeoverGuide`), so this view
+/// draws nothing over the card and lets clicks through wherever it draws
+/// nothing at all.
 struct TakeoverView: View {
     @ObservedObject var state: TakeoverState
     @ObservedObject private var narrator: Narrator
@@ -31,50 +32,36 @@ struct TakeoverView: View {
         GeometryReader { proxy in
             let size = proxy.size
             let origin = CGPoint(x: notchRect.midX, y: notchRect.maxY)
-            // The card's hole is the card rect under the card's own
-            // transition (a scale about its top centre). The scale changes
-            // inside the notch controller's animation transaction, so hole
-            // and card are one motion. Closed, it hides inside the notch.
-            let scrim = Scrim(card: cardRect(size: size),
-                              scale: state.geometry.hud || state.geometry.expanded ? 1 : 0.02)
 
             ZStack(alignment: .topLeading) {
-                scrim
-                    .fill(Color.black.opacity(scrimOpacity), style: FillStyle(eoFill: true))
-                    .animation(Design.Motion.animation(.easeInOut(duration: 0.4)), value: state.step)
-
-                // The notch's click band while the card is closed: the scrim
-                // covers it, so the click lands here and the guide opens it.
-                if !state.geometry.expanded, state.step == .notch {
-                    Color.black.opacity(0.001)
-                        .frame(width: notchRect.width + 12, height: notchRect.height + 12)
-                        .position(x: notchRect.midX, y: notchRect.midY + 6)
-                        .onTapGesture(perform: actions.summon)
-                        .accessibilityIdentifier("visor.takeover.notchTarget")
-                }
-
                 annotations(size: size)
+                    .allowsHitTesting(false)
 
                 if state.step == .intro {
                     intro(size: size, origin: origin)
                 } else {
                     caption(size: size)
+                        .allowsHitTesting(false)
                 }
 
                 if state.step == .agent, state.formVisible, !state.created {
                     TourCard(width: 420) { AgentForm(state: state, create: actions.createAgent) }
+                        .reportHit()
                         .position(x: size.width / 2, y: cardHome(size: size))
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
                 if state.step == .finale, state.sheetVisible {
                     TourCard(width: 560) { finaleSheet }
+                        .reportHit()
                         .position(x: size.width / 2, y: cardHome(size: size))
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
 
                 topBar(size: size)
                 progressBar(size: size)
+                    .allowsHitTesting(false)
             }
+            .onPreferenceChange(HitRectsKey.self) { state.hitRects = $0 }
             .frame(width: size.width, height: size.height)
             .onChange(of: state.step) { _ in
                 draw = 0
@@ -83,7 +70,6 @@ struct TakeoverView: View {
             .onChange(of: state.askStop) { _ in redraw() }
             .onChange(of: state.awaitingApproval) { _ in redraw() }
             .onAppear {
-                // The scrim fades up; nothing else moves until it has.
                 withAnimation(Design.Motion.animation(.easeInOut(duration: reduced ? 0.3 : 1.1))) { appeared = true }
                 withAnimation(Design.Motion.animation(.easeOut(duration: 0.85))) { draw = 1 }
             }
@@ -97,11 +83,6 @@ struct TakeoverView: View {
         withAnimation(Design.Motion.animation(.easeOut(duration: 0.85))) { draw = 1 }
     }
 
-    private var scrimOpacity: Double {
-        guard appeared, !state.leaving else { return 0 }
-        return state.step == .intro ? 0.88 : 0.74
-    }
-
     // MARK: Coordinates
 
     private func view(_ r: CGRect) -> CGRect {
@@ -112,10 +93,6 @@ struct TakeoverView: View {
     private var card: CGRect { view(state.geometry.card) }
     private var notchRect: CGRect { view(state.geometry.notch) }
     private var notchH: CGFloat { notchRect.height }
-
-    private func cardRect(size: CGSize) -> CGRect {
-        state.geometry.hud ? CGRect(origin: .zero, size: size) : card
-    }
 
     /// Where the one tour card sits: centred in the room below the notch
     /// card, never over it.
@@ -230,6 +207,7 @@ struct TakeoverView: View {
                 .position(x: size.width / 2, y: risen.y + 200)
                 .opacity(state.risen ? 1 : 0)
             }
+            .allowsHitTesting(false)
             .accessibilityIdentifier("visor.takeover.intro")
         }
     }
@@ -254,16 +232,27 @@ struct TakeoverView: View {
                 }
             }
             .frame(width: 36, height: 36)
-            Text(text)
-                .font(.system(size: 15))
-                .foregroundStyle(Design.Ink.primary)
-                .lineSpacing(3)
-                .fixedSize(horizontal: false, vertical: true)
-                .id(text)
-                .transition(.opacity)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(text)
+                    .font(.system(size: 15))
+                    .foregroundStyle(Design.Ink.primary)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .id(text)
+                    .transition(.opacity)
+                if let detail = narrator.detail, state.milestone == nil {
+                    Text(detail)
+                        .font(Design.Typography.caption())
+                        .foregroundStyle(Design.Ink.tertiary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .transition(.opacity)
+                }
+            }
             Spacer(minLength: 0)
         }
         .animation(Design.Motion.animation(.easeInOut(duration: 0.3)), value: text)
+        .animation(Design.Motion.animation(.easeInOut(duration: 0.3)), value: narrator.detail)
         .padding(.horizontal, Design.Space.loose)
         .padding(.vertical, Design.Space.roomy)
         .frame(width: captionWidth, alignment: .leading)
@@ -336,6 +325,7 @@ struct TakeoverView: View {
         .padding(.horizontal, Design.Space.roomy)
         .frame(height: 40)
         .background(Capsule().fill(Design.Retro.bg.opacity(0.7)))
+        .reportHit()
         .position(x: size.width - 110, y: 48)
         .opacity(appeared ? 1 : 0)
     }
@@ -350,6 +340,24 @@ struct TakeoverView: View {
         .position(x: size.width / 2, y: size.height - 1)
         .opacity(state.step == .intro ? 0 : 1)
         .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Click ownership
+
+/// The frames the overlay owns clicks in, gathered from the card and the
+/// chrome. `.global` in the overlay's hosting view is its own top-left
+/// space, which is what `TakeoverHostingView.hitTest` compares against.
+struct HitRectsKey: PreferenceKey {
+    static var defaultValue: [CGRect] { [] }
+    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) { value += nextValue() }
+}
+
+extension View {
+    func reportHit() -> some View {
+        background(GeometryReader { g in
+            Color.clear.preference(key: HitRectsKey.self, value: [g.frame(in: .global)])
+        })
     }
 }
 
@@ -575,35 +583,7 @@ enum HeroSheet {
     }
 }
 
-// MARK: - Scrim and strokes
-
-/// The screen minus the card, for an even-odd fill. The card hole is the
-/// card's rect scaled about its top centre — the same transform as the
-/// card's own scale transition — and the scale is the animatable value,
-/// so the hole and the card share one motion.
-struct Scrim: Shape {
-    var card: CGRect
-    var scale: CGFloat
-
-    var animatableData: CGFloat {
-        get { scale }
-        set { scale = newValue }
-    }
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.addRect(rect)
-        let s = max(0, min(1, scale))
-        if s > 0.001, card.width > 0, card.height > 0 {
-            let w = card.width * s, h = card.height * s
-            let hole = CGRect(x: card.midX - w / 2, y: card.minY, width: w, height: h)
-            let r = min(Design.Radius.card * s, h / 2)
-            path.addPath(Path(roundedRect: hole, cornerRadii: RectangleCornerRadii(
-                topLeading: 0, bottomLeading: r, bottomTrailing: r, topTrailing: 0)))
-        }
-        return path
-    }
-}
+// MARK: - Strokes
 
 private struct CheckMark: Shape {
     func path(in rect: CGRect) -> Path {

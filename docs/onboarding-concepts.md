@@ -115,10 +115,23 @@ a founder welcome video, then a voice-narrated, hands-on tour with a
 single centred dark card, hand-drawn rings on the real control to press,
 quiet sound cues, and a pace set by speech rather than timers.
 
-- **Voice.** `Narrator` (TakeoverVoice.swift) speaks every line with the
-  best English system voice and calls back when the line has been heard;
-  the guide advances on those callbacks, so nothing moves faster than it
-  can be said. Muted, lines run on a reading-speed timer instead.
+- **Voice.** The script lives in `Resources/narration.json`, one line per
+  id. `scripts/narration.py` renders every line with Kokoro (an open
+  neural voice, on the CPU) into `Resources/narration/<voice>/<id>.m4a`,
+  five voices bundled; `Narrator` (TakeoverVoice.swift) plays the clip
+  for the chosen voice and calls back when it has been heard, and the
+  guide advances on those callbacks, so nothing moves faster than it can
+  be said. Settings → Voice → Visor's voice picks the voice (bundled, or
+  any installed on the Mac) and lets you hear each one. Muted, lines run
+  on a reading-speed timer.
+- **No cut-outs.** The scrim is its own window ordered directly beneath
+  the notch's, so the card, switcher and HUD draw over it as themselves.
+  The overlay above owns clicks only inside the one card and the chrome
+  (`TakeoverHostingView.hitTest`); everywhere else falls through.
+- **Never stranded.** The stand-in takes over on any error, at any point
+  in the real agent's turn — including a failure after the approval —
+  and the tour tracks its own send directly rather than inferring it
+  from the transcript.
 - **Video.** If `Resources/intro.mp4` exists in the bundle the tour opens
   with it (`VideoIntro`, an `AVPlayerLayer`, thin accent progress bar) and
   begins when it ends; otherwise the mark rises out of the notch while the

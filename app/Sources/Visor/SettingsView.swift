@@ -1036,6 +1036,75 @@ private final class AccessibilityTrust: ObservableObject {
 /// which is about what agents remember rather than what you dictated. Neither
 /// is where you'd look. Voice is its own feature with its own key, its own
 /// permission, its own shortcut and its own history, so it gets its own tab.
+/// Which voice speaks the introduction: one of the bundled neural voices,
+/// or any voice installed on the Mac. Each row can be heard before it's
+/// chosen.
+private struct NarratorVoicePicker: View {
+    @StateObject private var narrator = Narrator()
+    @State private var selected: String = Narrator.savedVoice.id
+    @State private var system = Narration.Voice.system
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("The voice that walks you through Visor. Bundled voices are rendered ahead of time and sound like a person; the Mac's own voices work offline but most of them are the compact kind.")
+                .font(Design.Text.caption)
+                .foregroundStyle(Design.Retro.dim)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !Narration.Voice.bundled.isEmpty {
+                SectionLabel("Bundled")
+                ForEach(Narration.Voice.bundled) { voice in row(voice) }
+            }
+            SectionLabel("On this Mac")
+            ForEach(system.prefix(8)) { voice in row(voice) }
+            if system.count > 8 {
+                Menu {
+                    ForEach(system.dropFirst(8)) { voice in
+                        Button("\(voice.name) · \(voice.detail)") { choose(voice) }
+                    }
+                } label: {
+                    Text("More voices…").font(Design.Text.caption)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+            InfoNote(text: "Premium voices for the Mac can be downloaded in System Settings → Accessibility → Spoken Content → System Voice → Manage Voices.")
+
+            HStack(spacing: 10) {
+                Toggle("Speak the introduction", isOn: $narrator.voiceOn).toggleStyle(.switch)
+                Toggle("Sound cues", isOn: $narrator.soundOn).toggleStyle(.switch)
+            }
+            .font(Design.Text.caption)
+        }
+    }
+
+    private func row(_ voice: Narration.Voice) -> some View {
+        HStack(spacing: 10) {
+            Button { choose(voice) } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: selected == voice.id ? "largecircle.fill.circle" : "circle")
+                        .foregroundStyle(selected == voice.id ? Design.Retro.accent : Design.Retro.dim)
+                    Text(voice.name).font(Design.Text.rowTitle).foregroundStyle(Design.Retro.text)
+                    Text(voice.detail).font(Design.Text.caption).foregroundStyle(Design.Retro.dim)
+                }
+            }
+            .buttonStyle(.plain)
+            Spacer()
+            ActionChip(title: narrator.speaking && previewing == voice.id ? "Playing…" : "Hear it") {
+                previewing = voice.id
+                narrator.preview(voice)
+            }
+        }
+    }
+
+    @State private var previewing: String? = nil
+
+    private func choose(_ voice: Narration.Voice) {
+        selected = voice.id
+        narrator.voice = voice
+    }
+}
+
 private struct VoicePane: View {
     @ObservedObject var chat: ChatController
     @ObservedObject var catalog: ModelCatalog
@@ -1059,6 +1128,7 @@ private struct VoicePane: View {
                 title: "Voice",
                 subtitle: "Dictate anywhere on your Mac. The words land at the caret in whatever you're typing in, and every transcript is kept here.")
 
+            SettingsCard(label: "Visor's voice") { NarratorVoicePicker() }
             SettingsCard(label: "Transcription") { voiceKey }
             SettingsCard(label: "Transcription model") { transcriptionModelField }
             SettingsCard(label: "Dictation games") { notchGames }
