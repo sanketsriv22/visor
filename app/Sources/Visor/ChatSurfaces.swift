@@ -162,7 +162,7 @@ struct EmptyInvitation: View {
                 Text("Ask \(chat.agent?.name ?? "your agent") for help, or hand it a task.")
                     .font(Design.Typography.heading(scale))
                     .foregroundStyle(Design.Ink.primary)
-                Text("It can read your screen, run commands, and drive your Mac. Stop it any time with ⌘.")
+                Text("It can read your screen, run commands, and drive your Mac. ⌘ . stops it at any point.")
                     .font(Design.Typography.secondary(scale))
                     .foregroundStyle(Design.Ink.tertiary)
                     .lineSpacing(2)

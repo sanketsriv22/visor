@@ -58,7 +58,7 @@ struct TakeoverView: View {
                 withAnimation(Design.Motion.animation(.easeOut(duration: 0.85))) { draw = 1 }
                 if Date().timeIntervalSince(state.stepStarted) > 1.5 { bootPhase = 1 }
                 let rise = reduced ? 0.1 : 0.3
-                let settle = reduced ? 0.5 : 2.5
+                let settle = reduced ? 0.5 : 2.9
                 DispatchQueue.main.asyncAfter(deadline: .now() + rise) {
                     withAnimation(Design.Motion.animation(.spring(response: 0.9, dampingFraction: 0.78))) { bootPhase = 1 }
                 }
@@ -162,10 +162,11 @@ struct TakeoverView: View {
         // The handoff: a beam from the notch to the practice window as it
         // opens, so the window reads as something Visor sent down.
         if state.step == .practice, let p = practiceRect {
+            // Arcs around the card's right edge rather than through it.
             Path { path in
                 path.move(to: origin)
-                path.addQuadCurve(to: CGPoint(x: p.midX, y: p.minY - 4),
-                                  control: CGPoint(x: origin.x + 40, y: (origin.y + p.minY) / 2))
+                path.addQuadCurve(to: CGPoint(x: p.maxX - 40, y: p.minY - 6),
+                                  control: CGPoint(x: card.maxX + 120, y: (origin.y + p.minY) / 2))
             }
             .trim(from: 0, to: draw)
             .stroke(LinearGradient(colors: [accent.opacity(0.0), accent.opacity(0.9)],

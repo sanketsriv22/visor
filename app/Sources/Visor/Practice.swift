@@ -33,8 +33,18 @@ final class PracticeDriver: ObservableObject {
     static var total: Int { rows.reduce(0) { $0 + $1.amount } }
 
     /// Where things are inside the practice view, filled in by the view.
-    var rowAnchors: [CGPoint] = []
-    var fieldAnchor: CGPoint = .zero
+    var rowAnchors: [CGPoint] = [] { didSet { reaim() } }
+    var fieldAnchor: CGPoint = .zero { didSet { reaim() } }
+
+    /// The view can report positions after a step began (first layout, a
+    /// resize); point the cursor at the current target again when it does.
+    private func reaim() {
+        switch phase {
+        case .reading(let i) where rowAnchors.indices.contains(i): glide(to: rowAnchors[i])
+        case .moving, .typing: if fieldAnchor != .zero { glide(to: fieldAnchor) }
+        default: break
+        }
+    }
 
     private var work: DispatchWorkItem?
 
@@ -247,6 +257,7 @@ struct PracticeView: View {
                     .animation(Design.Motion.quick, value: driver.isDone)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .coordinateSpace(name: "practice")
         .onPreferenceChange(PracticeAnchorKey.self) { anchors in
             driver.rowAnchors = (0..<PracticeDriver.rows.count).compactMap { anchors[$0] }

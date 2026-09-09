@@ -214,7 +214,7 @@ final class TakeoverGuide {
         // the last moment that was completed before an interruption.
         if controller.ui.expanded { controller.toggle() }
         state.stepStarted = Date()
-        schedule(after: Design.Motion.reduced ? 0.8 : 3.4) { [weak self] in
+        schedule(after: Design.Motion.reduced ? 0.8 : 3.6) { [weak self] in
             self?.advance(to: .summon)
         }
     }
