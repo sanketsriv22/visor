@@ -179,7 +179,7 @@ final class NotesStore: ObservableObject {
             mirror = FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent("StickyNotes/sticky.md")
         }
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: self.folder, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: archiveFolder, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(
             at: mirror.deletingLastPathComponent(), withIntermediateDirectories: true)

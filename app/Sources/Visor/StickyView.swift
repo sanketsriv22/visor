@@ -706,6 +706,7 @@ private struct StickyCard: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.visor)
+        .accessibilityIdentifier("visor.notes.addTask")
         .help("Add a task")
     }
 

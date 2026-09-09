@@ -83,12 +83,14 @@ final class ChatController: ObservableObject {
     /// starting point.
     static let defaultModel = "anthropic/claude-opus-5"
 
+    /// `graph` is optional rather than defaulted: KnowledgeGraph is main-actor
+    /// isolated and a default argument is evaluated outside the actor.
     init(ai: AIRunner, store: ChatStore = ChatStore(), memory: KnowledgeBase = KnowledgeBase(),
-         graph: KnowledgeGraph = KnowledgeGraph()) {
+         graph: KnowledgeGraph? = nil) {
         self.ai = ai
         self.store = store
         self.memory = memory
-        self.graph = graph
+        self.graph = graph ?? KnowledgeGraph()
         self.conversation = Self.blank(agent: nil)
         self.conversation = Self.blank(agent: chatAgents.first)
         // Model, effort and fast are stored on the agent, which lives in
