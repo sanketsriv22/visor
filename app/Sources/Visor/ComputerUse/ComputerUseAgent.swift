@@ -642,3 +642,15 @@ final class ComputerUseAgent: ObservableObject {
         return CGPoint(x: origin.x + px / scale, y: origin.y + py / scale)
     }
 }
+
+
+extension ComputerUseAgent {
+    /// Scripted state for the Design Lab: shows a run without running one.
+    /// Same-file extension so the private setters are reachable; the app
+    /// never calls this.
+    func previewState(running: Bool, status: String, log: [String]) {
+        self.running = running
+        self.status = status
+        self.log = log
+    }
+}

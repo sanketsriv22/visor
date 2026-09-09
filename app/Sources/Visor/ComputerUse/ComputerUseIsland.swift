@@ -150,14 +150,14 @@ struct ComputerUseCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Color.clear.frame(height: topInset)   // clear the physical notch
-            VStack(alignment: .leading, spacing: 9) {
+            VStack(alignment: .leading, spacing: Design.Space.roomy) {
                 header
                 field
                 if agent.running || !agent.log.isEmpty { logSection } else { hint }
             }
-            .padding(.horizontal, 15)
-            .padding(.top, 5)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 14)
+            .padding(.top, Design.Space.tight)
+            .padding(.bottom, Design.Space.roomy)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(\.colorScheme, .dark)
@@ -165,49 +165,58 @@ struct ComputerUseCard: View {
     }
 
     private var header: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Design.Space.snug) {
             RetroIcon(Glyph.computer, size: 11, color: Design.Retro.accent)
-            Text("COMPUTER USE")
-                .font(Design.Text.f(11)).tracking(2.5)
-                .foregroundStyle(Design.Retro.text)
+            SectionLabel("Computer use", tint: Design.Ink.secondary)
             Spacer()
             Menu {
                 ForEach(ComputerUseAgent.models, id: \.id) { m in
                     Button(m.name) { modelID = m.id }
                 }
             } label: {
-                Text(modelLabel)
-                    .font(Design.Text.f(9)).tracking(0.5)
-                    .foregroundStyle(Design.Retro.dim)
+                HStack(spacing: Design.Space.tight) {
+                    Text(modelLabel)
+                        .font(Design.Typography.caption())
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 7, weight: .bold))
+                }
+                .foregroundStyle(Design.Ink.tertiary)
+                .frame(height: Design.Metric.small)
+                .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
             .disabled(agent.running)
-            Button(action: onClose) {
-                RetroIcon(Glyph.close, size: 11, color: Design.Retro.dim)
-            }
-            .buttonStyle(.plain)
+            .help("Model that drives the task")
+            IconButton(symbol: "xmark", size: Design.Metric.small, tint: Design.Ink.tertiary,
+                       help: "Close", action: onClose)
+                .accessibilityIdentifier("visor.computerUse.close")
         }
     }
 
+    /// The task, in the composer's own clothes: same surface, same radius,
+    /// same round control on the right — run, or stop while it runs.
     private var field: some View {
-        HStack(spacing: 9) {
-            TextField("Tell your Mac what to do…", text: $task)
+        HStack(spacing: Design.Space.normal) {
+            TextField("Tell your Mac what to do", text: $task)
                 .textFieldStyle(.plain)
-                .font(Design.Text.f(13))
-                .foregroundStyle(Design.Retro.text)
+                .font(Design.Typography.body())
+                .foregroundStyle(Design.Ink.primary)
                 .focused($focused)
                 .onSubmit { if canRun { agent.start(task) } }
                 .disabled(agent.running)
+                .accessibilityIdentifier("visor.computerUse.task")
             runButton
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 6)
-        .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Design.Retro.panel))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .stroke(agent.running ? Design.Retro.accent.opacity(0.55) : Design.Retro.line, lineWidth: 1))
+        .padding(.leading, Design.Space.loose)
+        .padding(.trailing, Design.Space.normal)
+        .padding(.vertical, Design.Space.normal)
+        .background(RoundedRectangle(cornerRadius: Design.Radius.composer, style: .continuous)
+            .fill(Design.Surface.raisedStrong))
+        .overlay(RoundedRectangle(cornerRadius: Design.Radius.composer, style: .continuous)
+            .strokeBorder(agent.running ? Design.Retro.accent.opacity(0.55) : Design.Stroke.edge,
+                          lineWidth: Design.Stroke.hairline))
     }
 
     private var runButton: some View {
@@ -215,66 +224,85 @@ struct ComputerUseCard: View {
             if agent.running { agent.stop() } else if canRun { agent.start(task) }
         } label: {
             ZStack {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(agent.running ? Color.red.opacity(0.9)
-                          : (canRun ? Design.Retro.accent : Design.Retro.line.opacity(0.5)))
-                    .frame(width: 30, height: 26)
+                Circle().fill(agent.running ? Design.Ink.destructive
+                              : (canRun ? Design.Retro.accent : Color.white.opacity(0.1)))
                 if agent.running {
-                    RoundedRectangle(cornerRadius: 2).fill(.white).frame(width: 8, height: 8)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(.white)
+                        .frame(width: 11, height: 11)
                 } else {
-                    Text("\u{23CE}")
-                        .font(.custom(Design.Text.face, size: 13))
-                        .foregroundStyle(canRun ? Design.Retro.bg : Design.Retro.dim)
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: Design.Metric.iconLarge, weight: .bold))
+                        .foregroundStyle(canRun ? Design.Retro.onAccent : Color.white.opacity(0.3))
                 }
             }
+            .frame(width: Design.Metric.large, height: Design.Metric.large)
+            .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.visorBare)
+        .focusable(false)
         .disabled(!agent.running && !canRun)
+        .help(agent.running ? "Stop — the agent halts before its next action" : "Run — ↩")
+        .accessibilityIdentifier(agent.running ? "visor.computerUse.stop" : "visor.computerUse.run")
+        .animation(Design.Motion.quick, value: agent.running)
     }
 
     private var hint: some View {
-        Text("Type a task and press \u{23CE}  \u{2014}  e.g. \"DM Sarah on Slack: running late\"")
-            .font(Design.Text.f(10))
-            .foregroundStyle(Design.Retro.faint)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.top, 2)
+        VStack(alignment: .leading, spacing: Design.Space.snug) {
+            Text("It reads the screen through Accessibility, then clicks and types for you. Watch every step here; stop it any time.")
+                .font(Design.Typography.secondary())
+                .foregroundStyle(Design.Ink.tertiary)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: Design.Space.snug) {
+                ExampleChip(text: "Open System Settings and turn on Night Shift") {
+                    task = "Open System Settings and turn on Night Shift"
+                }
+                ExampleChip(text: "Find today's first meeting in Calendar") {
+                    task = "Find today's first meeting in Calendar and tell me the time"
+                }
+            }
+        }
+        .padding(.top, Design.Space.tight)
     }
 
+    /// What it is doing now, the steps so far, and the way to stop it —
+    /// the three things a person watching an agent drive their Mac needs.
     private var logSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                if agent.running { DotMatrixIndicator(size: 8) }
+        VStack(alignment: .leading, spacing: Design.Space.normal) {
+            HStack(spacing: Design.Space.normal) {
+                StatusDot(state: agent.running ? .working : .idle)
                 Text(agent.status)
-                    .font(Design.Text.f(10))
-                    .foregroundStyle(agent.running ? Design.Retro.accent : Design.Retro.dim)
-                    .lineLimit(1)
-                Spacer()
+                    .font(Design.Typography.secondaryMedium())
+                    .foregroundStyle(agent.running ? Design.Ink.primary : Design.Ink.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
                 if !agent.log.isEmpty {
-                    Button(action: copyLog) {
-                        Text(copied ? "COPIED" : "COPY")
-                            .font(Design.Text.f(9)).tracking(1)
-                            .foregroundStyle(copied ? Design.Retro.accent : Design.Retro.dim)
-                    }
-                    .buttonStyle(.plain)
+                    IconButton(symbol: copied ? "checkmark" : "doc.on.doc", size: Design.Metric.small,
+                               tint: copied ? Design.Retro.accent : Design.Ink.tertiary,
+                               help: "Copy the run log", action: copyLog)
+                        .accessibilityIdentifier("visor.computerUse.copy")
                 }
             }
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: Design.Space.tight) {
                         if agent.log.isEmpty {
-                            Text(agent.running ? "Starting\u{2026}" : "No steps yet.")
-                                .font(Design.Text.f(10))
-                                .foregroundStyle(Design.Retro.faint)
+                            Text(agent.running ? "Starting…" : "No steps yet.")
+                                .font(Design.Typography.caption())
+                                .foregroundStyle(Design.Ink.faint)
                         } else {
                             ForEach(Array(agent.log.enumerated()), id: \.offset) { i, line in
-                                HStack(alignment: .top, spacing: 7) {
+                                let latest = i == agent.log.count - 1
+                                HStack(alignment: .top, spacing: Design.Space.normal) {
                                     Text("\(i + 1)")
-                                        .font(Design.Text.f(10))
-                                        .foregroundStyle(Design.Retro.dim)
-                                        .frame(width: 15, alignment: .trailing)
+                                        .font(Design.Typography.mono(0.9))
+                                        .foregroundStyle(latest && agent.running ? Design.Retro.accent : Design.Ink.faint)
+                                        .frame(width: 16, alignment: .trailing)
                                     Text(line)
-                                        .font(Design.Text.f(10))
-                                        .foregroundStyle(Design.Retro.text.opacity(0.82))
+                                        .font(Design.Typography.caption())
+                                        .foregroundStyle(latest ? Design.Ink.primary : Design.Ink.secondary)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
@@ -282,14 +310,20 @@ struct ComputerUseCard: View {
                             }
                         }
                     }
-                    .padding(8)
+                    .padding(Design.Space.normal)
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 84)
-                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Design.Retro.panel.opacity(0.45)))
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Design.Retro.line, lineWidth: 1))
+                .frame(height: 96)
+                .background(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
+                    .fill(Color.black.opacity(0.35)))
+                .overlay(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
+                    .strokeBorder(Design.Stroke.divider, lineWidth: Design.Stroke.hairline))
                 .onChange(of: agent.log.count) { _ in
-                    if let last = agent.log.indices.last { withAnimation { proxy.scrollTo(last, anchor: .bottom) } }
+                    if let last = agent.log.indices.last {
+                        withAnimation(Design.Motion.animation(Design.Motion.standard)) {
+                            proxy.scrollTo(last, anchor: .bottom)
+                        }
+                    }
                 }
             }
         }

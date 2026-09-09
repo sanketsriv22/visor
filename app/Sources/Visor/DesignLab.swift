@@ -100,9 +100,28 @@ enum DesignLab {
                      note: "Composer grown to its three-line limit") { f in
                 AnyView(f.compact(.chat, chat: f.chat(.multiline)))
             },
-            Scenario(name: "computer-use", size: stage, themed: true,
+            Scenario(name: "computer-use", size: stage, themed: false,
                      note: "Computer Use card, idle") { f in
-                AnyView(f.compact(.computerUse, chat: f.chat(.empty)))
+                ComputerUseAgent.shared.previewState(running: false, status: "Type a task and press ⏎.", log: [])
+                return AnyView(f.compact(.computerUse, chat: f.chat(.empty)))
+            },
+            Scenario(name: "computer-use-running", size: stage, themed: false,
+                     note: "Computer Use mid-task: current action, steps so far, Stop") { f in
+                ComputerUseAgent.shared.previewState(
+                    running: true,
+                    status: "Clicking “Displays” in the System Settings sidebar",
+                    log: ["Opened System Settings", "Read the sidebar: 24 items", "Scrolled to Displays",
+                          "Clicking “Displays”"])
+                return AnyView(f.compact(.computerUse, chat: f.chat(.empty)))
+            },
+            Scenario(name: "computer-use-done", size: stage, themed: false,
+                     note: "Computer Use finished: result and log") { f in
+                ComputerUseAgent.shared.previewState(
+                    running: false,
+                    status: "Done — Night Shift is on, scheduled sunset to sunrise.",
+                    log: ["Opened System Settings", "Scrolled to Displays", "Clicked “Displays”",
+                          "Clicked “Night Shift…”", "Set Schedule to Sunset to Sunrise", "Closed the sheet"])
+                return AnyView(f.compact(.computerUse, chat: f.chat(.empty)))
             },
             Scenario(name: "selector-models", size: CGSize(width: 440, height: 320), themed: false,
                      note: "The model selector: pinned models, sized to its rows") { f in
