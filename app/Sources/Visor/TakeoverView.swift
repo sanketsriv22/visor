@@ -27,14 +27,19 @@ struct TakeoverView: View {
             let notch = view(state.geometry.notch)
             let origin = CGPoint(x: notch.midX, y: notch.maxY)
 
-            let scrim = Scrim(card: cardHole(size: size), extras: extraHoles(size: size))
+            // The card's hole is the card's rect under the card's own
+            // transition: a scale from 0.02 at its top centre. The scale is
+            // what animates, and it changes inside the notch controller's
+            // own withAnimation transaction (the guide's sink runs
+            // synchronously on the publish), so the hole and the card are
+            // one motion with one curve. Closed, the hole is a few points
+            // hidden inside the physical notch — never a rectangle beside it.
+            let scrim = Scrim(card: cardRect(size: size), scale: state.geometry.hud || state.geometry.expanded ? 1 : 0.02,
+                              extras: extraHoles(size: size))
 
             ZStack(alignment: .topLeading) {
-                // The scrim. Its card hole is animatable and grows out of the
-                // notch on the card's own spring, so the two never disagree.
                 scrim
                     .fill(Color.black.opacity(scrimOpacity), style: FillStyle(eoFill: true))
-                    .animation(Design.Motion.animation(Design.Motion.surface), value: state.geometry.expanded)
                     .animation(Design.Motion.animation(.easeInOut(duration: 0.4)), value: state.step)
 
                 if !reduced {
@@ -43,8 +48,7 @@ struct TakeoverView: View {
                         if state.step == .boot { CRTSweep(start: state.stepStarted, height: size.height) }
                         PixelField(origin: origin, size: size, burstAt: state.lastBurst)
                     }
-                    .mask(scrim.fill(style: FillStyle(eoFill: true))
-                        .animation(Design.Motion.animation(Design.Motion.surface), value: state.geometry.expanded))
+                    .mask(scrim.fill(style: FillStyle(eoFill: true)))
                 }
 
                 // The notch's click band, while the card is closed: the scrim
@@ -113,12 +117,9 @@ struct TakeoverView: View {
         return state.step == .boot ? 0.9 : 0.76
     }
 
-    /// The card's hole: the card when it is open, the notch itself when it
-    /// isn't — so the hole grows out of the notch exactly as the card does.
-    private func cardHole(size: CGSize) -> CGRect {
-        let g = state.geometry
-        if g.hud { return CGRect(origin: .zero, size: size) }
-        return g.expanded ? card : CGRect(x: notchRect.minX, y: 0, width: notchRect.width, height: notchRect.height)
+    /// The rect the card occupies when open (the whole screen for the HUD).
+    private func cardRect(size: CGSize) -> CGRect {
+        state.geometry.hud ? CGRect(origin: .zero, size: size) : card
     }
 
     private func extraHoles(size: CGSize) -> [CGRect] {
@@ -668,25 +669,28 @@ private struct PixelField: View {
 }
 
 /// The screen minus the card and any extra windows, for an even-odd fill
-/// or mask. The card hole is animatable: SwiftUI tweens its rect, so the
-/// hole grows out of the notch on the same spring as the card, and its
-/// bottom corners carry the card's own radius the whole way.
+/// or mask. The card hole is the card's rect scaled about its top centre —
+/// the same transform as the card's own scale transition — and the scale
+/// is the animatable value, so the hole and the card share one motion.
 struct Scrim: Shape {
     var card: CGRect
+    var scale: CGFloat
     var extras: [CGRect] = []
 
-    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>> {
-        get { AnimatablePair(AnimatablePair(card.minX, card.minY), AnimatablePair(card.width, card.height)) }
-        set { card = CGRect(x: newValue.first.first, y: newValue.first.second,
-                            width: newValue.second.first, height: newValue.second.second) }
+    var animatableData: CGFloat {
+        get { scale }
+        set { scale = newValue }
     }
 
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.addRect(rect)
-        if card.width > 0, card.height > 0 {
-            let r = min(Design.Radius.card, card.height / 2)
-            path.addPath(Path(roundedRect: card, cornerRadii: RectangleCornerRadii(
+        let s = max(0, min(1, scale))
+        if s > 0.001, card.width > 0, card.height > 0 {
+            let w = card.width * s, h = card.height * s
+            let hole = CGRect(x: card.midX - w / 2, y: card.minY, width: w, height: h)
+            let r = min(Design.Radius.card * s, h / 2)
+            path.addPath(Path(roundedRect: hole, cornerRadii: RectangleCornerRadii(
                 topLeading: 0, bottomLeading: r, bottomTrailing: r, topTrailing: 0)))
         }
         for hole in extras {

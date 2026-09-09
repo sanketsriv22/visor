@@ -417,9 +417,13 @@ final class TakeoverGuide {
     private func observe() {
         let ui = controller.ui
         let chat = controller.chat
-        ui.$expanded.removeDuplicates().receive(on: DispatchQueue.main)
+        // No hop to the main queue for these two: they already arrive on the
+        // main thread, and arriving synchronously means the geometry change
+        // lands inside the notch controller's withAnimation — the scrim's
+        // hole then rides the card's own spring, not a copy of it.
+        ui.$expanded.removeDuplicates()
             .sink { [weak self] on in self?.expandedChanged(on) }.store(in: &sinks)
-        ui.$mode.removeDuplicates().receive(on: DispatchQueue.main)
+        ui.$mode.removeDuplicates()
             .sink { [weak self] _ in self?.refreshGeometry() }.store(in: &sinks)
         chat.$pendingApproval.receive(on: DispatchQueue.main)
             .sink { [weak self] p in self?.approvalChanged(p != nil) }.store(in: &sinks)
@@ -455,7 +459,13 @@ final class TakeoverGuide {
     }
 
     private func expandedChanged(_ expanded: Bool) {
-        refreshGeometry()
+        // `$expanded` publishes on willSet; the geometry must read the new
+        // value, so it is applied by hand here.
+        var geo = controller.takeoverGeometry() ?? state.geometry
+        geo.expanded = expanded
+        geo.practice = practiceWindow?.isVisible == true ? practiceWindow?.frame : nil
+        state.geometry = geo
+        DispatchQueue.main.async { [weak self] in self?.panel?.orderFrontRegardless() }
         if state.step == .summon, expanded {
             if controller.ui.mode != .chat { controller.setMode(.chat) }
             celebrate(then: resumeTarget)

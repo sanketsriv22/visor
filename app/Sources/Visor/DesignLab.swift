@@ -186,6 +186,10 @@ enum DesignLab {
                      note: "01 Summon: ring around the notch, guide below") { f in
                 AnyView(f.takeover(.summon, chat: f.chat(.empty), expanded: false))
             },
+            Scenario(name: "takeover-open", size: hud, themed: false,
+                     note: "The card opening under the takeover — capture with --frames to check the hole and the card move as one") { f in
+                AnyView(f.takeover(.summon, chat: f.chat(.empty), expanded: false, openAfter: 0.25))
+            },
             Scenario(name: "takeover-connect", size: hud, themed: false,
                      note: "02 Connect: a detected agent offered, the key path, skip") { f in
                 AnyView(f.takeover(.connect, chat: f.chat(.empty), expanded: true, mode: .chat) { s in
@@ -603,6 +607,7 @@ enum DesignLab {
         /// with holes cut for them.
         func takeover(_ step: TakeoverState.Step, chat: ChatController,
                       expanded: Bool, mode: VisorMode = .notes, practice: Bool = false,
+                      openAfter: TimeInterval? = nil,
                       configure: (TakeoverState) -> Void = { _ in }) -> some View {
             let bounds = CGRect(x: 0, y: 0, width: 1512, height: 982)
             let notchRect = CGRect(x: bounds.midX - notch.width / 2, y: bounds.maxY - notch.height,
@@ -654,6 +659,18 @@ enum DesignLab {
                 TakeoverView(state: state, actions: TakeoverActions())
             }
             .environment(\.colorScheme, .dark)
+            .onAppear {
+                guard let openAfter else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + openAfter) {
+                    // Exactly as the notch controller does it: one transaction
+                    // for the card and, through the guide's synchronous sink,
+                    // the scrim's hole.
+                    withAnimation(Design.Motion.surface) {
+                        ui.expanded = true
+                        state.geometry.expanded = true
+                    }
+                }
+            }
         }
 
         func menuPanel() -> some View {
