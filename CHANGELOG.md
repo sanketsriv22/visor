@@ -3,6 +3,18 @@
 All notable changes to Visor. The newest entry is shown under **What's New** in
 the menu-bar dropdown, and published as the release notes for each version.
 
+## Unreleased — core redesign and a new introduction
+
+- A design system (`docs/design-system.md`): six type roles, a 4pt grid, three control sizes, radii by role, device-pixel hairlines, three surface levels, four motion presets. Two studies share it; clarity ships.
+- Chat: the agent's identity leads the card; an agent-first empty state with example requests; replies render as Markdown blocks and read unboxed at full measure; a transcript that follows only near the end; approvals on the accent.
+- A composer modelled on ChatGPT's, shared by the card and the HUD.
+- One selector family for model, reasoning and speed, CLI model and agent, sized to content.
+- HUD: the conversation at a reading measure, rails sized to content and collapsible, a thicker glass.
+- Computer use: the task in the composer's surface; current action, numbered steps and Stop.
+- System font by default; Departure Mono stays for glyphs and the wordmark.
+- The introduction is a screen takeover on the real product: wake, summon, connect, first task with its approval, a practice window, stop and continue, your turn, return. Replayable from the menu-bar panel and Settings.
+- A Design Lab (`Visor --design-lab`) renders every surface with isolated fixtures, including frame sequences.
+
 ## 1.0-beta.36 — 2026-09-02
 
 - **Computer use: Visor can play chess for you.** ⌘⌃U on a chess.com or Lichess game and Visor reads the board straight out of the page — no screenshots, no guessing — and either draws the three best moves on the board as arrows, or plays them for you by dragging the pieces. Choose the engine's strength from 1320 Elo up, or full strength, and a response-time band so it doesn't answer instantly every move. It works as either colour, handles promotions and checks, and recovers on its own if it loses the thread. Set it up under Settings ▸ Computer Use.
