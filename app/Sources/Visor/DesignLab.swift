@@ -645,11 +645,12 @@ enum DesignLab {
                     .fill(Color.black)
                     .frame(width: notch.width, height: notch.height)
                     .offset(x: notchRect.minX)
-                if expanded {
-                    StickyRootView(store: notes, ui: ui, ai: ai, chat: chat,
-                                   onToggle: {}, onMode: { ui.mode = $0 })
-                        .frame(width: bounds.width, height: bounds.height, alignment: .top)
-                }
+                // Always mounted, as in the app: the root draws the card only
+                // while `ui.expanded`, so an open captured with --frames shows
+                // the card and the scrim's hole growing together.
+                StickyRootView(store: notes, ui: ui, ai: ai, chat: chat,
+                               onToggle: {}, onMode: { ui.mode = $0 })
+                    .frame(width: bounds.width, height: bounds.height, alignment: .top)
                 if practice {
                     PracticeView(driver: state.practice)
                         .frame(width: pView.width, height: pView.height)
