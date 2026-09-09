@@ -104,6 +104,10 @@ enum DesignLab {
                      note: "Computer Use card, idle") { f in
                 AnyView(f.compact(.computerUse, chat: f.chat(.empty)))
             },
+            Scenario(name: "composer-parts", size: CGSize(width: 520, height: 420), themed: false,
+                     note: "The composer's controls in isolation, one variant per row") { f in
+                AnyView(ComposerPartsProbe(chat: f.chat(.empty)))
+            },
             Scenario(name: "hud", size: hud, themed: false,
                      note: "HUD with populated rails and a formatted reply") { f in
                 AnyView(f.hud(chat: f.chat(.formatted)))
@@ -529,5 +533,53 @@ enum DesignLab {
 
         That's the lot — and a final paragraph to check the rhythm below a quote.
         """
+    }
+}
+
+
+/// Each composer control on its own, so a rendering artefact can be pinned
+/// to the layer that draws it: the chip with and without its Button, its
+/// popover, and its pill modifier.
+private struct ComposerPartsProbe: View {
+    @ObservedObject var chat: ChatController
+    @State private var never = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            row("A · InlineModelPicker as shipped") { InlineModelPicker(chat: chat) }
+            row("B · Text + composerPill, no Button") {
+                Text("claude-sonnet-5").composerPill(active: true)
+            }
+            row("C · Button(visorBare) + composerPill, no popover") {
+                Button {} label: { Text("claude-sonnet-5").composerPill(active: true) }
+                    .buttonStyle(.visorBare)
+            }
+            row("D · C + .popover(.constant(false))") {
+                Button {} label: { Text("claude-sonnet-5").composerPill(active: true) }
+                    .buttonStyle(.visorBare)
+                    .popover(isPresented: $never) { Text("x") }
+            }
+            row("E · Button(visorBare) + Text, no pill") {
+                Button {} label: { Text("claude-sonnet-5").padding(8) }
+                    .buttonStyle(.visorBare)
+            }
+            row("F · ComposerOptions (plus) and DictationControl") {
+                HStack(spacing: 8) {
+                    ComposerOptions(chat: chat)
+                    DictationControl(voice: chat.voice, onToggle: {}, size: 32, circular: true)
+                }
+            }
+        }
+        .padding(24)
+        .frame(width: 520, height: 420, alignment: .topLeading)
+        .background(Color.black)
+        .environment(\.colorScheme, .dark)
+    }
+
+    private func row<V: View>(_ label: String, @ViewBuilder _ content: () -> V) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(.system(size: 10)).foregroundStyle(.white.opacity(0.5))
+            content()
+        }
     }
 }
