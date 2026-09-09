@@ -2142,13 +2142,13 @@ struct ComposerOptions: View {
             VStack(alignment: .leading, spacing: 14) {
                 if chat.supportsEffort {
                     VStack(alignment: .leading, spacing: 7) {
-                        Text("REASONING").font(.custom(Design.Text.face, size: 9)).tracking(1)
+                        Text("REASONING").font(Design.Text.f(9)).tracking(1)
                             .foregroundStyle(Design.Retro.dim)
                         EffortPicker(chat: chat)
                     }
                 }
                 VStack(alignment: .leading, spacing: 7) {
-                    Text("SPEED").font(.custom(Design.Text.face, size: 9)).tracking(1)
+                    Text("SPEED").font(Design.Text.f(9)).tracking(1)
                         .foregroundStyle(Design.Retro.dim)
                     FastToggle(chat: chat)
                 }

@@ -61,7 +61,7 @@ struct MenuBarPanel: View {
 
     private func stateTag(_ on: Bool) -> some View {
         Text(on ? "ON" : "OFF")
-            .font(.custom(Design.Text.face, size: 9)).tracking(1)
+            .font(Design.Text.f(9)).tracking(1)
             .foregroundStyle(on ? Design.Retro.accent : Design.Retro.faint)
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(RoundedRectangle(cornerRadius: Design.Retro.radius)

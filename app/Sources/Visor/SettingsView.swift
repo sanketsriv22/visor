@@ -400,7 +400,7 @@ private struct AgentRow: View {
                     TextEditor(text: Binding(
                         get: { provider.systemPrompt ?? "" },
                         set: { value in var p = provider; p.systemPrompt = value; ai.upsert(p) }))
-                        .font(.custom(Design.Text.face, size: 11))
+                        .font(Design.Text.f(11))
                         .frame(height: 46)
                         .overlay(RoundedRectangle(cornerRadius: Design.Radius.control)
                             .stroke(.secondary.opacity(0.3), lineWidth: 1))
@@ -532,7 +532,7 @@ private struct ModelPickerButton: View {
                     .font(.system(size: 8, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
-            .font(.custom(Design.Text.face, size: 11))
+            .font(Design.Text.f(11))
             .padding(.horizontal, 7).padding(.vertical, 3)
             .frame(width: 320, alignment: .leading)
             .overlay(RoundedRectangle(cornerRadius: Design.Radius.control)
@@ -550,7 +550,7 @@ private struct ModelPickerButton: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if matches.isEmpty {
                             Text("No model matches “\(query)”")
-                                .font(.custom(Design.Text.face, size: 11))
+                                .font(Design.Text.f(11))
                                 .foregroundStyle(.secondary)
                                 .padding(10)
                         }
@@ -561,7 +561,7 @@ private struct ModelPickerButton: View {
                                 query = ""
                             } label: {
                                 HStack {
-                                    Text(id).font(.custom(Design.Text.face, size: 11)).lineLimit(1)
+                                    Text(id).font(Design.Text.f(11)).lineLimit(1)
                                     Spacer(minLength: 0)
                                     if id == selection {
                                         Image(systemName: "checkmark")
@@ -938,7 +938,7 @@ private struct UsageRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: total.source == "openrouter" ? "globe" : "terminal")
-                .font(.custom(Design.Text.face, size: 11))
+                .font(Design.Text.f(11))
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
 
@@ -1219,7 +1219,7 @@ private struct VoicePane: View {
                 Text("try").font(Design.Text.caption2).foregroundStyle(.secondary)
                 ForEach(Self.transcriptionSuggestions, id: \.id) { option in
                     Button { VoiceInput.transcriptionModel = option.id } label: {
-                        Text(option.id).font(.custom(Design.Text.face, size: 10))
+                        Text(option.id).font(Design.Text.f(10))
                     }
                     .buttonStyle(.borderless)
                     .help(option.note)
@@ -1303,7 +1303,7 @@ private struct VoicePane: View {
                     cleanupModel = suggestion.id
                 } label: {
                     Text(suggestion.id.split(separator: "/").last.map(String.init) ?? suggestion.id)
-                        .font(.custom(Design.Text.face, size: 10))
+                        .font(Design.Text.f(10))
                 }
                 .buttonStyle(.borderless)
                 .help("\(suggestion.id) — \(suggestion.note)")
@@ -1357,7 +1357,7 @@ private struct VoicePane: View {
 
             HStack(spacing: Design.Space.roomy) {
                 Text("While listening")
-                    .font(.custom(Design.Text.face, size: 12))
+                    .font(Design.Text.f(12))
                     .frame(width: 110, alignment: .leading)
                 Picker("", selection: $visuals.during) {
                     ForEach(NotchVisuals.During.allCases) { Text($0.title).tag($0) }
@@ -1367,7 +1367,7 @@ private struct VoicePane: View {
             }
             HStack(spacing: Design.Space.roomy) {
                 Text("While transcribing")
-                    .font(.custom(Design.Text.face, size: 12))
+                    .font(Design.Text.f(12))
                     .frame(width: 110, alignment: .leading)
                 Picker("", selection: $visuals.after) {
                     ForEach(NotchVisuals.After.allCases) { Text($0.title).tag($0) }
@@ -1411,7 +1411,7 @@ private struct VoicePane: View {
                             HStack(alignment: .top, spacing: 8) {
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(entry.text)
-                                        .font(.custom(Design.Text.face, size: 11))
+                                        .font(Design.Text.f(11))
                                         .textSelection(.enabled)
                                         .fixedSize(horizontal: false, vertical: true)
                                     Text(VoicePane.stamp.string(from: entry.date)
@@ -1435,7 +1435,7 @@ private struct VoicePane: View {
                                 } label: {
                                     Image(systemName: copiedEntry == entry.id
                                                         ? "checkmark" : "doc.on.doc")
-                                        .font(.custom(Design.Text.face, size: 9))
+                                        .font(Design.Text.f(9))
                                         .foregroundStyle(copiedEntry == entry.id
                                                             ? Color.accentColor : .secondary)
                                 }
@@ -1446,7 +1446,7 @@ private struct VoicePane: View {
                                     voiceEntries.removeAll { $0.id == entry.id }
                                 } label: {
                                     Image(systemName: "trash")
-                                        .font(.custom(Design.Text.face, size: 9))
+                                        .font(Design.Text.f(9))
                                         .foregroundStyle(.secondary)
                                 }
                                 .buttonStyle(.borderless)
@@ -1517,7 +1517,7 @@ private struct CLIAccountRow: View {
                 } else if let account {
                     Image(systemName: account.loggedIn
                           ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                        .font(.custom(Design.Text.face, size: 10))
+                        .font(Design.Text.f(10))
                         .foregroundStyle(account.loggedIn ? Color.green : Color.orange)
                     Text(account.summary).font(Design.Text.caption)
                 } else {
