@@ -284,17 +284,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         popover.appearance = NSAppearance(named: VisorTheme.current.isDark ? .darkAqua : .aqua)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         installMenuClickMonitor()
-        // Light it now. The button runs its own mouse tracking and clears the
-        // highlight on mouse-UP — which is why the lit state vanished the moment
-        // you released — so `installMenuClickMonitor` also re-lights it after
-        // each of our own mouse-ups while the popover is open. This first call
-        // covers the interval before that mouse-up lands.
+        // Light it, and keep it lit. The button runs its own mouse-tracking
+        // loop from mouse-down to mouse-up and clears the highlight when that
+        // loop ends — after any plain async re-light we queue during it, which
+        // is why the lit state kept vanishing on release. `relightMenuButton`
+        // waits until the loop has returned before lighting it again.
         button.highlight(true)
+        relightMenuButton()
     }
 
     private func closeMenuPanel() {
         menuPopover?.performClose(nil)
         statusItem?.button?.highlight(false)
+        (statusItem?.button?.cell as? NSButtonCell)?.isHighlighted = false
         removeMenuClickMonitor()
     }
 
@@ -319,8 +321,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         if menuUpMonitor == nil {
             menuUpMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] event in
                 guard let self, self.menuPopover?.isShown == true else { return event }
-                DispatchQueue.main.async { self.statusItem?.button?.highlight(true) }
+                self.relightMenuButton()
                 return event
+            }
+        }
+    }
+
+    /// Re-highlight the status item after the button's own tracking loop has
+    /// had its say. Two passes, because a slow release can outlast the first.
+    private func relightMenuButton() {
+        for delay in [0.06, 0.25] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.menuPopover?.isShown == true, let button = self.statusItem?.button else { return }
+                button.highlight(true)
+                (button.cell as? NSButtonCell)?.isHighlighted = true
+                button.needsDisplay = true
             }
         }
     }
@@ -362,6 +377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     func popoverDidClose(_ notification: Notification) {
         statusItem?.button?.highlight(false)
+        (statusItem?.button?.cell as? NSButtonCell)?.isHighlighted = false
         removeMenuClickMonitor()
     }
 

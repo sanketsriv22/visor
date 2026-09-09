@@ -36,8 +36,10 @@ struct MenuBarPanel: View {
 
             row("Quit Visor", glyph: Glyph.quit, hint: "⌘Q", action: onQuit)
         }
-        .padding(8)
-        .frame(width: 268)
+        .padding(6)
+        // Narrow, like the menu-bar apps people already use: wide enough for
+        // a title and its shortcut, no wider.
+        .frame(width: 224)
         .background(Design.Retro.bg)
         .tint(Design.Retro.accent)
         .environment(\.colorScheme, .dark)
@@ -54,7 +56,7 @@ struct MenuBarPanel: View {
                 .font(Design.Text.caption2)
                 .foregroundStyle(Design.Retro.faint)
         }
-        .padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 8)
+        .padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 6)
     }
 
     private func rule() -> some View {
@@ -108,7 +110,7 @@ private struct MenuRow<Trailing: View>: View {
                 Spacer(minLength: 8)
                 trailing
             }
-            .padding(.trailing, 8).padding(.vertical, 6)
+            .padding(.trailing, 8).padding(.vertical, 5)
             .background(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous)
                 .fill(hovering ? Design.Retro.accentDim : Color.clear))
             .contentShape(Rectangle())
