@@ -2222,7 +2222,8 @@ struct ComposerPill: ViewModifier {
             .background(
                 Capsule().fill(.white.opacity(
                     !enabled ? 0.02 : hovering ? 0.12 : 0.05)))
-            .overlay(Capsule().stroke(.white.opacity(enabled ? 0.16 : 0.06), lineWidth: 1))
+            .clipShape(Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(enabled ? 0.16 : 0.06), lineWidth: 1))
             // Keyboard focus never lands on a chip: the ring AppKit draws for
             // it is a rounded rectangle that shows as ticks past a capsule's
             // ends. Return and ⌘↩ are the composer's keys; the chips are

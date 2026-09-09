@@ -20,7 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private var runModeMenu: NSMenu?
     private var runInFolderMenu: NSMenu?
     private var settingsWindow: NSWindow?
-    private var onboardingWindow: NSWindow?
+    private var takeover: TakeoverGuide?
     /// Set once the introduction has been seen or skipped.
     static let introducedKey = "visor.introduced"
     /// Global shortcuts, held for the app's lifetime — releasing one
@@ -581,23 +581,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
-    /// The first-launch introduction, in its own themed window. Replayable.
+    /// The first-launch introduction: a screen takeover that walks through
+    /// the real product. Replayable from the menu-bar panel.
     private func showOnboarding() {
-        if onboardingWindow == nil {
-            onboardingWindow = OnboardingWindow.make()
-        }
-        let finish: () -> Void = { [weak self] in
+        guard takeover == nil, let controller, let guide = TakeoverGuide(controller: controller) else { return }
+        guide.onOpenSettings = { [weak self] in self?.showSettings(focusing: nil) }
+        guide.onFinish = { [weak self] in
             UserDefaults.standard.set(true, forKey: Self.introducedKey)
-            self?.onboardingWindow?.orderOut(nil)
+            self?.takeover = nil
         }
-        OnboardingWindow.fill(onboardingWindow!, with: OnboardingView(
-            step: 0,
-            shortcut: ShortcutSettings.hint(.toggle),
-            onShowNotch: { [weak self] in self?.controller?.showNote() },
-            onOpenSettings: { [weak self] in self?.showSettings(focusing: nil) },
-            onDone: finish))
-        NSApp.activate(ignoringOtherApps: true)
-        onboardingWindow?.makeKeyAndOrderFront(nil)
+        takeover = guide
+        guide.start()
     }
 
     @objc private func toggleNote() { controller?.toggle() }

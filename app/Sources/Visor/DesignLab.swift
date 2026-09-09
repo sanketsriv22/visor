@@ -128,27 +128,25 @@ enum DesignLab {
                     .background(Design.Retro.bg)
                     .environment(\.colorScheme, VisorTheme.current.isDark ? .dark : .light))
             },
-            Scenario(name: "onboarding", size: CGSize(width: 560, height: 520), themed: true,
-                     note: "First-launch introduction, first step") { _ in
-                AnyView(OnboardingView(step: 0, shortcut: ShortcutSettings.hint(.toggle),
-                                       onShowNotch: {}, onOpenSettings: {}, onDone: {})
-                    .frame(width: 560, height: 520))
+            Scenario(name: "takeover-boot", size: hud, themed: false,
+                     note: "The takeover powering on: hero mark, wordmark, sweep") { f in
+                AnyView(f.takeover(.boot, chat: f.chat(.empty), expanded: false))
             },
-            Scenario(name: "onboarding-window", size: OnboardingWindow.size, themed: false,
-                     note: "The introduction in its real window, as the app opens it",
-                     make: { _ in AnyView(EmptyView()) },
-                     window: {
-                         let window = OnboardingWindow.make()
-                         OnboardingWindow.fill(window, with: OnboardingView(
-                            step: 0, shortcut: ShortcutSettings.hint(.toggle),
-                            onShowNotch: {}, onOpenSettings: {}, onDone: {}))
-                         return window
-                     }),
-            Scenario(name: "onboarding-agents", size: CGSize(width: 560, height: 520), themed: true,
-                     note: "First-launch introduction, the agent step") { _ in
-                AnyView(OnboardingView(step: 2, shortcut: ShortcutSettings.hint(.toggle),
-                                       onShowNotch: {}, onOpenSettings: {}, onDone: {})
-                    .frame(width: 560, height: 520))
+            Scenario(name: "takeover-notch", size: hud, themed: false,
+                     note: "Step 1: ring around the notch, guide below") { f in
+                AnyView(f.takeover(.clickNotch, chat: f.chat(.empty), expanded: false))
+            },
+            Scenario(name: "takeover-note", size: hud, themed: false,
+                     note: "Step 2: the note is open, ring on the add-task button") { f in
+                AnyView(f.takeover(.addTask, chat: f.chat(.empty), expanded: true, mode: .notes))
+            },
+            Scenario(name: "takeover-ask", size: hud, themed: false,
+                     note: "Step 4: chat face, ring on the composer") { f in
+                AnyView(f.takeover(.ask, chat: f.chat(.empty), expanded: true, mode: .chat))
+            },
+            Scenario(name: "takeover-finale", size: hud, themed: false,
+                     note: "The cheat sheet and the way out") { f in
+                AnyView(f.takeover(.finale, chat: f.chat(.complete), expanded: true, mode: .chat))
             },
         ]
     }
@@ -482,6 +480,47 @@ enum DesignLab {
                     .frame(width: notch.width, height: notch.height)
                 HUDRootView(chat: chat, store: notes, ui: ui, onExit: {}, onClose: {})
             }
+        }
+
+        /// The takeover over a synthetic screen, with the real card above it
+        /// in the same order the windows stack in the app.
+        func takeover(_ step: TakeoverState.Step, chat: ChatController,
+                      expanded: Bool, mode: VisorMode = .notes) -> some View {
+            let bounds = CGRect(x: 0, y: 0, width: 1512, height: 982)
+            let notchRect = CGRect(x: bounds.midX - notch.width / 2, y: bounds.maxY - notch.height,
+                                   width: notch.width, height: notch.height)
+            let size = NotchController.cardSize(for: mode)
+            let card = CGRect(x: notchRect.midX - size.width / 2,
+                              y: notchRect.minY - size.height,
+                              width: size.width, height: size.height + notch.height)
+            let distance = (notch.width + NotchController.notchClearance) / 2 + ModeSwitcher.width / 2
+            let switcher = CGRect(x: notchRect.midX - distance - ModeSwitcher.width / 2,
+                                  y: notchRect.minY, width: ModeSwitcher.width, height: notch.height)
+            let state = TakeoverState(
+                geometry: .init(bounds: bounds, notch: notchRect, card: card, switcher: switcher),
+                step: step)
+            state.stepStarted = Date(timeIntervalSinceNow: -30)
+            let ui = UIState()
+            ui.expanded = expanded
+            ui.mode = mode
+            ui.notchSize = notch
+            ui.trueNotch = notch
+            return ZStack(alignment: .top) {
+                LinearGradient(colors: [Color(red: 0.30, green: 0.34, blue: 0.48),
+                                        Color(red: 0.16, green: 0.18, blue: 0.28)],
+                               startPoint: .top, endPoint: .bottom)
+                Rectangle().fill(Color.black.opacity(0.28)).frame(height: notch.height)
+                TakeoverView(state: state, onSkip: {}, onAddAgent: {}, onDone: {})
+                UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 10,
+                                       bottomTrailingRadius: 10, topTrailingRadius: 0)
+                    .fill(Color.black)
+                    .frame(width: notch.width, height: notch.height)
+                if expanded {
+                    StickyRootView(store: notes, ui: ui, ai: ai, chat: chat,
+                                   onToggle: {}, onMode: { ui.mode = $0 })
+                }
+            }
+            .environment(\.colorScheme, .dark)
         }
 
         func menuPanel() -> some View {

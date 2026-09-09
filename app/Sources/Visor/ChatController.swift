@@ -48,6 +48,12 @@ final class ChatController: ObservableObject {
     /// True for a fixture (the Design Lab): no model catalogue fetch, no
     /// network at all.
     var offline = false
+    /// Set by the introduction: the next send streams a scripted reply
+    /// instead of calling a model, so chat can be tried before any agent or
+    /// key exists. Consumed by that send.
+    var demoNextSend = false
+    /// Bumped when a scripted reply finishes streaming.
+    @Published private(set) var demoTurns = 0
     /// Dictation. Transcripts land in the draft rather than sending straight
     /// off, so a misheard word is editable before it costs a request.
     let voice = VoiceInput()
@@ -233,6 +239,68 @@ final class ChatController: ObservableObject {
     func loadModels() async {
         guard !offline else { return }
         await catalog.loadIfNeeded()
+    }
+
+    /// The introduction's scripted turn: the question goes into the real
+    /// transcript and a canned Markdown reply streams back word by word, so
+    /// the first exchange looks and feels exactly like a real one — without
+    /// an agent, a key or a network call.
+    private func runDemoTurn(_ text: String) {
+        error = nil
+        draft = ""
+        let question = ChatMessage(role: .user, content: text)
+        if conversation.agentName.isEmpty { conversation.agentName = agent?.name ?? "Visor" }
+        conversation.messages.append(question)
+        if conversation.title.isEmpty { conversation.title = Self.title(from: text) }
+        conversation.messages.append(ChatMessage(role: .assistant, content: "", model: "visor/intro"))
+        isStreaming = true
+        let reply = Self.demoReply(to: text)
+        let words = reply.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        streamTask = Task { [weak self] in
+            var built = ""
+            for (i, word) in words.enumerated() {
+                if Task.isCancelled { break }
+                built += (i == 0 ? "" : " ") + word
+                let snapshot = built
+                await MainActor.run { [weak self] in
+                    guard let self, let last = self.conversation.messages.indices.last else { return }
+                    self.conversation.messages[last].content = snapshot
+                }
+                // Faster on short tokens, a beat on line breaks — a rhythm
+                // that reads as a model thinking rather than a tape playing.
+                let pause: UInt64 = word.contains("\n") ? 140_000_000 : 28_000_000
+                try? await Task.sleep(nanoseconds: pause)
+            }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.isStreaming = false
+                self.store.save(self.conversation)
+                self.demoTurns += 1
+            }
+        }
+    }
+
+    private static func demoReply(to text: String) -> String {
+        let echo = text.count > 60 ? String(text.prefix(57)) + "…" : text
+        return """
+        That came straight through the notch. You asked:
+
+        > \(echo)
+
+        There's no model behind me yet — this reply is scripted — but everything else here is real:
+
+        - **This card** is your chat. It grows with the conversation and streams replies as they arrive.
+        - **Headings, lists, tables and code** render properly, like this:
+
+        ```swift
+        let visor = Notch(origin: .yours)
+        visor.open()   // ⌘⌃K, any time
+        ```
+
+        - **Add an agent** in Settings → Agents to make it real: any model through OpenRouter with a key, or Claude Code, Codex and Devin already on your Mac.
+
+        Next: press **⌘⌃M** and watch this expand.
+        """
     }
 
     /// A controller in a chosen state, for the Design Lab. Same object the
@@ -494,6 +562,11 @@ final class ChatController: ObservableObject {
     func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isStreaming else { return }
+        if demoNextSend {
+            demoNextSend = false
+            runDemoTurn(text)
+            return
+        }
         guard let agent else {
             error = "Add an agent in Settings first"
             return

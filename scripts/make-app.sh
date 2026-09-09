@@ -145,6 +145,10 @@ done
 for f in "$REPO/app/Sources/Visor/Resources"/*.otf; do
     [ -f "$f" ] && cp "$f" "$APP/Contents/Resources/"
 done
+# The introduction's 3D mark, rendered in Blender as a sprite sheet.
+for f in "$REPO/app/Sources/Visor/Resources"/hero-*.png; do
+    [ -f "$f" ] && cp "$f" "$APP/Contents/Resources/"
+done
 
 # Bundle the changelog so the app can show "What's New" offline.
 cp "$REPO/CHANGELOG.md" "$APP/Contents/Resources/CHANGELOG.md" 2>/dev/null || true

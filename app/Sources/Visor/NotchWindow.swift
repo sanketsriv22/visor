@@ -161,8 +161,8 @@ final class NotchController {
     private static let shadowPadBottom: CGFloat = 10
 
     private let panel: NotchPanel
-    private let store = NotesStore()
-    private let ui = UIState()
+    let store = NotesStore()
+    let ui = UIState()
     let ai: AIRunner
     let chat: ChatController
     /// Watches for clicks on the notch while the HUD is covering it.
@@ -608,6 +608,33 @@ final class NotchController {
     }
 
     func saveNow() { store.saveNow() }
+
+    /// The screen the takeover covers: the one with the notch.
+    func takeoverFrame() -> NSRect? { targetScreen?.frame }
+
+    /// Where things are on screen, for the introduction to draw around.
+    /// Screen coordinates (origin bottom-left), on the screen the notch is on.
+    func takeoverGeometry() -> TakeoverState.Geometry? {
+        guard let screen = targetScreen else { return nil }
+        let notch = stripRect(on: screen)
+        let face: VisorMode = ui.mode.isFullScreen ? .chat : ui.mode
+        let size = Self.cardSize(for: face)
+        let card = NSRect(x: notch.midX - size.width / 2,
+                          y: notch.maxY - notch.height - size.height,
+                          width: size.width, height: size.height + notch.height)
+        let distance = (notch.width + Self.notchClearance) / 2 + ModeSwitcher.width / 2
+        let switcher = NSRect(x: notch.midX - distance - ModeSwitcher.width / 2,
+                              y: notch.minY, width: ModeSwitcher.width, height: notch.height)
+        return TakeoverState.Geometry(bounds: screen.frame, notch: notch, card: card,
+                                      switcher: switcher, hud: ui.mode.isFullScreen)
+    }
+
+    /// Put the notch's windows above whatever was just ordered in at the same
+    /// level — the introduction's scrim, which sits at `.statusBar` too.
+    func bringToFront() {
+        panel.orderFront(nil)
+        if ui.mode.isFullScreen { hudPanel?.orderFront(nil) }
+    }
 
     /// Step the panel below ordinary windows while a system dialog is up.
     ///
