@@ -484,7 +484,10 @@ final class TakeoverGuide {
     /// A real agent that fails (no key, a rejected key, a network error)
     /// must not strand the tour: name it and offer the way out.
     private func errorChanged(_ error: String?) {
-        guard state.step == .firstTask, sentInTask, let error, !error.isEmpty else { return }
+        // Sent or not: a pre-flight refusal (no key, no credits) is raised
+        // before the message is ever appended, and it strands the step
+        // just the same.
+        guard state.step == .firstTask, !state.taskDone, let error, !error.isEmpty else { return }
         taskTimeout?.cancel()
         withAnimation(Design.Motion.animation(Design.Motion.standard)) { state.trouble = error }
     }
@@ -505,7 +508,23 @@ final class TakeoverGuide {
     }
 
     private func streamingChanged(_ streaming: Bool) {
-        guard state.step == .firstTask, sentInTask else { return }
+        guard state.step == .firstTask, sentInTask, !state.taskDone else { return }
+        if !streaming, !state.awaitingApproval {
+            // Give the controller its own turn to post an error or trim the
+            // empty reply, then judge the outcome once.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                guard let self, self.state.step == .firstTask, !self.state.taskDone,
+                      !self.state.awaitingApproval, !self.controller.chat.isStreaming,
+                      self.state.trouble == nil else { return }
+                let last = self.controller.chat.conversation.messages.last
+                let answered = last?.role == .assistant && !(last?.content.isEmpty ?? true)
+                if !answered {
+                    withAnimation(Design.Motion.animation(Design.Motion.standard)) {
+                        self.state.trouble = self.controller.chat.error ?? "The agent didn't answer."
+                    }
+                }
+            }
+        }
         if !streaming, !state.awaitingApproval,
            let last = controller.chat.conversation.messages.last,
            last.role == .assistant, !last.content.isEmpty {
