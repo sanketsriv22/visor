@@ -104,6 +104,20 @@ enum DesignLab {
                      note: "Computer Use card, idle") { f in
                 AnyView(f.compact(.computerUse, chat: f.chat(.empty)))
             },
+            Scenario(name: "selector-models", size: CGSize(width: 440, height: 320), themed: false,
+                     note: "The model selector: pinned models, sized to its rows") { f in
+                AnyView(ZStack(alignment: .topLeading) {
+                    Color.black
+                    ModelSelector(chat: f.chat(.complete), query: .constant("")) { _ in }.padding(20)
+                })
+            },
+            Scenario(name: "selector-options", size: CGSize(width: 340, height: 220), themed: false,
+                     note: "Reasoning and speed") { f in
+                AnyView(ZStack(alignment: .topLeading) {
+                    Color.black
+                    OptionsSelector(chat: f.chat(.complete)).padding(20)
+                })
+            },
             Scenario(name: "selector-agents", size: CGSize(width: 360, height: 260), themed: false,
                      note: "The agent selector's content, as it appears in its popover") { f in
                 AnyView(ZStack(alignment: .topLeading) {
@@ -350,6 +364,8 @@ enum DesignLab {
             var claude = AIProvider(name: "Claude", command: "", args: [])
             claude.kind = .openRouter
             claude.model = "anthropic/claude-sonnet-5"
+            claude.favouriteModels = ["anthropic/claude-sonnet-5", "anthropic/claude-opus-5",
+                                      "openai/gpt-5", "google/gemini-3-pro"]
             var gpt = AIProvider(name: "Fast", command: "", args: [])
             gpt.kind = .openRouter
             gpt.model = "openai/gpt-5-mini"

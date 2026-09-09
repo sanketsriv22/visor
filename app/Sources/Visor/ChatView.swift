@@ -443,115 +443,8 @@ struct CLIModelPicker: View {
     }
 
     private var menu: some View {
-        VStack(spacing: 0) {
-            search
-            Divider()
-            list
-            Divider()
-            footer
-        }
-        .frame(width: 286)
-        .onDisappear { query = "" }
-    }
-
-    private var search: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-            // Plain rather than .roundedBorder: a bordered box inside a
-            // popover that already has an edge is two frames around one field.
-            TextField("Search models", text: $query)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .onSubmit(useTyped)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-    }
-
-    private var groups: [CLICatalogue.Group] {
-        chat.cliGroups(matching: query)
-    }
-
-    private var list: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(groups) { group in
-                    Text(group.id)
-                        .font(.system(size: 9, weight: .semibold))
-                        .tracking(0.5)
-                        .foregroundStyle(.white.opacity(0.35))
-                        .padding(.horizontal, 12)
-                        .padding(.top, 10)
-                        .padding(.bottom, 3)
-                    ForEach(group.models) { model in
-                        CLIModelRow(model: model,
-                                    selected: model.id == chat.cliModelID,
-                                    pinned: chat.isFavourite(model.id),
-                                    choose: {
-                                        chat.useCLIModel(model.id)
-                                        showing = false
-                                    },
-                                    pin: { chat.toggleFavourite(model.id) })
-                    }
-                }
-                // Any name the CLI knows is valid, and this list is a snapshot
-                // of one version of it. Typing something unlisted has to stay
-                // possible or the picker becomes a smaller CLI.
-                // An agent whose command we have no list for — a Codex or
-                // whatever comes next. The picker still works: pin what you
-                // use and type the rest. Better an honest empty list than a
-                // confident one full of another tool's model names.
-                if groups.isEmpty && query.isEmpty {
-                    Text("No suggestions for this agent yet — type a model name it accepts, then pin it.")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.white.opacity(0.4))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                }
-                if noMatches {
-                    Button(action: useTyped) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "return").font(.system(size: 9))
-                            Text("Use “\(query.trimmingCharacters(in: .whitespaces))”")
-                                .font(.system(size: 12))
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.visor)
-                }
-            }
-            .padding(.bottom, 6)
-        }
-        .frame(maxHeight: 268)
-    }
-
-    private var footer: some View {
-        Text("Starts a new chat — the CLI fixes its model when a session begins.")
-            .font(.system(size: 9))
-            .foregroundStyle(.white.opacity(0.4))
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-    }
-
-    /// Nothing in the list matches, but there is something typed — every CLI
-    /// knows names this snapshot doesn't, so that has to stay usable.
-    private var noMatches: Bool {
-        groups.isEmpty && !query.trimmingCharacters(in: .whitespaces).isEmpty
-    }
-
-    private func useTyped() {
-        let name = query.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else { return }
-        chat.useCLIModel(name)
-        showing = false
+        CLISelector(chat: chat, query: $query) { showing = false }
+            .onDisappear { query = "" }
     }
 }
 
@@ -951,115 +844,10 @@ struct InlineModelPicker: View {
         .popover(isPresented: $showing, arrowEdge: .top) { picker }
     }
 
-    // MARK: The picker
+    // MARK: The picker (content lives in ModelSelector, so the lab can render it)
 
     private var picker: some View {
-        VStack(spacing: 0) {
-            // A borderless search with an icon, like a command palette rather
-            // than a form field. Return picks the top result.
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                TextField("Search \(chat.modelOptions.count) models…", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12.5))
-                    .onSubmit { if let first = matches.first { choose(first) } }
-                if !query.isEmpty {
-                    Button { query = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11)).foregroundStyle(.tertiary)
-                    }.buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 12).padding(.vertical, 11)
-
-            Divider()
-
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1, pinnedViews: [.sectionHeaders]) {
-                    if matches.isEmpty {
-                        Text(showingPinned
-                             ? "Nothing pinned yet — search, then tap a star to keep a model here."
-                             : "No model matches “\(query)”.")
-                            .font(.system(size: 11.5)).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(12)
-                    } else if showingPinned {
-                        Section {
-                            ForEach(chat.favouriteModels, id: \.self) { modelRow($0) }
-                        } header: {
-                            sectionHeader("Pinned", trailing: "type to search all")
-                        }
-                    } else {
-                        ForEach(groupedMatches) { group in
-                            Section {
-                                ForEach(group.ids, id: \.self) { modelRow($0) }
-                            } header: {
-                                sectionHeader(group.vendor)
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, 6).padding(.vertical, 4)
-            }
-            .scrollIndicators(.hidden)
-            .frame(height: showingPinned ? 240 : 340)
-        }
-        .frame(width: 396)
-    }
-
-    /// One model, two lines: the name, and a meta line of vendor · context ·
-    /// price with capability marks — the facts you actually choose on.
-    private func modelRow(_ id: String) -> some View {
-        let selected = id == chat.conversation.model
-        let model = chat.catalog.model(for: id)
-        return HStack(spacing: 4) {
-            Button { choose(id) } label: {
-                HStack(spacing: 10) {
-                    Circle().fill(vendorColor(id)).frame(width: 7, height: 7)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(shortName(of: id))
-                            .font(.system(size: 12.5, weight: selected ? .semibold : .medium))
-                            .lineLimit(1).truncationMode(.middle)
-                        HStack(spacing: 6) {
-                            Text(metaLine(id, model))
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                            capabilityChips(model)
-                        }
-                    }
-                    Spacer(minLength: 6)
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Color.accentColor)
-                        .opacity(selected ? 1 : 0)
-                        .frame(width: 12)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            star(id)
-        }
-        .padding(.horizontal, 9).padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(selected ? Color.accentColor.opacity(0.14) : Color.clear))
-    }
-
-    private func sectionHeader(_ title: String, trailing: String? = nil) -> some View {
-        HStack {
-            Text(title.uppercased())
-                .font(.system(size: 9, weight: .semibold)).tracking(0.8)
-                .foregroundStyle(.secondary)
-            Spacer()
-            if let trailing {
-                Text(trailing).font(.system(size: 9)).foregroundStyle(.tertiary)
-            }
-        }
-        .padding(.horizontal, 9).padding(.top, 8).padding(.bottom, 3)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial)
+        ModelSelector(chat: chat, query: $query) { id in choose(id) }
     }
 
     private func choose(_ id: String) {
@@ -1853,25 +1641,7 @@ struct ComposerOptions: View {
         .disabled(chat.agent == nil)
         .help("Reasoning effort and speed — \(summary)")
         .popover(isPresented: $showing, arrowEdge: .top) {
-            VStack(alignment: .leading, spacing: 14) {
-                if chat.supportsEffort {
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text("REASONING").font(Design.Text.f(9)).tracking(1)
-                            .foregroundStyle(Design.Retro.dim)
-                        EffortPicker(chat: chat)
-                    }
-                }
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("SPEED").font(Design.Text.f(9)).tracking(1)
-                        .foregroundStyle(Design.Retro.dim)
-                    FastToggle(chat: chat)
-                }
-            }
-            .padding(16)
-            .frame(width: 232)
-            .background(Design.Retro.bg)
-            .tint(Design.Retro.accent)
-            .environment(\.colorScheme, .dark)
+            OptionsSelector(chat: chat)
         }
     }
 
