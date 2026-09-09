@@ -485,6 +485,10 @@ struct VideoIntro: NSViewRepresentable {
             forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main) { _ in c.onEnd?() }
         c.onEnd = onEnd
         player.play()
+        // A video that can't load hands over to the tour instead of holding it.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak player] in
+            if player?.currentItem?.status == .failed { c.onEnd?() }
+        }
         return view
     }
 

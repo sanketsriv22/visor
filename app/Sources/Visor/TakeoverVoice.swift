@@ -28,6 +28,9 @@ final class Narrator: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     private var queue: [String] = []
     private var completion: (() -> Void)?
     private var fallbackTimer: DispatchWorkItem?
+    /// The utterance in flight, so a cancel from the mute switch continues
+    /// the tour while a cancel from `stop()` does not.
+    private var current: AVSpeechUtterance?
     private let voice: AVSpeechSynthesisVoice?
     /// A narrator that never makes a sound and never touches preferences —
     /// the Design Lab's.
@@ -74,6 +77,7 @@ final class Narrator: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         fallbackTimer?.cancel()
         queue.removeAll()
         completion = nil
+        current = nil
         synth.stopSpeaking(at: .immediate)
         speaking = false
     }
@@ -96,6 +100,7 @@ final class Narrator: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
             utterance.pitchMultiplier = 1.0
             utterance.volume = 0.9
             utterance.postUtteranceDelay = 0.45
+            current = utterance
             synth.speak(utterance)
         } else {
             let seconds = 0.9 + Double(text.count) * 0.055
@@ -106,7 +111,23 @@ final class Narrator: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        Task { @MainActor in self.next() }
+        Task { @MainActor in
+            guard utterance === self.current else { return }
+            self.current = nil
+            self.next()
+        }
+    }
+
+    /// Muted mid-line: carry on at reading speed rather than stall.
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        Task { @MainActor in
+            guard utterance === self.current else { return }
+            self.current = nil
+            let seconds = 0.6
+            let work = DispatchWorkItem { [weak self] in self?.next() }
+            self.fallbackTimer = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+        }
     }
 
     // MARK: Cues
