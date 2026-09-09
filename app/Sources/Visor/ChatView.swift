@@ -108,7 +108,6 @@ struct ChatCard: View {
         HStack(spacing: 8) {
             agentPicker
             Spacer(minLength: 0)
-            DictationControl(voice: chat.voice, onToggle: chat.toggleDictation)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
@@ -328,8 +327,9 @@ struct MessageRow: View {
             HStack {
                 Spacer(minLength: 40)
                 Text(message.content)
-                    .font(.system(size: 12 * scale))
+                    .font(.system(size: 13.5 * scale))
                     .foregroundStyle(.white.opacity(0.92))
+                    .lineSpacing(3)
                     .textSelection(.enabled)
                     .accessibilityIdentifier("visor.message.user")
                     .padding(.horizontal, 10)
@@ -352,9 +352,9 @@ struct MessageRow: View {
                         // the text beside it, it reads as a line in the
                         // transcript rather than a graphic pasted over one.
                         HStack(spacing: 6) {
-                            DotMatrixIndicator(size: 12 * scale)
+                            DotMatrixIndicator(size: 13 * scale)
                             Text("working")
-                                .font(.system(size: 12 * scale))
+                                .font(.system(size: 13.5 * scale))
                                 .foregroundStyle(.white.opacity(0.5))
                         }
                         .padding(.vertical, 6)
@@ -529,7 +529,7 @@ struct CLIModelPicker: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 6, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                     .opacity(0.6)
             }
             .composerPill(active: true, enabled: true)
@@ -803,6 +803,9 @@ struct ComposerField: NSViewRepresentable {
     /// passes a larger value, since at full-screen the 12pt field read as a
     /// caption next to everything around it.
     var fontSize: CGFloat = 12
+    /// Extra leading between lines, in points. ChatGPT sets 1.5 line height
+    /// on its 16px type; the card and HUD pass their own.
+    var lineSpacing: CGFloat = 0
     /// Reports first-responder changes, so the composer can light up.
     var onFocusChange: ((Bool) -> Void)?
 
@@ -844,6 +847,14 @@ struct ComposerField: NSViewRepresentable {
         view.isEditable = true
         view.isSelectable = true
         view.font = .systemFont(ofSize: fontSize)
+        if lineSpacing > 0 {
+            let style = NSMutableParagraphStyle()
+            style.lineSpacing = lineSpacing
+            view.defaultParagraphStyle = style
+            view.typingAttributes = [.font: NSFont.systemFont(ofSize: fontSize),
+                                     .paragraphStyle: style,
+                                     .foregroundColor: NSColor.white.withAlphaComponent(0.92)]
+        }
         view.textColor = NSColor.white.withAlphaComponent(0.92)
         view.insertionPointColor = NSColor.white.withAlphaComponent(0.8)
         view.textContainerInset = NSSize(width: 0, height: 1)
@@ -1026,7 +1037,7 @@ struct InlineModelPicker: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 6, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                     .opacity(0.6)
             }
             .composerPill(active: true, enabled: chat.agent != nil)
@@ -1309,9 +1320,8 @@ struct HUDView: View {
                 if chat.isStreaming { DotMatrixIndicator(size: 11) }
                 Spacer(minLength: 0)
 
-                // The notch extension is suppressed at this scale, so without
-                // this the HUD gave no sign the microphone was open at all.
-                DictationControl(voice: chat.voice, onToggle: chat.toggleDictation)
+                // The microphone lives in the composer now, where ChatGPT
+                // keeps it; the composer's mic shows the level while open.
 
                 // Transparency belongs in the HUD, not buried in Settings —
                 // the right value depends on what's behind it right now.
@@ -1710,6 +1720,11 @@ struct NotchPong: View {
 struct DictationControl: View {
     @ObservedObject var voice: VoiceInput
     var onToggle: () -> Void
+    /// Button diameter. 20 in a header strip; the composer passes its row's
+    /// button size so the mic matches the send circle beside it.
+    var size: CGFloat = 20
+    /// A bordered round button (the composer) rather than a bare icon.
+    var circular = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -1723,12 +1738,14 @@ struct DictationControl: View {
 
             Button(action: onToggle) {
                 Image(systemName: symbol)
-                    .font(.system(size: 10))
-                    .foregroundStyle(tint)
-                    .frame(width: 20, height: 20)
-                    .contentShape(Rectangle())
+                    .font(.system(size: size * 0.5, weight: circular ? .medium : .regular))
+                    .foregroundStyle(circular && voice.state == .idle ? Color.white.opacity(0.85) : tint)
+                    .frame(width: size, height: size)
+                    .background(Circle().fill(Color.white.opacity(circular ? 0.06 : 0)))
+                    .overlay(Circle().stroke(Color.white.opacity(circular ? 0.16 : 0), lineWidth: 1))
+                    .contentShape(Circle())
             }
-            .buttonStyle(.visor)
+            .buttonStyle(circular ? .visor(radius: size / 2) : .visor)
             .help(helpText)
         }
     }
@@ -1909,16 +1926,27 @@ struct ComposerOptions: View {
     @State private var showing = false
 
     var body: some View {
+        // ChatGPT's plus: everything optional behind one round button. A
+        // summary appears beside it only once something is set.
         Button { showing = true } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "slider.horizontal.3").font(.system(size: 9, weight: .semibold))
-                Text(summary)
+            HStack(spacing: 5) {
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.white.opacity(chat.agent == nil ? 0.25 : 0.85))
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(Color.white.opacity(0.06)))
+                    .overlay(Circle().stroke(Color.white.opacity(0.16), lineWidth: 1))
+                if chat.isFast || chat.effort != nil {
+                    Text(summary)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Design.Retro.accent)
+                }
             }
-            .composerPill(active: chat.isFast || chat.effort != nil, enabled: chat.agent != nil)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.visorBare)
+        .buttonStyle(.visor(radius: 16))
         .disabled(chat.agent == nil)
-        .help("Reasoning effort and speed")
+        .help("Reasoning effort and speed — \(summary)")
         .popover(isPresented: $showing, arrowEdge: .top) {
             VStack(alignment: .leading, spacing: 14) {
                 if chat.supportsEffort {
@@ -2185,14 +2213,14 @@ struct ComposerPill: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .font(.system(size: 10.5, weight: .medium))
-            .foregroundStyle(.white.opacity(enabled ? (active ? 0.9 : 0.55) : 0.22))
-            .padding(.horizontal, 9)
-            .frame(height: 22)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(.white.opacity(enabled ? (active ? 0.9 : 0.65) : 0.25))
+            .padding(.horizontal, 12)
+            .frame(height: 32)
             .background(
                 Capsule().fill(.white.opacity(
-                    !enabled ? 0.03 : hovering ? 0.14 : active ? 0.10 : 0.06)))
-            .overlay(Capsule().stroke(.white.opacity(enabled ? 0.07 : 0.03), lineWidth: 1))
+                    !enabled ? 0.02 : hovering ? 0.12 : 0.05)))
+            .overlay(Capsule().stroke(.white.opacity(enabled ? 0.16 : 0.06), lineWidth: 1))
             .contentShape(Capsule())
             .onHover { hovering = $0 && enabled }
             .animation(.easeOut(duration: 0.12), value: hovering)

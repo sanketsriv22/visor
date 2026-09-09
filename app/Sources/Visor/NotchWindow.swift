@@ -89,7 +89,7 @@ final class NotchController {
     /// transcript and a composer.
     static let cardHeight: CGFloat = 260
     static let cardWidth: CGFloat = 420
-    static let chatCardHeight: CGFloat = 330
+    static let chatCardHeight: CGFloat = 372
     static let chatCardWidth: CGFloat = 530
 
     /// The window is sized to the larger of the two modes for as long as it's

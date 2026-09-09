@@ -134,7 +134,7 @@ extension MarkdownUI.Theme {
     /// a quiet paragraph rhythm, headings that step up by size rather than
     /// shout, and tables that stay usable at notch width.
     static func visor(scale: Double) -> MarkdownUI.Theme {
-        let base = 12 * scale
+        let base = 13.5 * scale
         return MarkdownUI.Theme()
             .text {
                 ForegroundColor(Color.white.opacity(0.88))
