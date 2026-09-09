@@ -75,7 +75,11 @@ struct TakeoverView: View {
 
                 if let milestone = state.milestone {
                     MilestoneBadge(text: milestone)
-                        .position(x: size.width / 2, y: size.height * 0.42)
+                        // Below the card and the practice window, never over
+                        // the thing that just succeeded.
+                        .position(x: size.width / 2,
+                                  y: max(size.height * 0.42,
+                                         (practiceRect?.maxY ?? card.maxY) + 70))
                         .transition(.scale(scale: 0.9).combined(with: .opacity))
                 }
 
@@ -161,7 +165,8 @@ struct TakeoverView: View {
     private func target(size: CGSize) -> Target {
         let c = card
         let bw = bubbleWidth
-        let right = CGPoint(x: min(c.maxX + 48, size.width - bw - 32), y: c.minY + notchH + 16)
+        // Clear of the top bar (Back · step · Skip), which sits at y 30–58.
+        let right = CGPoint(x: min(c.maxX + 48, size.width - bw - 32), y: c.minY + notchH + 76)
         let identity = CGRect(x: c.minX + 10, y: c.minY + notchH + 30, width: 210, height: 30)
         let composer = CGRect(x: c.minX + 10, y: c.maxY - 118, width: c.width - 20, height: 106)
         switch state.step {
