@@ -115,7 +115,7 @@ struct ComputerUsePane: View {
                 Text("Engine strength").font(Design.Text.rowTitle).foregroundStyle(Design.Retro.text)
                 Spacer()
                 Text(on ? "\(chess.strength.elo ?? 0)" : "MAX")
-                    .font(.custom(Design.Text.face, size: 18))
+                    .font(Design.Text.f(18))
                     .foregroundStyle(Design.Retro.accent)
                 Text(Self.tier(on ? chess.strength.elo : nil))
                     .font(Design.Text.caption2).foregroundStyle(Design.Retro.dim)
@@ -165,7 +165,7 @@ struct ComputerUsePane: View {
     private var latencyBand: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
-                Text("Response time").font(.custom(Design.Text.face, size: 12))
+                Text("Response time").font(Design.Text.f(12))
                 Spacer()
                 Text(chess.latency.display)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
@@ -315,7 +315,7 @@ private struct PaneButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.custom(Design.Text.face, size: 12))
+                .font(Design.Text.f(12))
                 .padding(.horizontal, 11)
                 .padding(.vertical, 5)
                 .contentShape(Rectangle())
@@ -335,9 +335,9 @@ private struct RequirementRow: View {
         HStack(alignment: .firstTextBaseline, spacing: Design.Space.normal) {
             Image(systemName: met ? "checkmark.circle.fill" : "circle.dashed")
                 .foregroundStyle(met ? Color.green : Color.secondary)
-                .font(.custom(Design.Text.face, size: 12))
+                .font(Design.Text.f(12))
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.custom(Design.Text.face, size: 12))
+                Text(title).font(Design.Text.f(12))
                 if let fix {
                     Text(fix)
                         .font(Design.Text.caption2)

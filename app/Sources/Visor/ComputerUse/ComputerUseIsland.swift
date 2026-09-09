@@ -61,7 +61,7 @@ private struct ComputerUseView: View {
             HStack(spacing: 7) {
                 RetroIcon(Glyph.computer, size: 12, color: Design.Retro.accent)
                 Text("COMPUTER USE")
-                    .font(.custom(Design.Text.face, size: 12)).tracking(2)
+                    .font(Design.Text.f(12)).tracking(2)
                     .foregroundStyle(Design.Retro.text)
                 Spacer()
                 Button(action: onClose) {
@@ -73,7 +73,7 @@ private struct ComputerUseView: View {
             HStack(spacing: 8) {
                 TextField("Tell your Mac what to do…", text: $task)
                     .textFieldStyle(.plain)
-                    .font(.custom(Design.Text.face, size: 14))
+                    .font(Design.Text.f(14))
                     .foregroundStyle(Design.Retro.text)
                     .focused($focused)
                     .onSubmit(run)
@@ -93,7 +93,7 @@ private struct ComputerUseView: View {
             HStack(spacing: 6) {
                 if agent.running { DotMatrixIndicator(size: 9) }
                 Text(agent.status)
-                    .font(.custom(Design.Text.face, size: 10))
+                    .font(Design.Text.f(10))
                     .foregroundStyle(agent.running ? Design.Retro.accent : Design.Retro.dim)
                     .lineLimit(1)
             }
@@ -102,7 +102,7 @@ private struct ComputerUseView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(agent.log.suffix(5).enumerated()), id: \.offset) { _, line in
                         Text("› \(line)")
-                            .font(.custom(Design.Text.face, size: 10))
+                            .font(Design.Text.f(10))
                             .foregroundStyle(Design.Retro.faint)
                             .lineLimit(1)
                     }
@@ -168,7 +168,7 @@ struct ComputerUseCard: View {
         HStack(spacing: 7) {
             RetroIcon(Glyph.computer, size: 11, color: Design.Retro.accent)
             Text("COMPUTER USE")
-                .font(.custom(Design.Text.face, size: 11)).tracking(2.5)
+                .font(Design.Text.f(11)).tracking(2.5)
                 .foregroundStyle(Design.Retro.text)
             Spacer()
             Menu {
@@ -177,7 +177,7 @@ struct ComputerUseCard: View {
                 }
             } label: {
                 Text(modelLabel)
-                    .font(.custom(Design.Text.face, size: 9)).tracking(0.5)
+                    .font(Design.Text.f(9)).tracking(0.5)
                     .foregroundStyle(Design.Retro.dim)
             }
             .menuStyle(.borderlessButton)
@@ -195,7 +195,7 @@ struct ComputerUseCard: View {
         HStack(spacing: 9) {
             TextField("Tell your Mac what to do…", text: $task)
                 .textFieldStyle(.plain)
-                .font(.custom(Design.Text.face, size: 13))
+                .font(Design.Text.f(13))
                 .foregroundStyle(Design.Retro.text)
                 .focused($focused)
                 .onSubmit { if canRun { agent.start(task) } }
@@ -234,7 +234,7 @@ struct ComputerUseCard: View {
 
     private var hint: some View {
         Text("Type a task and press \u{23CE}  \u{2014}  e.g. \"DM Sarah on Slack: running late\"")
-            .font(.custom(Design.Text.face, size: 10))
+            .font(Design.Text.f(10))
             .foregroundStyle(Design.Retro.faint)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 2)
@@ -245,14 +245,14 @@ struct ComputerUseCard: View {
             HStack(spacing: 6) {
                 if agent.running { DotMatrixIndicator(size: 8) }
                 Text(agent.status)
-                    .font(.custom(Design.Text.face, size: 10))
+                    .font(Design.Text.f(10))
                     .foregroundStyle(agent.running ? Design.Retro.accent : Design.Retro.dim)
                     .lineLimit(1)
                 Spacer()
                 if !agent.log.isEmpty {
                     Button(action: copyLog) {
                         Text(copied ? "COPIED" : "COPY")
-                            .font(.custom(Design.Text.face, size: 9)).tracking(1)
+                            .font(Design.Text.f(9)).tracking(1)
                             .foregroundStyle(copied ? Design.Retro.accent : Design.Retro.dim)
                     }
                     .buttonStyle(.plain)
@@ -263,17 +263,17 @@ struct ComputerUseCard: View {
                     VStack(alignment: .leading, spacing: 3) {
                         if agent.log.isEmpty {
                             Text(agent.running ? "Starting\u{2026}" : "No steps yet.")
-                                .font(.custom(Design.Text.face, size: 10))
+                                .font(Design.Text.f(10))
                                 .foregroundStyle(Design.Retro.faint)
                         } else {
                             ForEach(Array(agent.log.enumerated()), id: \.offset) { i, line in
                                 HStack(alignment: .top, spacing: 7) {
                                     Text("\(i + 1)")
-                                        .font(.custom(Design.Text.face, size: 10))
+                                        .font(Design.Text.f(10))
                                         .foregroundStyle(Design.Retro.dim)
                                         .frame(width: 15, alignment: .trailing)
                                     Text(line)
-                                        .font(.custom(Design.Text.face, size: 10))
+                                        .font(Design.Text.f(10))
                                         .foregroundStyle(Design.Retro.text.opacity(0.82))
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .fixedSize(horizontal: false, vertical: true)
@@ -354,7 +354,7 @@ private struct StopHUDView: View {
             HStack(spacing: 8) {
                 RoundedRectangle(cornerRadius: 2).fill(Color.white).frame(width: 9, height: 9)
                 Text("STOP")
-                    .font(.custom(Design.Text.face, size: 12)).tracking(2)
+                    .font(Design.Text.f(12)).tracking(2)
                     .foregroundStyle(.white)
             }
             .padding(.horizontal, 18).padding(.vertical, 10)
