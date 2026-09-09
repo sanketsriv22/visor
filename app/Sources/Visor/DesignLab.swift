@@ -234,20 +234,8 @@ enum DesignLab {
                 let driver = PracticeDriver()
                 return AnyView(PracticeView(driver: driver).frame(width: 480, height: 300)
                     .onAppear { driver.run() })
-            },cenario(name: "menu-panel", size: CGSize(width: 300, height: 360), themed: true,
-                     note: "The menu-bar dropdown") { f in
-                AnyView(f.menuPanel())
-            },cenario(name: "settings-appearance", size: CGSize(width: 620, height: 560), themed: true,
-                     note: "Settings → Appearance") { _ in
-                AnyView(AppearancePane()
-                    .padding(24)
-                    .frame(width: 620, height: 560, alignment: .topLeading)
-                    .background(Design.Retro.bg)
-                    .environment(\.colorScheme, VisorTheme.current.isDark ? .dark : .light))
-            },cenario(name: "takeover-boot", size: hud, themed: false,
-                     note: "The takeover powering on: hero mark, wordmark, sweep") { f in
-                AnyView(f.takeover(.boot, chat: f.chat(.empty), expanded: false))
-            },        ]
+            },
+        ]
     }
 
     // MARK: - Driver
