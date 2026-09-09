@@ -43,7 +43,8 @@ Font can be pinned the same way UserDefaults arguments always work:
 | `hud`, `hud-streaming` | The HUD with pinned rails |
 | `menu-panel` † | The menu-bar dropdown |
 | `settings-appearance` † | Settings → Appearance |
-| `onboarding`, `onboarding-agents` † | First-launch introduction |
+| `onboarding`, `onboarding-agents` † | First-launch introduction, hosted directly |
+| `onboarding-window` | The introduction in its real window, built exactly as the app builds it |
 
 † themed: rendered once per theme with `--theme all`.
 

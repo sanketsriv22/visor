@@ -35,7 +35,10 @@ screen.
 5. **Disclose progressively.** Model, send and stop are one click away;
    effort, speed, tools and export fold behind one control. Agent identity
    (name, model, whose account) is always legible. Nothing is shown at rest
-   that isn't needed at rest.
+   that isn't needed at rest. The composer is modelled on ChatGPT's — a
+   soft pill, reading-size text at 1.5 line height, a row of round 32/36pt
+   controls in its order (plus, model chip · mic, send) — because that is
+   the composer people's hands already know.
 6. **Behaviour is design.** Focus, keyboard shortcuts, dismissal, hover,
    press and click-through get the same attention as colour and spacing.
    `.plain` buttons with no press feedback are a bug, not a style.
