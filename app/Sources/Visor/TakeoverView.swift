@@ -14,6 +14,9 @@ struct TakeoverView: View {
 
     @State private var draw: CGFloat = 0
     @State private var bootPhase = 0   // 0 arriving, 1 risen, 2 flew back into the notch
+    /// The mark travelling from the bubble to the thing that just happened.
+    @State private var traveller: CGPoint? = nil
+    @State private var travelling = false
 
     private var reduced: Bool { Design.Motion.reduced }
     private var accent: Color { Design.Retro.accent }
@@ -25,9 +28,14 @@ struct TakeoverView: View {
             let origin = CGPoint(x: notch.midX, y: notch.maxY)
             let holes = holes(size: size)
 
+            let scrim = Scrim(card: cardHole(size: size), extras: extraHoles(size: size))
+
             ZStack(alignment: .topLeading) {
-                Cutout(holes: holes)
+                // The scrim. Its card hole is animatable and grows out of the
+                // notch on the card's own spring, so the two never disagree.
+                scrim
                     .fill(Color.black.opacity(scrimOpacity), style: FillStyle(eoFill: true))
+                    .animation(Design.Motion.animation(Design.Motion.surface), value: state.geometry.expanded)
                     .animation(Design.Motion.animation(.easeInOut(duration: 0.4)), value: state.step)
 
                 if !reduced {
@@ -36,7 +44,19 @@ struct TakeoverView: View {
                         if state.step == .boot { CRTSweep(start: state.stepStarted, height: size.height) }
                         PixelField(origin: origin, size: size, burstAt: state.lastBurst)
                     }
-                    .mask(Cutout(holes: holes).fill(style: FillStyle(eoFill: true)))
+                    .mask(scrim.fill(style: FillStyle(eoFill: true))
+                        .animation(Design.Motion.animation(Design.Motion.surface), value: state.geometry.expanded))
+                }
+
+                // The notch's click band, while the card is closed: the scrim
+                // covers it, so the click comes here and is passed on. No hole,
+                // no lit rectangle — the notch is black hardware either way.
+                if !state.geometry.expanded, state.step == .summon {
+                    Color.black.opacity(0.001)
+                        .frame(width: notchRect.width + 12, height: notchRect.height + 12)
+                        .position(x: notchRect.midX, y: notchRect.midY + 6)
+                        .onTapGesture(perform: actions.summon)
+                        .accessibilityIdentifier("visor.takeover.notchTarget")
                 }
 
                 annotations(size: size, origin: origin)
@@ -47,8 +67,22 @@ struct TakeoverView: View {
                 default:       bubble(size: size)
                 }
 
+                if let point = traveller {
+                    HeroMark(size: 44)
+                        .position(point)
+                        .opacity(travelling ? 1 : 0)
+                        .allowsHitTesting(false)
+                }
+
+                if let milestone = state.milestone {
+                    MilestoneBadge(text: milestone)
+                        .position(x: size.width / 2, y: size.height * 0.42)
+                        .transition(.scale(scale: 0.9).combined(with: .opacity))
+                }
+
                 topBar(size: size)
             }
+            .onChange(of: state.bursts) { _ in travel(size: size, origin: origin) }
             .frame(width: size.width, height: size.height)
             .onChange(of: state.step) { _ in
                 draw = 0
@@ -76,16 +110,32 @@ struct TakeoverView: View {
         return state.step == .boot ? 0.9 : 0.76
     }
 
-    /// Where the scrim is not: the whole screen while the HUD is up; the
-    /// card, the notch's click band and the practice window otherwise.
-    private func holes(size: CGSize) -> [CGRect] {
+    /// The card's hole: the card when it is open, the notch itself when it
+    /// isn't — so the hole grows out of the notch exactly as the card does.
+    private func cardHole(size: CGSize) -> CGRect {
         let g = state.geometry
-        if g.hud { return [CGRect(origin: .zero, size: size)] }
-        let strip = notchRect.insetBy(dx: -6, dy: 0)
-        var holes = [CGRect(x: strip.minX, y: strip.minY, width: strip.width, height: strip.height + 10)]
-        if g.expanded { holes.append(card) }
-        if let p = g.practice { holes.append(view(p)) }
-        return holes
+        if g.hud { return CGRect(origin: .zero, size: size) }
+        return g.expanded ? card : CGRect(x: notchRect.minX, y: 0, width: notchRect.width, height: notchRect.height)
+    }
+
+    private func extraHoles(size: CGSize) -> [CGRect] {
+        state.geometry.practice.map { [view($0)] } ?? []
+    }
+
+    /// When a step lands, the mark leaves the bubble, flies to what happened
+    /// and vanishes in the burst — the reward travels to the thing you did.
+    private func travel(size: CGSize, origin: CGPoint) {
+        guard !reduced, state.step != .boot else { return }
+        let t = target(size: size)
+        let from = CGPoint(x: t.bubble.x, y: t.bubble.y)
+        let to = t.ring.map { CGPoint(x: $0.midX, y: $0.midY) } ?? origin
+        traveller = from
+        travelling = true
+        withAnimation(.spring(response: 0.55, dampingFraction: 0.8)) { traveller = to }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            withAnimation(.easeOut(duration: 0.2)) { travelling = false }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { traveller = nil }
     }
 
     // MARK: Coordinates
@@ -184,13 +234,16 @@ struct TakeoverView: View {
         return CGPoint(x: rect.midX, y: rect.maxY + 8)
     }
 
+    /// One bubble for the whole tour. It glides between moments rather than
+    /// being replaced, so the guide reads as a companion that moves, not a
+    /// series of cards.
     private func bubble(size: CGSize) -> some View {
         let t = target(size: size)
         return GuideBubble(state: state, actions: actions)
             .frame(width: bubbleWidth, alignment: .topLeading)
             .position(x: t.bubble.x + bubbleWidth / 2, y: t.bubble.y + t.bubbleHeight / 2)
-            .transition(.opacity.combined(with: .scale(scale: 0.97)))
-            .id(state.step)
+            .animation(Design.Motion.animation(.spring(response: 0.6, dampingFraction: 0.86)), value: state.step)
+            .transition(.opacity)
     }
 
     /// The reveal: the mark rises out of the notch, turns once above it
@@ -321,18 +374,24 @@ private struct GuideBubble: View {
                     }
                     .accessibilityHidden(true)
                 }
-                Text(state.line.title)
-                    .font(Design.Typography.display())
-                    .foregroundStyle(Design.Ink.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-                TypewriterText(state.line.body, start: state.stepStarted, cps: 80)
-                    .font(Design.Typography.body())
-                    .foregroundStyle(Design.Ink.secondary)
-                    .lineSpacing(Design.Typography.bodyLeading)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: Design.Space.roomy) {
+                    Text(state.line.title)
+                        .font(Design.Typography.display())
+                        .foregroundStyle(Design.Ink.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    TypewriterText(state.line.body, start: state.stepStarted, cps: 80)
+                        .font(Design.Typography.body())
+                        .foregroundStyle(Design.Ink.secondary)
+                        .lineSpacing(Design.Typography.bodyLeading)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                controls
+                    controls
+                }
+                .id("\(state.step.rawValue)-\(state.trouble == nil)-\(state.taskDone)-\(state.awaitingApproval)")
+                .transition(.opacity)
             }
+            .animation(Design.Motion.animation(.easeInOut(duration: 0.22)), value: state.step)
+            .animation(Design.Motion.animation(.easeInOut(duration: 0.22)), value: state.trouble == nil)
             .padding(.top, Design.Space.wide).padding(.bottom, Design.Space.loose)
             .padding(.horizontal, Design.Space.section)
             .frame(width: 400, alignment: .topLeading)
@@ -379,6 +438,14 @@ private struct GuideBubble: View {
                 }
             }
             .padding(.top, Design.Space.tight)
+        case .firstTask where state.trouble != nil:
+            HStack(spacing: Design.Space.normal) {
+                ActionChip(title: "Use the stand-in", prominent: true, action: actions.useStandIn)
+                    .accessibilityIdentifier("visor.takeover.standIn")
+                ActionChip(title: "Skip this step", action: actions.skipStep)
+                    .accessibilityIdentifier("visor.takeover.skipStep")
+            }
+            .padding(.top, Design.Space.tight)
         case .practice:
             HStack(spacing: Design.Space.normal) {
                 ActionChip(title: state.practice.running ? "Running…" : "Run", prominent: !state.practice.running,
@@ -388,6 +455,9 @@ private struct GuideBubble: View {
                 if state.practice.running {
                     ActionChip(title: "Stop", destructive: true, action: actions.stopPractice)
                         .accessibilityIdentifier("visor.takeover.stop")
+                } else {
+                    ActionChip(title: "Skip this step", action: actions.skipStep)
+                        .accessibilityIdentifier("visor.takeover.skipStep")
                 }
             }
             .padding(.top, Design.Space.tight)
@@ -593,22 +663,75 @@ private struct PixelField: View {
     }
 }
 
-/// The screen minus some rectangles, for an even-odd fill or mask. Tall
-/// holes keep the card's rounded bottom so the scrim hugs its silhouette.
-struct Cutout: Shape {
-    let holes: [CGRect]
+/// The screen minus the card and any extra windows, for an even-odd fill
+/// or mask. The card hole is animatable: SwiftUI tweens its rect, so the
+/// hole grows out of the notch on the same spring as the card, and its
+/// bottom corners carry the card's own radius the whole way.
+struct Scrim: Shape {
+    var card: CGRect
+    var extras: [CGRect] = []
+
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>> {
+        get { AnimatablePair(AnimatablePair(card.minX, card.minY), AnimatablePair(card.width, card.height)) }
+        set { card = CGRect(x: newValue.first.first, y: newValue.first.second,
+                            width: newValue.second.first, height: newValue.second.second) }
+    }
 
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.addRect(rect)
-        for hole in holes {
-            if hole.height > 200 {
-                path.addRoundedRect(in: hole, cornerSize: CGSize(width: 18, height: 18))
-            } else {
-                path.addRect(hole)
-            }
+        if card.width > 0, card.height > 0 {
+            let r = min(Design.Radius.card, card.height / 2)
+            path.addPath(Path(roundedRect: card, cornerRadii: RectangleCornerRadii(
+                topLeading: 0, bottomLeading: r, bottomTrailing: r, topTrailing: 0)))
+        }
+        for hole in extras {
+            path.addPath(Path(roundedRect: hole, cornerRadius: 10))
         }
         return path
+    }
+}
+
+/// A moment's worth of celebration: a check that draws on and one line.
+struct MilestoneBadge: View {
+    let text: String
+    @State private var drawn: CGFloat = 0
+
+    var body: some View {
+        HStack(spacing: Design.Space.roomy) {
+            ZStack {
+                Circle().fill(Design.Retro.accent.opacity(0.18))
+                Circle().strokeBorder(Design.Retro.accent, lineWidth: 2)
+                CheckMark()
+                    .trim(from: 0, to: drawn)
+                    .stroke(Design.Retro.accent, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                    .padding(11)
+            }
+            .frame(width: 40, height: 40)
+            .shadow(color: Design.Retro.accent.opacity(0.6), radius: 12)
+            Text(text)
+                .font(Design.Typography.display())
+                .foregroundStyle(Design.Ink.primary)
+        }
+        .padding(.horizontal, Design.Space.section)
+        .padding(.vertical, Design.Space.loose)
+        .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
+            .fill(Design.Retro.bg.opacity(0.97)))
+        .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
+            .strokeBorder(Design.Retro.accent.opacity(0.6), lineWidth: Design.Stroke.hairline))
+        .shadow(color: .black.opacity(0.5), radius: 30, y: 10)
+        .onAppear { withAnimation(Design.Motion.animation(.easeOut(duration: 0.45))) { drawn = 1 } }
+        .accessibilityIdentifier("visor.takeover.milestone")
+    }
+}
+
+private struct CheckMark: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: rect.minX, y: rect.midY + rect.height * 0.05))
+        p.addLine(to: CGPoint(x: rect.minX + rect.width * 0.38, y: rect.maxY - rect.height * 0.05))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.12))
+        return p
     }
 }
 

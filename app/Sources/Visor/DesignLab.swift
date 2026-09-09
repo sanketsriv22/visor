@@ -205,6 +205,18 @@ enum DesignLab {
                     s.chosen = "Claude Code"; s.awaitingApproval = true
                 })
             },
+            Scenario(name: "takeover-trouble", size: hud, themed: false,
+                     note: "03 First task: the agent failed; the stand-in and skip are offered") { f in
+                AnyView(f.takeover(.firstTask, chat: f.chat(.error), expanded: true, mode: .chat) { s in
+                    s.chosen = "Claude"; s.trouble = "OpenRouter: 401 — the API key for Claude was rejected."
+                })
+            },
+            Scenario(name: "takeover-milestone", size: hud, themed: false,
+                     note: "The milestone flash after the first task") { f in
+                AnyView(f.takeover(.firstTask, chat: f.chat(.complete), expanded: true, mode: .chat) { s in
+                    s.chosen = "Claude Code"; s.taskDone = true; s.milestone = "First task, done"
+                })
+            },
             Scenario(name: "takeover-practice", size: hud, themed: false,
                      note: "04 Practice: the practice window under the card, beam from the notch, Run") { f in
                 AnyView(f.takeover(.practice, chat: f.chat(.complete), expanded: true, mode: .chat,

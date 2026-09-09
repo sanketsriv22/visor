@@ -56,6 +56,10 @@ final class TakeoverState: ObservableObject {
     /// First-task step.
     @Published var awaitingApproval = false
     @Published var taskDone = false
+    /// Set when the agent failed or went quiet, with the way out offered.
+    @Published var trouble: String? = nil
+    /// A short celebration shown over everything for a moment.
+    @Published var milestone: String? = nil
 
     /// Practice and control steps.
     let practice: PracticeDriver
@@ -105,6 +109,10 @@ final class TakeoverState: ObservableObject {
                 return Line(kicker: "03 · FIRST TASK", title: "That's a task, done.",
                             body: standIn ? "Scripted, but the shape is real: ask, approve, result. Now let it drive."
                                           : "It asked, you allowed, it answered. Now let it drive.")
+            }
+            if let trouble {
+                return Line(kicker: "03 · FIRST TASK", title: "That didn't go through.",
+                            body: "\(trouble) Use the scripted stand-in to see the shape of it, or skip ahead.")
             }
             if awaitingApproval {
                 return Line(kicker: "03 · FIRST TASK", title: "It's asking first.",
@@ -166,6 +174,7 @@ final class TakeoverGuide {
     private var settingsPoll: Timer?
     private var sentInTask = false
     private var messagesAtYours = 0
+    private var taskTimeout: DispatchWorkItem?
 
     init?(controller: NotchController) {
         guard let geo = controller.takeoverGeometry() else { return nil }
@@ -194,6 +203,9 @@ final class TakeoverGuide {
             actions: TakeoverActions(
                 skip: { [weak self] in self?.finish() },
                 back: { [weak self] in self?.back() },
+                summon: { [weak self] in self?.summon() },
+                skipStep: { [weak self] in self?.skipStep() },
+                useStandIn: { [weak self] in self?.useStandIn() },
                 useAgent: { [weak self] name in self?.useAgent(named: name) },
                 addKey: { [weak self] in self?.addKey() },
                 skipAgent: { [weak self] in self?.skipAgent() },
@@ -367,6 +379,39 @@ final class TakeoverGuide {
         state.practice.run()
     }
 
+    /// A click on the notch itself while the takeover is up: the scrim
+    /// covers the notch's click band, so the tap comes here and is passed on.
+    private func summon() {
+        guard state.step == .summon, !controller.ui.expanded else { return }
+        controller.toggle()
+    }
+
+    /// Past a moment that isn't working, without leaving the tour.
+    private func skipStep() {
+        guard let next = TakeoverState.Step(rawValue: state.step.rawValue + 1) else { return }
+        taskTimeout?.cancel()
+        state.trouble = nil
+        controller.chat.stop()
+        if state.step == .practice || state.step == .control { hidePractice() }
+        advance(to: next)
+    }
+
+    /// The first task on the scripted stand-in after a real agent failed.
+    private func useStandIn() {
+        taskTimeout?.cancel()
+        controller.chat.stop()
+        state.trouble = nil
+        state.standIn = true
+        primeFirstTask()
+    }
+
+    private func celebrateMilestone(_ text: String) {
+        withAnimation(Design.Motion.animation(Design.Motion.surface)) { state.milestone = text }
+        DispatchQueue.main.asyncAfter(deadline: .now() + (Design.Motion.reduced ? 0.8 : 1.7)) { [weak self] in
+            withAnimation(Design.Motion.animation(Design.Motion.standard)) { self?.state.milestone = nil }
+        }
+    }
+
     // MARK: Watching the real app
 
     private func observe() {
@@ -382,6 +427,8 @@ final class TakeoverGuide {
             .sink { [weak self] on in self?.streamingChanged(on) }.store(in: &sinks)
         chat.$conversation.map(\.messages.count).removeDuplicates().receive(on: DispatchQueue.main)
             .sink { [weak self] n in self?.messageCountChanged(n) }.store(in: &sinks)
+        chat.$error.receive(on: DispatchQueue.main)
+            .sink { [weak self] error in self?.errorChanged(error) }.store(in: &sinks)
         state.practice.$phase.receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.practiceChanged() }.store(in: &sinks)
         state.practice.$stops.receive(on: DispatchQueue.main)
@@ -418,7 +465,33 @@ final class TakeoverGuide {
     private func approvalChanged(_ pending: Bool) {
         guard state.step == .firstTask else { return }
         state.awaitingApproval = pending
-        if pending { state.bursts += 1; state.lastBurst = Date() }
+        if pending {
+            taskTimeout?.cancel()
+            state.bursts += 1; state.lastBurst = Date()
+        }
+    }
+
+    /// A real agent that fails (no key, a rejected key, a network error)
+    /// must not strand the tour: name it and offer the way out.
+    private func errorChanged(_ error: String?) {
+        guard state.step == .firstTask, sentInTask, let error, !error.isEmpty else { return }
+        taskTimeout?.cancel()
+        withAnimation(Design.Motion.animation(Design.Motion.standard)) { state.trouble = error }
+    }
+
+    /// Nothing back after a while is the same as a failure, to the person
+    /// waiting on it.
+    private func armTaskTimeout() {
+        taskTimeout?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.state.step == .firstTask, !self.state.taskDone,
+                  !self.state.awaitingApproval else { return }
+            withAnimation(Design.Motion.animation(Design.Motion.standard)) {
+                self.state.trouble = "No reply after thirty seconds."
+            }
+        }
+        taskTimeout = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: work)
     }
 
     private func streamingChanged(_ streaming: Bool) {
@@ -426,8 +499,11 @@ final class TakeoverGuide {
         if !streaming, !state.awaitingApproval,
            let last = controller.chat.conversation.messages.last,
            last.role == .assistant, !last.content.isEmpty {
+            taskTimeout?.cancel()
+            state.trouble = nil
             state.taskDone = true
             state.bursts += 1; state.lastBurst = Date()
+            celebrateMilestone("First task, done")
             UserDefaults.standard.set(TakeoverState.Step.practice.rawValue, forKey: Self.progressKey)
             schedule(after: Design.Motion.reduced ? 0.6 : 2.2) { [weak self] in self?.advance(to: .practice) }
         }
@@ -436,7 +512,10 @@ final class TakeoverGuide {
     private func messageCountChanged(_ count: Int) {
         switch state.step {
         case .firstTask:
-            if controller.chat.conversation.messages.last?.role == .user { sentInTask = true }
+            if controller.chat.conversation.messages.last?.role == .user {
+                sentInTask = true
+                armTaskTimeout()
+            }
         case .yours:
             if count > messagesAtYours, controller.chat.conversation.messages.last?.role == .user {
                 celebrate(then: .finale)
@@ -451,6 +530,7 @@ final class TakeoverGuide {
         case .control:
             if state.practice.isDone {
                 state.bursts += 1; state.lastBurst = Date()
+                celebrateMilestone("It drove your Mac")
                 UserDefaults.standard.set(TakeoverState.Step.yours.rawValue, forKey: Self.progressKey)
                 schedule(after: Design.Motion.reduced ? 0.6 : 2.0) { [weak self] in
                     self?.hidePractice()
@@ -516,6 +596,9 @@ final class TakeoverGuide {
 struct TakeoverActions {
     var skip: () -> Void = {}
     var back: () -> Void = {}
+    var summon: () -> Void = {}
+    var skipStep: () -> Void = {}
+    var useStandIn: () -> Void = {}
     var useAgent: (String) -> Void = { _ in }
     var addKey: () -> Void = {}
     var skipAgent: () -> Void = {}
