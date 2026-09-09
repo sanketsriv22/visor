@@ -178,77 +178,94 @@ enum DesignLab {
                     .background(Design.Retro.bg)
                     .environment(\.colorScheme, VisorTheme.current.isDark ? .dark : .light))
             },
-            Scenario(name: "takeover-boot", size: hud, themed: false,
-                     note: "The reveal: mark risen from the notch, wordmark, sweep") { f in
-                AnyView(f.takeover(.boot, chat: f.chat(.empty), expanded: false))
+            Scenario(name: "takeover-intro", size: hud, themed: false,
+                     note: "The welcome without a video: the mark risen from the notch, saying hello") { f in
+                AnyView(f.takeover(.intro, chat: f.chat(.empty), expanded: false) { s in
+                    s.risen = true; s.narrator.show("I live up here, in the notch.")
+                })
             },
-            Scenario(name: "takeover-summon", size: hud, themed: false,
-                     note: "01 The notch: ring, guide below; it opens itself a beat later") { f in
-                AnyView(f.takeover(.summon, chat: f.chat(.empty), expanded: false))
+            Scenario(name: "takeover-notch", size: hud, themed: false,
+                     note: "The notch: a hand-drawn ring, the caption below; it opens itself when the line ends") { f in
+                AnyView(f.takeover(.notch, chat: f.chat(.empty), expanded: false) { s in
+                    s.progress = 0.2; s.narrator.show("Press control, command, K — and I'm there, over anything you're doing.")
+                })
             },
             Scenario(name: "takeover-open", size: hud, themed: false,
                      note: "The card opening under the takeover — capture with --frames") { f in
-                AnyView(f.takeover(.summon, chat: f.chat(.empty), expanded: false, openAfter: 0.25))
+                AnyView(f.takeover(.notch, chat: f.chat(.empty), expanded: false, openAfter: 0.25) { s in
+                    s.progress = 0.2; s.narrator.show("That's the card. Chat, notes, and the agent you're about to make.")
+                })
             },
             Scenario(name: "takeover-agent", size: hud, themed: false,
-                     note: "02 The one form: name, runs-on, key, Create") { f in
+                     note: "The one card: name, runs-on, Create") { f in
                 AnyView(f.takeover(.agent, chat: f.chat(.empty), expanded: true, mode: .chat) { s in
+                    s.progress = 0.4; s.formVisible = true
                     s.cliFound = ("Claude Code", "claude", "signed in as sanket@kitalabs.dev")
                     s.connection = .cli
+                    s.narrator.show("Claude Code is already on this Mac — one click. Give it a name.")
                 })
             },
             Scenario(name: "takeover-agent-key", size: hud, themed: false,
-                     note: "02 The form with no CLI found: the key path") { f in
+                     note: "The card with no CLI found: the key path") { f in
                 AnyView(f.takeover(.agent, chat: f.chat(.empty), expanded: true, mode: .chat) { s in
-                    s.connection = .openRouter
+                    s.progress = 0.4; s.formVisible = true; s.connection = .openRouter
+                    s.narrator.show("It talks to any model through OpenRouter. Paste a key, give it a name, and it's yours.")
                 })
             },
             Scenario(name: "takeover-task", size: hud, themed: false,
-                     note: "03 The tour typing the request into the composer") { f in
-                AnyView(f.takeover(.firstTask, chat: f.chat(.multiline), expanded: true, mode: .chat) { s in
-                    s.created = true
+                     note: "The tour typing the request into the composer while the voice says so") { f in
+                AnyView(f.takeover(.task, chat: f.chat(.multiline), expanded: true, mode: .chat) { s in
+                    s.progress = 0.6; s.created = true
+                    s.narrator.show("Now watch. I'll ask it something for you.")
                 })
             },
             Scenario(name: "takeover-approval", size: hud, themed: false,
-                     note: "03 The approval card is up; the guide names it") { f in
-                AnyView(f.takeover(.firstTask, chat: f.chat(.approval), expanded: true, mode: .chat) { s in
-                    s.created = true; s.awaitingApproval = true
+                     note: "The approval row is up; the ring is on Allow") { f in
+                AnyView(f.takeover(.task, chat: f.chat(.approval), expanded: true, mode: .chat) { s in
+                    s.progress = 0.6; s.created = true; s.awaitingApproval = true
+                    s.narrator.show("It's asking before it touches your Mac. That's always your call. Press Allow.")
                 })
             },
             Scenario(name: "takeover-trouble", size: hud, themed: false,
-                     note: "03 The agent failed; the tour says so and runs the stand-in itself") { f in
-                AnyView(f.takeover(.firstTask, chat: f.chat(.error), expanded: true, mode: .chat) { s in
-                    s.created = true; s.trouble = "OpenRouter says this account is out of credit."; s.standIn = true
+                     note: "The agent failed; the voice says so and runs the stand-in itself") { f in
+                AnyView(f.takeover(.task, chat: f.chat(.error), expanded: true, mode: .chat) { s in
+                    s.progress = 0.6; s.created = true; s.standIn = true
+                    s.narrator.show("Your agent couldn't answer — OpenRouter says this account is out of credit. So I'll show you the shape of it with a stand-in.")
                 })
             },
             Scenario(name: "takeover-milestone", size: hud, themed: false,
-                     note: "The milestone flash after the first task") { f in
-                AnyView(f.takeover(.firstTask, chat: f.chat(.complete), expanded: true, mode: .chat) { s in
-                    s.created = true; s.taskDone = true; s.milestone = "First task, done"
+                     note: "The caption's check after the first task") { f in
+                AnyView(f.takeover(.task, chat: f.chat(.complete), expanded: true, mode: .chat) { s in
+                    s.progress = 0.6; s.created = true; s.taskDone = true; s.milestone = "First task, done"
                 })
             },
             Scenario(name: "takeover-drive", size: hud, themed: false,
-                     note: "04 Computer Use, Visor's own face, mid-demonstration; Stop asked for") { f in
+                     note: "Computer Use, Visor's own face, mid-demonstration; Stop asked for") { f in
                 ComputerUseAgent.shared.previewState(
                     running: true, status: "Clicking “Displays”",
                     log: ["Opened System Settings", "Read the sidebar: 24 items", "Scrolled to Displays", "Clicked “Displays”"])
                 ComputerUseAgent.shared.draft = "Turn on Night Shift in System Settings"
                 return AnyView(f.takeover(.drive, chat: f.chat(.complete), expanded: true, mode: .computerUse) { s in
-                    s.askStop = true
+                    s.progress = 0.8; s.askStop = true
+                    s.narrator.show("You can stop it any time. Try it — press Stop.")
                 })
             },
             Scenario(name: "takeover-stopped", size: hud, themed: false,
-                     note: "04 Stopped between actions") { f in
+                     note: "Stopped between actions") { f in
                 ComputerUseAgent.shared.previewState(
                     running: false, status: "Stopped — nothing further will happen.",
                     log: ["Opened System Settings", "Read the sidebar: 24 items", "Scrolled to Displays", "Clicked “Displays”"])
                 return AnyView(f.takeover(.drive, chat: f.chat(.complete), expanded: true, mode: .computerUse) { s in
-                    s.driveStopped = true
+                    s.progress = 0.8; s.driveStopped = true
+                    s.narrator.show("Stopped, between actions. Nothing else happens. You're always the one in charge.")
                 })
             },
             Scenario(name: "takeover-finale", size: hud, themed: false,
-                     note: "The return: cheat sheet and the way out") { f in
-                AnyView(f.takeover(.finale, chat: f.chat(.complete), expanded: true, mode: .chat))
+                     note: "The goodbye: the one card with the four keys") { f in
+                AnyView(f.takeover(.finale, chat: f.chat(.complete), expanded: true, mode: .chat) { s in
+                    s.progress = 1; s.sheetVisible = true
+                    s.narrator.show("Control, command, K brings me back — anywhere, any time. Go make something.")
+                })
             },
         ]
     }
@@ -621,7 +638,7 @@ enum DesignLab {
             let state = TakeoverState(
                 geometry: .init(bounds: bounds, notch: notchRect, card: card, switcher: switcher,
                                 expanded: expanded),
-                step: step)
+                step: step, narrator: Narrator(silent: true))
             state.stepStarted = DesignLab.liveTiming ? Date() : Date(timeIntervalSinceNow: -30)
             configure(state)
             let ui = UIState()

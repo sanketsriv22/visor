@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Combine
 import SwiftUI
 
@@ -11,11 +12,9 @@ extension Notification.Name {
 /// app and built by hand in the Design Lab, so the same view renders both.
 @MainActor
 final class TakeoverState: ObservableObject {
-    /// Six moments. The story drives itself; the person's only inputs are
-    /// naming and connecting their agent, allowing the one thing it asks
-    /// to run, and — if they like — pressing Stop.
+    /// Six moments, each paced by what the voice is saying.
     enum Step: Int, CaseIterable {
-        case boot, summon, agent, firstTask, drive, finale
+        case intro, notch, agent, task, drive, finale
     }
 
     struct Geometry {
@@ -29,39 +28,51 @@ final class TakeoverState: ObservableObject {
 
     enum Connection: Equatable { case cli, openRouter }
 
-    @Published var step: Step = .boot
+    @Published var step: Step = .intro
     @Published var geometry: Geometry
     @Published var bursts = 0
     @Published var lastBurst = Date.distantPast
     @Published var leaving = false
     @Published var stepStarted = Date()
     @Published var milestone: String? = nil
+    /// 0…1 along the whole tour, for the thin bar at the bottom.
+    @Published var progress: Double = 0
+    /// The welcome video, when one is bundled; the title sequence otherwise.
+    let videoURL: URL?
+    /// The mark has risen from the notch (title sequence).
+    @Published var risen = false
 
-    /// Agent step — the one form in the tour.
+    /// Agent form.
     @Published var agentName = "Claude"
     @Published var connection: Connection = .openRouter
     @Published var keyInput = ""
     @Published var hasKey = false
-    /// A signed-in local CLI found on this Mac, if any.
     @Published var cliFound: (name: String, command: String, detail: String)? = nil
     @Published var creating = false
     @Published var created = false
     @Published var formError: String? = nil
+    /// The form is shown (after the voice has asked for it).
+    @Published var formVisible = false
 
-    /// First-task step.
+    /// Task.
     @Published var awaitingApproval = false
     @Published var taskDone = false
     @Published var standIn = false
-    @Published var trouble: String? = nil
 
-    /// Drive step.
+    /// Drive.
+    @Published var askStop = false
     @Published var driveStopped = false
     @Published var driveDone = false
-    @Published var askStop = false
+    /// The finale's cheat sheet is shown (after the voice has said goodbye).
+    @Published var sheetVisible = false
 
-    init(geometry: Geometry, step: Step = .boot) {
+    let narrator: Narrator
+
+    init(geometry: Geometry, step: Step = .intro, narrator: Narrator? = nil, videoURL: URL? = nil) {
         self.geometry = geometry
         self.step = step
+        self.narrator = narrator ?? Narrator()
+        self.videoURL = videoURL
     }
 
     var canCreate: Bool {
@@ -72,80 +83,17 @@ final class TakeoverState: ObservableObject {
         case .openRouter: return hasKey || !keyInput.trimmingCharacters(in: .whitespaces).isEmpty
         }
     }
-
-    struct Line {
-        let kicker: String
-        let title: String
-        let body: String
-    }
-
-    var line: Line {
-        let summon = ShortcutSettings.hint(.toggle)
-        switch step {
-        case .boot:
-            return Line(kicker: "VISOR", title: "An agent lives in your notch.",
-                        body: "Let's wake it up.")
-        case .summon:
-            return Line(kicker: "01 · THE NOTCH", title: "This is where it lives.",
-                        body: "\(summon) brings it out from anywhere, over anything. So does clicking the notch.")
-        case .agent:
-            if created {
-                return Line(kicker: "02 · YOUR AGENT", title: "\(agentName) is on.",
-                            body: "Its status dot lit up in the card. Now watch it take a task.")
-            }
-            return Line(kicker: "02 · YOUR AGENT", title: "Name your agent.",
-                        body: cliFound != nil
-                            ? "\(cliFound!.name) is already on this Mac, \(cliFound!.detail). Use it, or paste an OpenRouter key for any model."
-                            : "It talks to any model through OpenRouter. Paste a key and it's yours.")
-        case .firstTask:
-            if taskDone {
-                return Line(kicker: "03 · A TASK", title: "That's a task, done.",
-                            body: standIn ? "Scripted this time, but the shape is real: ask, approve, result."
-                                          : "It asked, you allowed, it answered.")
-            }
-            if let trouble {
-                return Line(kicker: "03 · A TASK", title: "Your agent couldn't answer.",
-                            body: "\(trouble) So this one runs on a scripted stand-in — same shape, no model.")
-            }
-            if awaitingApproval {
-                return Line(kicker: "03 · A TASK", title: "It's asking first.",
-                            body: "Nothing runs on your Mac until you say so. Press Allow.")
-            }
-            return Line(kicker: "03 · A TASK", title: "Watch it take a task.",
-                        body: "It's typing the request for you and sending it. This is exactly what you'll do.")
-        case .drive:
-            if driveStopped {
-                return Line(kicker: "04 · CONTROL", title: "Stopped between actions.",
-                            body: "That's how every run halts — instantly, cleanly. You're always the one in charge.")
-            }
-            if driveDone {
-                return Line(kicker: "04 · DRIVING", title: "Done.",
-                            body: "A real run asks for Accessibility first, then clicks and types just like that.")
-            }
-            if askStop {
-                return Line(kicker: "04 · CONTROL", title: "Press Stop.",
-                            body: "Right there in the card. It halts between actions, and nothing else happens.")
-            }
-            return Line(kicker: "04 · DRIVING", title: "Now it drives.",
-                        body: "Computer Use is the third face of the notch. This run is a demonstration — every step shows here as it happens.")
-        case .finale:
-            return Line(kicker: "THAT'S VISOR", title: "It lives in the notch.",
-                        body: "\(summon) brings it back — anywhere, any time. So does clicking the notch, or the mark in the menu bar.")
-        }
-    }
 }
 
-/// The introduction as a screen takeover that tells its own story.
+/// The introduction: Visor wakes up, and a voice walks you through it.
 ///
-/// The Mac dims; Visor wakes from the notch outward and opens itself. The
-/// person names and connects an agent — the tour's one form — then watches
-/// that agent take a task the tour types and sends for them, allowing the
-/// one thing it asks to run. Then Computer Use, Visor's own third face,
-/// drives a demonstration run step by step in its real card, and Stop is
-/// there to press (the tour presses it if they don't). Then the way back.
-///
-/// A panel at the notch's level, above the notch's windows, with real
-/// transparency cut out of its scrim for the card, so the card stays live.
+/// Built on what a good one actually does — HeyClicky's, opened up: a
+/// welcome video if the founder has recorded one, then a narrated,
+/// hands-on tour where the voice says what is about to happen while the
+/// product does it, a quiet cue marks each moment, and the only things
+/// asked of you are your agent's name, its connection, one Allow and, if
+/// you like, one Stop. Everything else the tour does itself, on the real
+/// surfaces, at the speed of speech.
 @MainActor
 final class TakeoverGuide {
     let state: TakeoverState
@@ -161,11 +109,14 @@ final class TakeoverGuide {
     private var typing: [DispatchWorkItem] = []
     private var sentInTask = false
     private var taskTimeout: DispatchWorkItem?
+    private var narrator: Narrator { state.narrator }
 
     init?(controller: NotchController) {
         guard let geo = controller.takeoverGeometry() else { return nil }
         self.controller = controller
-        self.state = TakeoverState(geometry: geo)
+        let video = Bundle.main.resourceURL?.appendingPathComponent("intro.mp4")
+        self.state = TakeoverState(geometry: geo, narrator: Narrator(),
+                                   videoURL: video.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil })
     }
 
     // MARK: Lifecycle
@@ -188,7 +139,8 @@ final class TakeoverGuide {
             state: state,
             actions: TakeoverActions(
                 skip: { [weak self] in self?.finish() },
-                summon: { [weak self] in self?.summonNow() },
+                summon: { [weak self] in self?.summon() },
+                videoEnded: { [weak self] in self?.videoEnded() },
                 createAgent: { [weak self] in self?.createAgent() },
                 stopDrive: { [weak self] in self?.stopDrive(byUser: true) },
                 finish: { [weak self] in self?.finish() })))
@@ -198,12 +150,36 @@ final class TakeoverGuide {
 
         detect()
         observe()
-
         if controller.ui.expanded { controller.toggle() }
         state.stepStarted = Date()
-        schedule(after: Design.Motion.reduced ? 0.8 : 3.6) { [weak self] in
-            self?.advance(to: .summon)
+
+        if state.videoURL != nil {
+            // The welcome video plays; the tour begins when it ends.
+            return
         }
+        // The title sequence: the mark rises from the notch as the voice
+        // introduces itself, then settles back in.
+        schedule(after: 0.9) { [weak self] in
+            guard let self else { return }
+            self.narrator.play(.reveal)
+            withAnimation(Design.Motion.animation(.spring(response: 0.9, dampingFraction: 0.78))) { self.state.risen = true }
+            self.narrator.say(["Hi. I'm Visor.", "I live up here, in the notch."]) { [weak self] in
+                guard let self else { return }
+                withAnimation(Design.Motion.animation(Design.Motion.hud)) { self.state.risen = false }
+                self.schedule(after: 0.9) { [weak self] in self?.advance(to: .notch) }
+            }
+        }
+    }
+
+    /// The notch was clicked while the scrim covers it.
+    private func summon() {
+        guard state.step == .notch, !controller.ui.expanded else { return }
+        controller.toggle()
+    }
+
+    private func videoEnded() {
+        guard state.step == .intro else { return }
+        advance(to: .notch)
     }
 
     func finish() {
@@ -211,11 +187,13 @@ final class TakeoverGuide {
         pending?.cancel()
         taskTimeout?.cancel()
         typing.forEach { $0.cancel() }
-        withAnimation(Design.Motion.animation(.easeInOut(duration: 0.6))) { state.leaving = true }
+        narrator.stop()
+        withAnimation(Design.Motion.animation(.easeInOut(duration: 0.7))) { state.leaving = true }
         controller.chat.demoNextSend = false
         if ComputerUseAgent.shared.demonstrating { ComputerUseAgent.shared.stopDemo() }
+        if controller.ui.mode == .computerUse { controller.setMode(.chat) }
         UserDefaults.standard.set(TakeoverState.Step.finale.rawValue, forKey: Self.progressKey)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             guard let self else { return }
             self.panel?.orderOut(nil)
             self.panel = nil
@@ -224,12 +202,13 @@ final class TakeoverGuide {
         }
     }
 
-    // MARK: Summon
+    // MARK: Notch
 
-    /// The story opens the notch itself, a beat after showing where it is.
-    private func summonNow() {
-        guard state.step == .summon, !controller.ui.expanded else { return }
-        controller.toggle()
+    private func runNotch() {
+        narrator.say(["Press control, command, K — and I'm there, over anything you're doing."]) { [weak self] in
+            guard let self, self.state.step == .notch else { return }
+            if !self.controller.ui.expanded { self.controller.toggle() }
+        }
     }
 
     // MARK: Agent
@@ -239,7 +218,7 @@ final class TakeoverGuide {
         let clis = controller.chat.chatAgents.filter(\.isNotchCLI)
         CLIAccounts.shared.refreshAll(clis)
         refreshDetection()
-        schedule(after: 1.5) { [weak self] in self?.refreshDetection() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.refreshDetection() }
     }
 
     private func refreshDetection() {
@@ -253,7 +232,27 @@ final class TakeoverGuide {
         }
     }
 
-    /// The tour's one form: a name, and a way to reach a model.
+    private func runAgent() {
+        let lines: [String]
+        if let cli = state.cliFound {
+            lines = ["First, let's make you an agent.",
+                     "\(cli.name) is already on this Mac — one click. Or paste an OpenRouter key for any model.",
+                     "Give it a name."]
+        } else {
+            lines = ["First, let's make you an agent.",
+                     "It talks to any model through OpenRouter. Paste a key, give it a name, and it's yours."]
+        }
+        narrator.say(lines) { [weak self] in
+            guard let self, self.state.step == .agent else { return }
+            withAnimation(Design.Motion.animation(Design.Motion.surface)) { self.state.formVisible = true }
+        }
+        // Don't wait for the whole speech before showing the form.
+        schedule(after: 2.4) { [weak self] in
+            guard let self, self.state.step == .agent else { return }
+            withAnimation(Design.Motion.animation(Design.Motion.surface)) { self.state.formVisible = true }
+        }
+    }
+
     private func createAgent() {
         guard state.canCreate else { return }
         let name = state.agentName.trimmingCharacters(in: .whitespaces)
@@ -277,21 +276,28 @@ final class TakeoverGuide {
             provider = AIProvider(name: name, command: "", args: [], kind: .openRouter,
                                   model: ChatController.defaultModel)
         }
-        // A name that already exists is that agent, updated — not a twin.
         controller.ai.upsert(provider)
         if let agent = controller.chat.chatAgents.first(where: { $0.name == name }) {
             controller.chat.use(agent)
         }
         state.creating = false
-        state.created = true
         state.standIn = false
+        narrator.stop()
+        withAnimation(Design.Motion.animation(Design.Motion.surface)) {
+            state.created = true
+            state.formVisible = false
+        }
         NSApp.deactivate()
-        celebrate(then: .firstTask, after: 1.6)
+        narrator.play(.success)
+        state.bursts += 1; state.lastBurst = Date()
+        narrator.say(["Nice to meet you, \(name)."]) { [weak self] in
+            self?.advance(to: .task)
+        }
     }
 
-    // MARK: First task
+    // MARK: Task
 
-    private func runFirstTask() {
+    private func runTask() {
         let chat = controller.chat
         if controller.ui.mode != .chat { controller.setMode(.chat) }
         chat.draft = ""
@@ -299,59 +305,66 @@ final class TakeoverGuide {
         sentInTask = false
         state.taskDone = false
         state.awaitingApproval = false
-        // Typed, then sent, on the person's behalf: they watch the shape of
-        // it rather than perform it.
-        type("What's the biggest file on my Desktop?", into: { chat.draft = $0 }) { [weak self] in
-            self?.schedule(after: 0.5) { [weak self] in
-                guard let self, self.state.step == .firstTask else { return }
-                self.controller.chat.send()
+        narrator.say(["Now watch. I'll ask it something for you."]) { [weak self] in
+            guard let self, self.state.step == .task else { return }
+            self.type("What's the biggest file on my Desktop?", into: { chat.draft = $0 }) { [weak self] in
+                guard let self, self.state.step == .task else { return }
+                self.schedule(after: 0.5) { [weak self] in
+                    guard let self, self.state.step == .task else { return }
+                    self.narrator.play(.beat)
+                    self.controller.chat.send()
+                }
             }
         }
     }
 
-    /// The agent failed or went quiet: say so and run the stand-in, without
-    /// asking anything.
     private func fallBackToStandIn(_ reason: String) {
-        guard state.step == .firstTask, !state.taskDone, !state.standIn else { return }
+        guard state.step == .task, !state.taskDone, !state.standIn else { return }
         taskTimeout?.cancel()
         controller.chat.stop()
-        withAnimation(Design.Motion.animation(Design.Motion.standard)) {
-            state.trouble = reason
-            state.standIn = true
+        state.standIn = true
+        narrator.say(["Your agent couldn't answer — \(reason)",
+                      "So I'll show you the shape of it with a stand-in."]) { [weak self] in
+            self?.runTask()
         }
-        schedule(after: 1.8) { [weak self] in self?.runFirstTask() }
     }
 
     // MARK: Drive
 
     private func runDrive() {
-        controller.setMode(.computerUse)
+        state.askStop = false
         state.driveStopped = false
         state.driveDone = false
-        state.askStop = false
         let agent = ComputerUseAgent.shared
         agent.draft = ""
-        schedule(after: 0.9) { [weak self] in
-            guard let self else { return }
-            self.type("Turn on Night Shift in System Settings", into: { agent.draft = $0 }) { [weak self] in
+        narrator.say(["There's a third face. Computer Use."]) { [weak self] in
+            guard let self, self.state.step == .drive else { return }
+            self.controller.setMode(.computerUse)
+            self.narrator.play(.beat)
+            self.narrator.say(["Tell it what you want done, and it drives — reading the screen, clicking, typing.",
+                               "Watch the steps come in."]) { [weak self] in
                 guard let self, self.state.step == .drive else { return }
-                agent.demoRun(steps: [
-                    ("Opening System Settings", "Opened System Settings"),
-                    ("Reading the sidebar", "Read the sidebar: 24 items"),
-                    ("Scrolling to Displays", "Scrolled to Displays"),
-                    ("Clicking “Displays”", "Clicked “Displays”"),
-                    ("Looking for Night Shift", "Found “Night Shift…” below the display list"),
-                    ("Clicking “Night Shift…”", "Clicked “Night Shift…”"),
-                    ("Setting the schedule", "Set Schedule to Sunset to Sunrise"),
-                ], final: "Done — Night Shift is on, sunset to sunrise.")
-                // A few steps in, the ask; a few seconds later, the tour
-                // presses Stop itself if they haven't.
-                self.schedule(after: 3.6) { [weak self] in
-                    guard let self, self.state.step == .drive, agent.demonstrating else { return }
-                    withAnimation(Design.Motion.animation(Design.Motion.standard)) { self.state.askStop = true }
-                    self.schedule(after: 4.5) { [weak self] in
+                self.type("Turn on Night Shift in System Settings", into: { agent.draft = $0 }) { [weak self] in
+                    guard let self, self.state.step == .drive else { return }
+                    agent.demoRun(steps: [
+                        ("Opening System Settings", "Opened System Settings"),
+                        ("Reading the sidebar", "Read the sidebar: 24 items"),
+                        ("Scrolling to Displays", "Scrolled to Displays"),
+                        ("Clicking “Displays”", "Clicked “Displays”"),
+                        ("Looking for Night Shift", "Found “Night Shift…” below the display list"),
+                        ("Clicking “Night Shift…”", "Clicked “Night Shift…”"),
+                        ("Setting the schedule", "Set Schedule to Sunset to Sunrise"),
+                    ], final: "Done — Night Shift is on, sunset to sunrise.", every: 1.5)
+                    self.schedule(after: 4.2) { [weak self] in
                         guard let self, self.state.step == .drive, agent.demonstrating else { return }
-                        self.stopDrive(byUser: false)
+                        withAnimation(Design.Motion.animation(Design.Motion.standard)) { self.state.askStop = true }
+                        self.narrator.say(["You can stop it any time. Try it — press Stop."]) { [weak self] in
+                            guard let self, self.state.step == .drive, agent.demonstrating else { return }
+                            self.schedule(after: 4.0) { [weak self] in
+                                guard let self, self.state.step == .drive, agent.demonstrating else { return }
+                                self.stopDrive(byUser: false)
+                            }
+                        }
                     }
                 }
             }
@@ -360,15 +373,35 @@ final class TakeoverGuide {
 
     private func stopDrive(byUser: Bool) {
         guard state.step == .drive, ComputerUseAgent.shared.demonstrating else { return }
+        pending?.cancel()
+        narrator.stop()
         ComputerUseAgent.shared.stopDemo()
+        narrator.play(.stop)
         withAnimation(Design.Motion.animation(Design.Motion.standard)) {
             state.askStop = false
             state.driveStopped = true
         }
         state.bursts += 1; state.lastBurst = Date()
-        celebrateMilestone(byUser ? "You're in control" : "Stopped, cleanly")
         UserDefaults.standard.set(TakeoverState.Step.finale.rawValue, forKey: Self.progressKey)
-        schedule(after: Design.Motion.reduced ? 1.0 : 3.0) { [weak self] in self?.advance(to: .finale) }
+        narrator.say([byUser ? "Stopped, between actions. Nothing else happens. You're always the one in charge."
+                             : "I'll do it. Stopped, between actions — nothing else happens. That's always your call."]) { [weak self] in
+            self?.advance(to: .finale)
+        }
+    }
+
+    // MARK: Finale
+
+    private func runFinale() {
+        if controller.ui.mode == .computerUse { controller.setMode(.chat) }
+        narrator.say(["That's Visor.", "Control, command, K brings me back — anywhere, any time.", "Go make something."]) { [weak self] in
+            guard let self else { return }
+            withAnimation(Design.Motion.animation(Design.Motion.surface)) { self.state.sheetVisible = true }
+            self.schedule(after: 12) { [weak self] in self?.finish() }
+        }
+        schedule(after: 3.5) { [weak self] in
+            guard let self, self.state.step == .finale else { return }
+            withAnimation(Design.Motion.animation(Design.Motion.surface)) { self.state.sheetVisible = true }
+        }
     }
 
     // MARK: Watching the real app
@@ -404,55 +437,64 @@ final class TakeoverGuide {
         geo.expanded = expanded
         state.geometry = geo
         DispatchQueue.main.async { [weak self] in self?.panel?.orderFrontRegardless() }
-        if state.step == .summon, expanded {
+        if state.step == .notch, expanded {
             if controller.ui.mode != .chat { controller.setMode(.chat) }
-            celebrate(then: .agent, after: 1.4)
+            narrator.play(.success)
+            state.bursts += 1; state.lastBurst = Date()
+            narrator.say(["That's the card. Chat, notes, and the agent you're about to make."]) { [weak self] in
+                self?.advance(to: .agent)
+            }
         }
     }
 
     private func approvalChanged(_ pending: Bool) {
-        guard state.step == .firstTask else { return }
+        guard state.step == .task else { return }
         state.awaitingApproval = pending
         if pending {
             taskTimeout?.cancel()
+            narrator.play(.beat)
             state.bursts += 1; state.lastBurst = Date()
+            narrator.say(["It's asking before it touches your Mac.", "That's always your call. Press Allow."]) {}
         }
     }
 
     private func errorChanged(_ error: String?) {
-        guard state.step == .firstTask, !state.taskDone, let error, !error.isEmpty else { return }
+        guard state.step == .task, !state.taskDone, let error, !error.isEmpty else { return }
         fallBackToStandIn(error)
     }
 
     private func streamingChanged(_ streaming: Bool) {
-        guard state.step == .firstTask, sentInTask, !state.taskDone else { return }
+        guard state.step == .task, sentInTask, !state.taskDone else { return }
         if !streaming, !state.awaitingApproval {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-                guard let self, self.state.step == .firstTask, !self.state.taskDone,
+                guard let self, self.state.step == .task, !self.state.taskDone,
                       !self.state.awaitingApproval, !self.controller.chat.isStreaming else { return }
                 let last = self.controller.chat.conversation.messages.last
                 if last?.role == .assistant, !(last?.content.isEmpty ?? true) {
                     self.taskTimeout?.cancel()
                     self.state.taskDone = true
+                    self.narrator.play(.success)
                     self.state.bursts += 1; self.state.lastBurst = Date()
                     self.celebrateMilestone("First task, done")
                     UserDefaults.standard.set(TakeoverState.Step.drive.rawValue, forKey: Self.progressKey)
-                    self.schedule(after: Design.Motion.reduced ? 0.8 : 3.0) { [weak self] in self?.advance(to: .drive) }
-                } else if self.state.trouble == nil {
-                    self.fallBackToStandIn(self.controller.chat.error ?? "It didn't answer.")
+                    self.narrator.say(["And there's your first answer."]) { [weak self] in
+                        self?.schedule(after: 1.2) { [weak self] in self?.advance(to: .drive) }
+                    }
+                } else if !self.state.standIn {
+                    self.fallBackToStandIn(self.controller.chat.error ?? "it didn't answer.")
                 }
             }
         }
     }
 
     private func messagesChanged() {
-        guard state.step == .firstTask, controller.chat.conversation.messages.last?.role == .user else { return }
+        guard state.step == .task, controller.chat.conversation.messages.last?.role == .user else { return }
         sentInTask = true
         taskTimeout?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.state.step == .firstTask, !self.state.taskDone,
+            guard let self, self.state.step == .task, !self.state.taskDone,
                   !self.state.awaitingApproval else { return }
-            self.fallBackToStandIn("No reply after thirty seconds.")
+            self.fallBackToStandIn("no reply after thirty seconds.")
         }
         taskTimeout = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: work)
@@ -460,27 +502,24 @@ final class TakeoverGuide {
 
     private func demoChanged(_ demonstrating: Bool) {
         guard state.step == .drive, !demonstrating, !state.driveStopped else { return }
-        // Ran to the end without a stop: still a success.
         if ComputerUseAgent.shared.status.hasPrefix("Done") {
+            pending?.cancel()
             withAnimation(Design.Motion.animation(Design.Motion.standard)) { state.driveDone = true }
+            narrator.play(.success)
             state.bursts += 1; state.lastBurst = Date()
             celebrateMilestone("It drove your Mac")
             UserDefaults.standard.set(TakeoverState.Step.finale.rawValue, forKey: Self.progressKey)
-            schedule(after: 3.0) { [weak self] in self?.advance(to: .finale) }
+            narrator.say(["Done. A real run asks for Accessibility first, then does exactly that."]) { [weak self] in
+                self?.advance(to: .finale)
+            }
         }
     }
 
     // MARK: Advancing
 
-    private func celebrate(then next: TakeoverState.Step, after: TimeInterval = 1.0) {
-        state.bursts += 1
-        state.lastBurst = Date()
-        schedule(after: Design.Motion.reduced ? 0.2 : after) { [weak self] in self?.advance(to: next) }
-    }
-
     private func celebrateMilestone(_ text: String) {
         withAnimation(Design.Motion.animation(Design.Motion.surface)) { state.milestone = text }
-        DispatchQueue.main.asyncAfter(deadline: .now() + (Design.Motion.reduced ? 0.8 : 1.7)) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + (Design.Motion.reduced ? 0.8 : 2.0)) { [weak self] in
             withAnimation(Design.Motion.animation(Design.Motion.standard)) { self?.state.milestone = nil }
         }
     }
@@ -488,26 +527,27 @@ final class TakeoverGuide {
     private func advance(to next: TakeoverState.Step) {
         guard !state.leaving, next.rawValue > state.step.rawValue else { return }
         state.geometry = controller.takeoverGeometry() ?? state.geometry
-        withAnimation(Design.Motion.animation(.easeInOut(duration: 0.35))) { state.step = next }
+        withAnimation(Design.Motion.animation(.easeInOut(duration: 0.4))) {
+            state.step = next
+            state.progress = Double(next.rawValue) / Double(TakeoverState.Step.finale.rawValue)
+        }
         state.stepStarted = Date()
+        narrator.play(.beat)
         switch next {
-        case .summon:
-            // A beat to read where it lives, then it opens itself.
-            schedule(after: Design.Motion.reduced ? 0.6 : 1.6) { [weak self] in self?.summonNow() }
+        case .notch:  schedule(after: 0.6) { [weak self] in self?.runNotch() }
         case .agent:
             UserDefaults.standard.set(next.rawValue, forKey: Self.progressKey)
             refreshDetection()
-        case .firstTask:
+            schedule(after: 0.5) { [weak self] in self?.runAgent() }
+        case .task:
             UserDefaults.standard.set(next.rawValue, forKey: Self.progressKey)
-            schedule(after: 0.8) { [weak self] in self?.runFirstTask() }
+            schedule(after: 0.5) { [weak self] in self?.runTask() }
         case .drive:
             UserDefaults.standard.set(next.rawValue, forKey: Self.progressKey)
-            schedule(after: 0.6) { [weak self] in self?.runDrive() }
+            schedule(after: 0.5) { [weak self] in self?.runDrive() }
         case .finale:
-            if controller.ui.mode == .computerUse { controller.setMode(.chat) }
-            schedule(after: 12) { [weak self] in self?.finish() }
-        default:
-            break
+            schedule(after: 0.4) { [weak self] in self?.runFinale() }
+        default: break
         }
     }
 
@@ -518,7 +558,6 @@ final class TakeoverGuide {
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
-    /// Types text a character at a time into a setter, then calls `done`.
     private func type(_ text: String, into set: @escaping (String) -> Void, done: @escaping () -> Void) {
         typing.forEach { $0.cancel() }
         typing.removeAll()
@@ -527,11 +566,11 @@ final class TakeoverGuide {
         for i in 0..<chars.count {
             let work = DispatchWorkItem { set(String(chars[0...i])) }
             typing.append(work)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.045 * Double(i + 1), execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05 * Double(i + 1), execute: work)
         }
         let end = DispatchWorkItem(block: done)
         typing.append(end)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.045 * Double(chars.count + 1) + 0.2, execute: end)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05 * Double(chars.count + 1) + 0.25, execute: end)
     }
 }
 
@@ -539,6 +578,7 @@ final class TakeoverGuide {
 struct TakeoverActions {
     var skip: () -> Void = {}
     var summon: () -> Void = {}
+    var videoEnded: () -> Void = {}
     var createAgent: () -> Void = {}
     var stopDrive: () -> Void = {}
     var finish: () -> Void = {}

@@ -27,7 +27,7 @@ open -n -W /Applications/Visor.app --args --design-lab /tmp/lab --theme all
 ```
 
 Transitions as frame sequences: `scripts/design-lab.sh out --scenario
-takeover-boot --frames 14 --every 250` writes `takeover-boot-f00.png` …
+takeover-open --frames 14 --every 250` writes `takeover-open-f00.png` …
 `-f13.png` a quarter-second apart with live timing, so the reveal, the
 practice driver and the pixel field can be judged as motion.
 
@@ -48,7 +48,7 @@ Font can be pinned the same way UserDefaults arguments always work:
 | `hud`, `hud-streaming` | The HUD with pinned rails |
 | `menu-panel` † | The menu-bar dropdown |
 | `settings-appearance` † | Settings → Appearance |
-| `takeover-boot`, `-summon`, `-open`, `-agent`, `-agent-key`, `-task`, `-approval`, `-trouble`, `-milestone`, `-drive`, `-stopped`, `-finale` | The introduction at each moment, with the real card under the scrim's hole as the app orders it (`-open` is for `--frames`) |
+| `takeover-intro`, `-notch`, `-open`, `-agent`, `-agent-key`, `-task`, `-approval`, `-trouble`, `-milestone`, `-drive`, `-stopped`, `-finale` | The introduction at each moment, with the real card under the scrim's hole as the app orders it (`-open` is for `--frames`) |
 | `selector-models`, `selector-options`, `selector-agents` | The selector family's content |
 | `computer-use-running`, `computer-use-done` | Computer use mid-task and finished |
 | `composer-parts` | The composer's controls in isolation, one variant per row |

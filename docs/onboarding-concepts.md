@@ -106,3 +106,31 @@ behind.
 | Return | the guide's bubble and cheat sheet fade; pixels stream into the notch; the scrim dissolves (`hud`) |
 
 Under Reduce Motion every one of these is a single frame.
+
+
+## What shipped (v4, 2026-09-09)
+
+Rebuilt on the mechanics HeyClicky actually uses, read out of its bundle:
+a founder welcome video, then a voice-narrated, hands-on tour with a
+single centred dark card, hand-drawn rings on the real control to press,
+quiet sound cues, and a pace set by speech rather than timers.
+
+- **Voice.** `Narrator` (TakeoverVoice.swift) speaks every line with the
+  best English system voice and calls back when the line has been heard;
+  the guide advances on those callbacks, so nothing moves faster than it
+  can be said. Muted, lines run on a reading-speed timer instead.
+- **Video.** If `Resources/intro.mp4` exists in the bundle the tour opens
+  with it (`VideoIntro`, an `AVPlayerLayer`, thin accent progress bar) and
+  begins when it ends; otherwise the mark rises out of the notch while the
+  voice says hello. Record one — it is the single biggest lever.
+- **One caption.** The mark and the current line, in one pill that has one
+  home per moment (under the notch; beside the card). It turns into a
+  check for two seconds when something lands.
+- **One card.** The agent form and the goodbye, centred, no kicker, no
+  dots, no glow. Progress is a 2pt accent line along the bottom.
+- **Cues.** Synthesised `reveal`, `beat`, `success`, `stop` tones; voice
+  and sound each have a switch at the top right, remembered.
+- **No flash.** The scrim fades up over 1.1 s before anything else moves;
+  the CRT sweep, scanlines and pixel field are gone.
+- **Steps.** `intro → notch → agent → task → drive → finale`, two to
+  three minutes with the voice on.

@@ -1,22 +1,28 @@
 import AppKit
+import AVFoundation
 import SwiftUI
 
-/// The takeover's picture: a scrim over the Mac with real holes cut for the
-/// card, the notch and the practice window; scanlines; a field of pixels
-/// drifting into the notch; rough accent strokes around the real thing to
-/// do next; a guide with a speech bubble and the controls each moment
-/// needs; the 3D mark rising from the notch on boot; a cheat sheet at the
-/// end. Built from the design system's components — the bubble's buttons
-/// are the product's `ActionChip`s and `ExampleChip`s.
+/// The introduction's picture, kept deliberately quiet: a dark scrim that
+/// fades up over the Mac with the real card cut out of it; the welcome
+/// video, or the mark rising out of the notch; one caption that follows
+/// the voice; a single centred card for the one form and the goodbye; a
+/// hand-drawn ring around the real thing to press; a thin line of
+/// progress along the bottom. Nothing blinks, nothing scans, nothing
+/// hops. The pace is the pace of speech.
 struct TakeoverView: View {
     @ObservedObject var state: TakeoverState
+    @ObservedObject private var narrator: Narrator
     var actions: TakeoverActions
 
+    @State private var appeared = false
     @State private var draw: CGFloat = 0
-    @State private var bootPhase = 0   // 0 arriving, 1 risen, 2 flew back into the notch
-    /// The mark travelling from the bubble to the thing that just happened.
-    @State private var traveller: CGPoint? = nil
-    @State private var travelling = false
+    @State private var videoProgress: Double = 0
+
+    init(state: TakeoverState, actions: TakeoverActions) {
+        self.state = state
+        self.actions = actions
+        _narrator = ObservedObject(wrappedValue: state.narrator)
+    }
 
     private var reduced: Bool { Design.Motion.reduced }
     private var accent: Color { Design.Retro.accent }
@@ -24,37 +30,22 @@ struct TakeoverView: View {
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
-            let notch = view(state.geometry.notch)
-            let origin = CGPoint(x: notch.midX, y: notch.maxY)
-
-            // The card's hole is the card's rect under the card's own
-            // transition: a scale from 0.02 at its top centre. The scale is
-            // what animates, and it changes inside the notch controller's
-            // own withAnimation transaction (the guide's sink runs
-            // synchronously on the publish), so the hole and the card are
-            // one motion with one curve. Closed, the hole is a few points
-            // hidden inside the physical notch — never a rectangle beside it.
-            let scrim = Scrim(card: cardRect(size: size), scale: state.geometry.hud || state.geometry.expanded ? 1 : 0.02,
-                              extras: extraHoles(size: size))
+            let origin = CGPoint(x: notchRect.midX, y: notchRect.maxY)
+            // The card's hole is the card rect under the card's own
+            // transition (a scale about its top centre). The scale changes
+            // inside the notch controller's animation transaction, so hole
+            // and card are one motion. Closed, it hides inside the notch.
+            let scrim = Scrim(card: cardRect(size: size),
+                              scale: state.geometry.hud || state.geometry.expanded ? 1 : 0.02)
 
             ZStack(alignment: .topLeading) {
                 scrim
                     .fill(Color.black.opacity(scrimOpacity), style: FillStyle(eoFill: true))
                     .animation(Design.Motion.animation(.easeInOut(duration: 0.4)), value: state.step)
 
-                if !reduced {
-                    Group {
-                        Scanlines()
-                        if state.step == .boot { CRTSweep(start: state.stepStarted, height: size.height) }
-                        PixelField(origin: origin, size: size, burstAt: state.lastBurst)
-                    }
-                    .mask(scrim.fill(style: FillStyle(eoFill: true)))
-                }
-
-                // The notch's click band, while the card is closed: the scrim
-                // covers it, so the click comes here and is passed on. No hole,
-                // no lit rectangle — the notch is black hardware either way.
-                if !state.geometry.expanded, state.step == .summon {
+                // The notch's click band while the card is closed: the scrim
+                // covers it, so the click lands here and the guide opens it.
+                if !state.geometry.expanded, state.step == .notch {
                     Color.black.opacity(0.001)
                         .frame(width: notchRect.width + 12, height: notchRect.height + 12)
                         .position(x: notchRect.midX, y: notchRect.midY + 6)
@@ -62,80 +53,53 @@ struct TakeoverView: View {
                         .accessibilityIdentifier("visor.takeover.notchTarget")
                 }
 
-                annotations(size: size, origin: origin)
+                annotations(size: size)
 
-                switch state.step {
-                case .boot:    boot(size: size, origin: origin)
-                case .finale:  finale(size: size)
-                default:       bubble(size: size)
+                if state.step == .intro {
+                    intro(size: size, origin: origin)
+                } else {
+                    caption(size: size)
                 }
 
-                if let point = traveller {
-                    HeroMark(size: 44)
-                        .position(point)
-                        .opacity(travelling ? 1 : 0)
-                        .allowsHitTesting(false)
+                if state.step == .agent, state.formVisible, !state.created {
+                    TourCard(width: 420) { AgentForm(state: state, create: actions.createAgent) }
+                        .position(x: size.width / 2, y: cardHome(size: size))
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
-
-                if let milestone = state.milestone {
-                    MilestoneBadge(text: milestone)
-                        // Below the card and the practice window, never over
-                        // the thing that just succeeded.
-                        .position(x: size.width / 2, y: max(size.height * 0.42, card.maxY + 70))
-                        .transition(.scale(scale: 0.9).combined(with: .opacity))
+                if state.step == .finale, state.sheetVisible {
+                    TourCard(width: 560) { finaleSheet }
+                        .position(x: size.width / 2, y: cardHome(size: size))
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
 
                 topBar(size: size)
+                progressBar(size: size)
             }
-            .onChange(of: state.bursts) { _ in travel(size: size, origin: origin) }
             .frame(width: size.width, height: size.height)
             .onChange(of: state.step) { _ in
                 draw = 0
                 withAnimation(Design.Motion.animation(.easeOut(duration: 0.85))) { draw = 1 }
             }
+            .onChange(of: state.askStop) { _ in redraw() }
+            .onChange(of: state.awaitingApproval) { _ in redraw() }
             .onAppear {
+                // The scrim fades up; nothing else moves until it has.
+                withAnimation(Design.Motion.animation(.easeInOut(duration: reduced ? 0.3 : 1.1))) { appeared = true }
                 withAnimation(Design.Motion.animation(.easeOut(duration: 0.85))) { draw = 1 }
-                if Date().timeIntervalSince(state.stepStarted) > 1.5 { bootPhase = 1 }
-                let rise = reduced ? 0.1 : 0.3
-                let settle = reduced ? 0.5 : 2.9
-                DispatchQueue.main.asyncAfter(deadline: .now() + rise) {
-                    withAnimation(Design.Motion.animation(.spring(response: 0.9, dampingFraction: 0.78))) { bootPhase = 1 }
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + settle) {
-                    withAnimation(Design.Motion.animation(Design.Motion.hud)) { bootPhase = 2 }
-                }
             }
         }
         .opacity(state.leaving ? 0 : 1)
         .accessibilityIdentifier("visor.takeover")
     }
 
+    private func redraw() {
+        draw = 0
+        withAnimation(Design.Motion.animation(.easeOut(duration: 0.85))) { draw = 1 }
+    }
+
     private var scrimOpacity: Double {
-        if state.leaving { return 0 }
-        return state.step == .boot ? 0.9 : 0.76
-    }
-
-    /// The rect the card occupies when open (the whole screen for the HUD).
-    private func cardRect(size: CGSize) -> CGRect {
-        state.geometry.hud ? CGRect(origin: .zero, size: size) : card
-    }
-
-    private func extraHoles(size: CGSize) -> [CGRect] { [] }
-
-    /// When a step lands, the mark leaves the bubble, flies to what happened
-    /// and vanishes in the burst — the reward travels to the thing you did.
-    private func travel(size: CGSize, origin: CGPoint) {
-        guard !reduced, state.step != .boot else { return }
-        let t = target(size: size)
-        let from = CGPoint(x: t.bubble.x, y: t.bubble.y)
-        let to = t.ring.map { CGPoint(x: $0.midX, y: $0.midY) } ?? origin
-        traveller = from
-        travelling = true
-        withAnimation(.spring(response: 0.55, dampingFraction: 0.8)) { traveller = to }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            withAnimation(.easeOut(duration: 0.2)) { travelling = false }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { traveller = nil }
+        guard appeared, !state.leaving else { return 0 }
+        return state.step == .intro ? 0.88 : 0.74
     }
 
     // MARK: Coordinates
@@ -149,119 +113,175 @@ struct TakeoverView: View {
     private var notchRect: CGRect { view(state.geometry.notch) }
     private var notchH: CGFloat { notchRect.height }
 
-    private struct Target {
-        var ring: CGRect?
-        var arrowTo: CGPoint?
-        var bubble: CGPoint
-        var bubbleHeight: CGFloat = 170
+    private func cardRect(size: CGSize) -> CGRect {
+        state.geometry.hud ? CGRect(origin: .zero, size: size) : card
     }
 
-    private let bubbleWidth: CGFloat = 400
+    /// Where the one tour card sits: centred in the room below the notch
+    /// card, never over it.
+    private func cardHome(size: CGSize) -> CGFloat {
+        let below = state.geometry.expanded ? card.maxY : notchRect.maxY
+        return max(size.height * 0.5, below + 40 + 190)
+    }
 
-    private func target(size: CGSize) -> Target {
+    /// The caption's home: under the notch until the card opens, then beside
+    /// the card, clear of the top bar. One place per moment, no hopping.
+    private func captionHome(size: CGSize) -> CGPoint {
+        let w: CGFloat = captionWidth
+        if state.geometry.expanded {
+            return CGPoint(x: min(card.maxX + 40, size.width - w - 32), y: card.minY + notchH + 72)
+        }
+        return CGPoint(x: size.width / 2 - w / 2, y: notchRect.maxY + 130)
+    }
+
+    private let captionWidth: CGFloat = 420
+
+    // MARK: Annotations
+
+    private struct Mark { var ring: CGRect; var arrowTo: CGPoint }
+
+    private func mark(size: CGSize) -> Mark? {
         let c = card
-        let bw = bubbleWidth
-        // One home for the guide once the card is open — beside it, clear of
-        // the top bar — so nothing on screen hops between moments.
-        let beside = CGPoint(x: min(c.maxX + 48, size.width - bw - 32), y: c.minY + notchH + 76)
-        let composer = CGRect(x: c.minX + 10, y: c.maxY - 118, width: c.width - 20, height: 106)
-        let identity = CGRect(x: c.minX + 10, y: c.minY + notchH + 30, width: 210, height: 30)
         switch state.step {
-        case .summon:
+        case .notch where !state.geometry.expanded:
             let ring = notchRect.insetBy(dx: -22, dy: -14)
-            return Target(ring: ring, arrowTo: CGPoint(x: ring.midX, y: ring.maxY + 6),
-                          bubble: CGPoint(x: size.width / 2 - bw / 2, y: notchRect.maxY + 150))
-        case .agent:
-            return Target(ring: state.created ? identity : nil,
-                          arrowTo: state.created ? CGPoint(x: identity.maxX + 6, y: identity.midY) : nil,
-                          bubble: beside, bubbleHeight: 320)
-        case .firstTask:
-            let ring = (state.awaitingApproval || state.taskDone) ? nil : composer
-            return Target(ring: ring, arrowTo: ring.map { CGPoint(x: $0.maxX + 6, y: $0.midY) },
-                          bubble: beside)
-        case .drive:
-            // The Stop control in the Computer Use card's task field.
+            return Mark(ring: ring, arrowTo: CGPoint(x: ring.midX, y: ring.maxY + 6))
+        case .task where state.awaitingApproval:
+            // The approval row's Allow chip, at the foot of the transcript.
+            let allow = CGRect(x: c.minX + 22, y: c.maxY - 168, width: 92, height: 34)
+            return Mark(ring: allow, arrowTo: CGPoint(x: allow.maxX + 6, y: allow.midY))
+        case .drive where state.askStop:
             let stop = CGRect(x: c.maxX - 62, y: c.minY + notchH + 42, width: 44, height: 44)
-            return Target(ring: state.askStop ? stop : nil,
-                          arrowTo: state.askStop ? CGPoint(x: stop.maxX + 6, y: stop.midY) : nil,
-                          bubble: beside)
+            return Mark(ring: stop, arrowTo: CGPoint(x: stop.maxX + 6, y: stop.midY))
         default:
-            return Target(ring: nil, arrowTo: nil, bubble: CGPoint(x: size.width / 2 - bw / 2, y: c.maxY + 72))
+            return nil
         }
     }
-
-    // MARK: Layers
 
     @ViewBuilder
-    private func annotations(size: CGSize, origin: CGPoint) -> some View {
-        let t = target(size: size)
-        if let ring = t.ring {
-            SketchRing(rect: ring, seed: state.step.rawValue)
-                .trim(from: 0, to: draw)
-                .stroke(accent, style: StrokeStyle(lineWidth: 2.6, lineCap: .round, lineJoin: .round))
-                .shadow(color: accent.opacity(0.7), radius: 6)
-                .shadow(color: accent.opacity(0.35), radius: 18)
-        }
-        if let to = t.arrowTo {
-            let from = arrowStart(from: t.bubble, height: t.bubbleHeight, to: to)
-            SketchArrow(from: from, to: to, seed: state.step.rawValue)
+    private func annotations(size: CGSize) -> some View {
+        if let m = mark(size: size) {
+            SketchRing(rect: m.ring, seed: state.step.rawValue)
                 .trim(from: 0, to: draw)
                 .stroke(accent, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
-                .shadow(color: accent.opacity(0.6), radius: 6)
+                .shadow(color: accent.opacity(0.5), radius: 8)
+            let home = captionHome(size: size)
+            let from = arrowStart(from: CGRect(origin: home, size: CGSize(width: captionWidth, height: 64)), to: m.arrowTo)
+            SketchArrow(from: from, to: m.arrowTo, seed: state.step.rawValue)
+                .trim(from: 0, to: draw)
+                .stroke(accent, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                .shadow(color: accent.opacity(0.4), radius: 6)
         }
     }
 
-    private func arrowStart(from bubble: CGPoint, height: CGFloat, to: CGPoint) -> CGPoint {
-        let rect = CGRect(origin: bubble, size: CGSize(width: bubbleWidth, height: height))
+    private func arrowStart(from rect: CGRect, to: CGPoint) -> CGPoint {
         if to.y < rect.minY { return CGPoint(x: rect.midX, y: rect.minY - 8) }
         if to.x < rect.minX { return CGPoint(x: rect.minX - 8, y: rect.midY) }
         if to.x > rect.maxX { return CGPoint(x: rect.maxX + 8, y: rect.midY) }
         return CGPoint(x: rect.midX, y: rect.maxY + 8)
     }
 
-    /// One bubble for the whole tour. It glides between moments rather than
-    /// being replaced, so the guide reads as a companion that moves, not a
-    /// series of cards.
-    private func bubble(size: CGSize) -> some View {
-        let t = target(size: size)
-        return GuideBubble(state: state, actions: actions)
-            .frame(width: bubbleWidth, alignment: .topLeading)
-            .position(x: t.bubble.x + bubbleWidth / 2, y: t.bubble.y + t.bubbleHeight / 2)
-            .animation(Design.Motion.animation(.spring(response: 0.6, dampingFraction: 0.86)), value: state.step)
-            .transition(.opacity)
-    }
+    // MARK: Intro
 
-    /// The reveal: the mark rises out of the notch, turns once above it
-    /// while the wordmark types, then drops back in — everything emanates
-    /// from the notch, including Visor itself.
-    private func boot(size: CGSize, origin: CGPoint) -> some View {
-        let risen = CGPoint(x: origin.x, y: origin.y + 210)
-        let flew = bootPhase == 2
-        return ZStack {
-            HeroMark(size: 260)
-                .scaleEffect(bootPhase == 0 ? 0.08 : (flew ? 0.06 : 1))
-                .opacity(bootPhase == 0 ? 0 : (flew ? 0 : 1))
-                .position(bootPhase == 1 ? risen : origin)
-
-            VStack(spacing: 12) {
-                TypewriterText("VISOR", start: state.stepStarted, cps: reduced ? 1000 : 9)
-                    .font(.custom(Design.Text.face, size: 72)).tracking(16)
-                    .foregroundStyle(.white)
-                    .shadow(color: accent.opacity(0.8), radius: 24)
-                Text(state.line.title)
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(Design.Ink.primary)
-                Text(state.line.body)
-                    .font(.system(size: 15))
-                    .foregroundStyle(Design.Ink.secondary)
+    /// The welcome: the founder's video if one is bundled, with a thin bar
+    /// of progress beneath it; otherwise the mark rises out of the notch
+    /// while the voice says hello, and settles back in.
+    @ViewBuilder
+    private func intro(size: CGSize, origin: CGPoint) -> some View {
+        if let url = state.videoURL {
+            let w = min(960, size.width - 160), h = w * 9 / 16
+            VStack(spacing: 0) {
+                VideoIntro(url: url, progress: $videoProgress, muted: !narrator.soundOn, onEnd: actions.videoEnded)
+                    .frame(width: w, height: h)
+                    .clipShape(RoundedRectangle(cornerRadius: Design.Radius.panel, style: .continuous))
+                    .shadow(color: .black.opacity(0.6), radius: 40, y: 16)
+                GeometryReader { g in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.white.opacity(0.14))
+                        Capsule().fill(accent).frame(width: g.size.width * videoProgress)
+                    }
+                }
+                .frame(width: w, height: 3)
+                .padding(.top, Design.Space.roomy)
             }
-            .position(x: size.width / 2, y: risen.y + 230)
-            .opacity(bootPhase == 1 ? 1 : 0)
+            .position(x: size.width / 2, y: size.height / 2 + 10)
+            .opacity(appeared ? 1 : 0)
+            .accessibilityIdentifier("visor.takeover.video")
+        } else {
+            let risen = CGPoint(x: origin.x, y: origin.y + 190)
+            ZStack {
+                HeroMark(size: 220)
+                    .scaleEffect(state.risen ? 1 : 0.06)
+                    .opacity(state.risen ? 1 : 0)
+                    .position(state.risen ? risen : origin)
+                VStack(spacing: Design.Space.wide) {
+                    Text("Visor")
+                        .font(.system(size: 54, weight: .semibold, design: .default))
+                        .tracking(-0.5)
+                        .foregroundStyle(.white)
+                    Text(narrator.line)
+                        .font(.system(size: 19))
+                        .foregroundStyle(Design.Ink.secondary)
+                        .multilineTextAlignment(.center)
+                        .id(narrator.line)
+                        .transition(.opacity)
+                }
+                .animation(Design.Motion.animation(.easeInOut(duration: 0.35)), value: narrator.line)
+                .position(x: size.width / 2, y: risen.y + 200)
+                .opacity(state.risen ? 1 : 0)
+            }
+            .accessibilityIdentifier("visor.takeover.intro")
         }
-        .accessibilityIdentifier("visor.takeover.boot")
     }
 
-    private func finale(size: CGSize) -> some View {
+    // MARK: Caption
+
+    /// The voice, written down: the mark and the line it is saying. When
+    /// something lands, the mark becomes a check for a moment.
+    private func caption(size: CGSize) -> some View {
+        let home = captionHome(size: size)
+        let text = state.milestone ?? narrator.line
+        return HStack(alignment: .center, spacing: Design.Space.roomy) {
+            ZStack {
+                if state.milestone != nil {
+                    Circle().strokeBorder(accent, lineWidth: 2)
+                    CheckMark()
+                        .trim(from: 0, to: draw)
+                        .stroke(accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                        .padding(9)
+                } else {
+                    HeroMark(size: 36)
+                }
+            }
+            .frame(width: 36, height: 36)
+            Text(text)
+                .font(.system(size: 15))
+                .foregroundStyle(Design.Ink.primary)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .id(text)
+                .transition(.opacity)
+            Spacer(minLength: 0)
+        }
+        .animation(Design.Motion.animation(.easeInOut(duration: 0.3)), value: text)
+        .padding(.horizontal, Design.Space.loose)
+        .padding(.vertical, Design.Space.roomy)
+        .frame(width: captionWidth, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Design.Radius.panel, style: .continuous)
+            .fill(Design.Retro.bg.opacity(0.94)))
+        .overlay(RoundedRectangle(cornerRadius: Design.Radius.panel, style: .continuous)
+            .strokeBorder(Color.white.opacity(0.10), lineWidth: Design.Stroke.hairline))
+        .shadow(color: .black.opacity(0.45), radius: 24, y: 8)
+        .opacity(text.isEmpty ? 0 : 1)
+        .position(x: home.x + captionWidth / 2, y: home.y + 32)
+        .animation(Design.Motion.animation(.spring(response: 0.6, dampingFraction: 0.88)), value: state.geometry.expanded)
+        .transition(.opacity)
+        .accessibilityIdentifier("visor.takeover.caption")
+    }
+
+    // MARK: Finale
+
+    private var finaleSheet: some View {
         let keys: [(String, String)] = [
             (ShortcutSettings.hint(.toggle), "summon · put away"),
             (ShortcutSettings.hint(.hud), "expand to the HUD"),
@@ -269,128 +289,88 @@ struct TakeoverView: View {
             ("⌘.", "stop a reply"),
         ]
         return VStack(alignment: .leading, spacing: Design.Space.wide) {
-            HStack(spacing: Design.Space.roomy) {
-                HeroMark(size: 44)
-                SectionLabel(state.line.kicker, tint: accent)
-            }
-            Text(state.line.title)
-                .font(.system(size: 32, weight: .semibold))
+            Text("That's Visor.")
+                .font(.system(size: 28, weight: .semibold))
                 .foregroundStyle(.white)
-            Text(state.line.body)
+            Text("Everything lives in the notch. These bring it to you.")
                 .font(Design.Typography.body())
                 .foregroundStyle(Design.Ink.secondary)
-                .lineSpacing(Design.Typography.bodyLeading)
-                .fixedSize(horizontal: false, vertical: true)
-
             HStack(spacing: Design.Space.roomy) {
                 ForEach(keys, id: \.0) { key, label in
                     VStack(spacing: Design.Space.normal) {
                         Text(key)
-                            .font(.custom(Design.Text.face, size: 15))
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
                             .foregroundStyle(Design.Ink.primary)
-                            .padding(.horizontal, Design.Space.roomy).frame(height: 36)
+                            .padding(.horizontal, Design.Space.roomy).frame(height: 34)
                             .raised(Design.Radius.control, strong: true, stroke: Design.Stroke.control)
                         Text(label).font(Design.Typography.caption()).foregroundStyle(Design.Ink.tertiary)
                     }
                 }
             }
-
-            ActionChip(title: "Finish", prominent: true, action: actions.finish)
-                .accessibilityIdentifier("visor.takeover.finish")
+            HStack {
+                Spacer()
+                ActionChip(title: "Finish", prominent: true, action: actions.finish)
+                    .accessibilityIdentifier("visor.takeover.finish")
+            }
         }
-        .padding(Design.Space.section + 6)
-        .frame(width: 560, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-            .fill(Design.Retro.bg.opacity(0.97)))
-        .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-            .strokeBorder(accent.opacity(0.5), lineWidth: Design.Stroke.hairline))
-        .shadow(color: accent.opacity(0.25), radius: 40)
-        .position(x: size.width / 2, y: max(size.height / 2 + 40, card.maxY + 40 + 230))
-        .transition(.opacity.combined(with: .scale(scale: 0.97)))
         .accessibilityIdentifier("visor.takeover.finale")
     }
 
-    /// Skip and the step count, out of the way at the top right. No Back:
-    /// the story drives itself, and a replay is one click away afterwards.
+    // MARK: Chrome
+
+    /// Skip, and the voice and sound switches, at the top right. No dots,
+    /// no counts: the line along the bottom is the only progress.
     private func topBar(size: CGSize) -> some View {
         HStack(spacing: Design.Space.normal) {
-            if state.step != .boot, state.step != .finale {
-                Text("\(state.step.rawValue) / 4")
-                    .font(Design.Typography.mono(0.9))
-                    .foregroundStyle(Design.Ink.faint)
-            }
-            ActionChip(title: state.step == .finale ? "Close" : "Skip the tour", action: actions.skip)
+            IconButton(symbol: narrator.voiceOn ? "waveform" : "waveform.slash",
+                       tint: narrator.voiceOn ? Design.Ink.primary : Design.Ink.tertiary,
+                       help: narrator.voiceOn ? "Mute the voice" : "Unmute the voice") { narrator.voiceOn.toggle() }
+                .accessibilityIdentifier("visor.takeover.voice")
+            IconButton(symbol: narrator.soundOn ? "speaker.wave.2" : "speaker.slash",
+                       tint: narrator.soundOn ? Design.Ink.primary : Design.Ink.tertiary,
+                       help: narrator.soundOn ? "Mute sounds" : "Unmute sounds") { narrator.soundOn.toggle() }
+                .accessibilityIdentifier("visor.takeover.sound")
+            ActionChip(title: state.step == .finale ? "Close" : "Skip", action: actions.skip)
                 .accessibilityIdentifier("visor.takeover.skip")
         }
-        .position(x: size.width - 120, y: 44)
+        .padding(.horizontal, Design.Space.roomy)
+        .frame(height: 40)
+        .background(Capsule().fill(Design.Retro.bg.opacity(0.7)))
+        .position(x: size.width - 110, y: 48)
+        .opacity(appeared ? 1 : 0)
+    }
+
+    private func progressBar(size: CGSize) -> some View {
+        ZStack(alignment: .leading) {
+            Rectangle().fill(Color.white.opacity(0.10))
+            Rectangle().fill(accent).frame(width: size.width * state.progress)
+                .animation(Design.Motion.animation(.easeInOut(duration: 0.8)), value: state.progress)
+        }
+        .frame(width: size.width, height: 2)
+        .position(x: size.width / 2, y: size.height - 1)
+        .opacity(state.step == .intro ? 0 : 1)
+        .accessibilityHidden(true)
     }
 }
 
-// MARK: - The guide
+// MARK: - The one card
 
-/// The speech bubble: kicker in the study's label face, the instruction,
-/// a body that types itself, the step dots, the moment's own controls,
-/// and the mark at its shoulder.
-private struct GuideBubble: View {
-    @ObservedObject var state: TakeoverState
-    var actions: TakeoverActions
+/// The single dark card the tour ever shows: centred, calm, no kicker,
+/// no dots, no glow.
+private struct TourCard<Content: View>: View {
+    let width: CGFloat
+    @ViewBuilder let content: () -> Content
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            VStack(alignment: .leading, spacing: Design.Space.roomy) {
-                HStack(spacing: Design.Space.normal) {
-                    SectionLabel(state.line.kicker, tint: Design.Retro.accent)
-                    Spacer(minLength: 0)
-                    HStack(spacing: 4) {
-                        ForEach(1..<5, id: \.self) { i in
-                            RoundedRectangle(cornerRadius: 1)
-                                .fill(i <= state.step.rawValue ? Design.Retro.accent : Color.white.opacity(0.18))
-                                .frame(width: i == state.step.rawValue ? 14 : 6, height: 3)
-                        }
-                    }
-                    .accessibilityHidden(true)
-                }
-                VStack(alignment: .leading, spacing: Design.Space.roomy) {
-                    Text(state.line.title)
-                        .font(Design.Typography.display())
-                        .foregroundStyle(Design.Ink.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    TypewriterText(state.line.body, start: state.stepStarted, cps: 80)
-                        .font(Design.Typography.body())
-                        .foregroundStyle(Design.Ink.secondary)
-                        .lineSpacing(Design.Typography.bodyLeading)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    controls
-                }
-                .id("\(state.step.rawValue)-\(state.trouble == nil)-\(state.taskDone)-\(state.awaitingApproval)-\(state.created)-\(state.askStop)-\(state.driveStopped)-\(state.driveDone)")
-                .transition(.opacity)
-            }
-            .animation(Design.Motion.animation(.easeInOut(duration: 0.22)), value: state.step)
-            .animation(Design.Motion.animation(.easeInOut(duration: 0.22)), value: state.trouble == nil)
-            .padding(.top, Design.Space.wide).padding(.bottom, Design.Space.loose)
-            .padding(.horizontal, Design.Space.section)
-            .frame(width: 400, alignment: .topLeading)
+        content()
+            .padding(Design.Space.section + 4)
+            .frame(width: width, alignment: .topLeading)
             .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
                 .fill(Design.Retro.bg.opacity(0.97)))
             .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-                .strokeBorder(Design.Retro.accent.opacity(0.55), lineWidth: Design.Stroke.hairline))
-            .shadow(color: .black.opacity(0.5), radius: 24, y: 8)
-            .shadow(color: Design.Retro.accent.opacity(0.18), radius: 30)
-
-            HeroMark(size: 60)
-                .offset(x: -30, y: -30)
-        }
-        .accessibilityIdentifier("visor.takeover.bubble")
-    }
-
-    /// The tour's one form, and nothing else: name, connection, Create.
-    @ViewBuilder
-    private var controls: some View {
-        if state.step == .agent, !state.created {
-            AgentForm(state: state, create: actions.createAgent)
-                .padding(.top, Design.Space.tight)
-        }
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: Design.Stroke.hairline))
+            .shadow(color: .black.opacity(0.55), radius: 36, y: 14)
+            .accessibilityIdentifier("visor.takeover.card")
     }
 }
 
@@ -403,7 +383,11 @@ private struct AgentForm: View {
     private enum Field { case name, key }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Design.Space.roomy) {
+        VStack(alignment: .leading, spacing: Design.Space.wide) {
+            Text("Your agent")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(.white)
+
             VStack(alignment: .leading, spacing: Design.Space.snug) {
                 SectionLabel("Name")
                 TextField("Claude", text: $state.agentName)
@@ -459,17 +443,86 @@ private struct AgentForm: View {
                 Text(error).font(Design.Typography.caption()).foregroundStyle(Design.Ink.warning)
             }
 
-            ActionChip(title: state.creating ? "Creating…" : "Create \(state.agentName.trimmingCharacters(in: .whitespaces).isEmpty ? "agent" : state.agentName)",
-                       prominent: true, action: create)
-                .disabled(!state.canCreate)
-                .opacity(state.canCreate ? 1 : 0.5)
-                .accessibilityIdentifier("visor.takeover.create")
+            HStack {
+                Spacer()
+                ActionChip(title: state.creating ? "Creating…" : "Create \(state.agentName.trimmingCharacters(in: .whitespaces).isEmpty ? "agent" : state.agentName)",
+                           prominent: true, action: create)
+                    .disabled(!state.canCreate)
+                    .opacity(state.canCreate ? 1 : 0.5)
+                    .accessibilityIdentifier("visor.takeover.create")
+            }
         }
         .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { focus = .name } }
     }
 }
 
-/// The mark: the Blender-rendered trefoil turning/// The mark: the Blender-rendered trefoil turning, or the flat BeamMark if
+// MARK: - Video
+
+/// The welcome video, played through an `AVPlayerLayer`. Reports progress
+/// for the thin bar beneath it and says when it ends.
+struct VideoIntro: NSViewRepresentable {
+    let url: URL
+    @Binding var progress: Double
+    var muted: Bool
+    var onEnd: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> PlayerView {
+        let view = PlayerView()
+        let player = AVPlayer(url: url)
+        player.isMuted = muted
+        view.playerLayer.player = player
+        view.playerLayer.videoGravity = .resizeAspectFill
+        let c = context.coordinator
+        c.player = player
+        c.observer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { t in
+            guard let d = player.currentItem?.duration.seconds, d.isFinite, d > 0 else { return }
+            c.onProgress?(min(1, t.seconds / d))
+        }
+        c.onProgress = { progress = $0 }
+        c.ended = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main) { _ in c.onEnd?() }
+        c.onEnd = onEnd
+        player.play()
+        return view
+    }
+
+    func updateNSView(_ view: PlayerView, context: Context) {
+        context.coordinator.player?.isMuted = muted
+        context.coordinator.onEnd = onEnd
+        context.coordinator.onProgress = { progress = $0 }
+    }
+
+    static func dismantleNSView(_ view: PlayerView, coordinator: Coordinator) {
+        coordinator.player?.pause()
+        if let o = coordinator.observer { coordinator.player?.removeTimeObserver(o) }
+        if let e = coordinator.ended { NotificationCenter.default.removeObserver(e) }
+    }
+
+    final class Coordinator {
+        var player: AVPlayer?
+        var observer: Any?
+        var ended: NSObjectProtocol?
+        var onEnd: (() -> Void)?
+        var onProgress: ((Double) -> Void)?
+    }
+
+    final class PlayerView: NSView {
+        let playerLayer = AVPlayerLayer()
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            wantsLayer = true
+            layer = playerLayer
+            playerLayer.backgroundColor = NSColor.black.cgColor
+        }
+        required init?(coder: NSCoder) { fatalError() }
+    }
+}
+
+// MARK: - The mark
+
+/// The mark: the Blender-rendered trefoil turning, or the flat BeamMark if
 /// the sheet isn't bundled. Bobs gently so it reads as alive, not pasted.
 struct HeroMark: View {
     var size: CGFloat
@@ -488,7 +541,7 @@ struct HeroMark: View {
                 }
             }
             .offset(y: bob)
-            .shadow(color: Design.Retro.accent.opacity(0.55), radius: size * 0.18)
+            .shadow(color: Design.Retro.accent.opacity(0.4), radius: size * 0.14)
         }
         .frame(width: size, height: size)
     }
@@ -518,139 +571,15 @@ enum HeroSheet {
     }
 }
 
-// MARK: - Effects
+// MARK: - Scrim and strokes
 
-/// Text that arrives a character at a time.
-struct TypewriterText: View {
-    let text: String
-    let start: Date
-    var cps: Double = 60
-
-    init(_ text: String, start: Date, cps: Double = 60) {
-        self.text = text
-        self.start = start
-        self.cps = cps
-    }
-
-    var body: some View {
-        TimelineView(.periodic(from: start, by: 1 / 30)) { context in
-            let shown = Design.Motion.reduced
-                ? text.count
-                : min(text.count, Int(context.date.timeIntervalSince(start) * cps))
-            Text(text).opacity(0)
-                .overlay(Text(String(text.prefix(max(0, shown)))), alignment: .topLeading)
-        }
-    }
-}
-
-/// Faint horizontal lines every third point: the CRT under the pixel face.
-private struct Scanlines: View {
-    var body: some View {
-        Canvas { context, size in
-            var y: CGFloat = 0
-            var path = Path()
-            while y < size.height {
-                path.move(to: CGPoint(x: 0, y: y))
-                path.addLine(to: CGPoint(x: size.width, y: y))
-                y += 3
-            }
-            context.stroke(path, with: .color(.white.opacity(0.035)), lineWidth: 1)
-        }
-        .allowsHitTesting(false)
-    }
-}
-
-/// One bright band sweeping down the screen as the takeover powers on.
-private struct CRTSweep: View {
-    let start: Date
-    let height: CGFloat
-
-    var body: some View {
-        TimelineView(.animation) { context in
-            let t = context.date.timeIntervalSince(start)
-            let duration = 1.1
-            if t < duration {
-                let p = t / duration
-                let y = CGFloat(p) * (height + 200) - 100
-                LinearGradient(colors: [.clear, Design.Retro.accent.opacity(0.28), .white.opacity(0.35), .clear],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(height: 160)
-                    .offset(y: y - 80)
-                    .opacity(1 - p * 0.6)
-            }
-        }
-        .allowsHitTesting(false)
-    }
-}
-
-/// Pixels drifting into the notch, and a burst out of it when a step lands.
-/// Every particle is a pure function of time and its index.
-private struct PixelField: View {
-    let origin: CGPoint
-    let size: CGSize
-    let burstAt: Date
-    var density: Double = 1
-
-    private static let ambient = 110
-    private static let burst = 72
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
-            let now = context.date.timeIntervalSinceReferenceDate
-            let age = context.date.timeIntervalSince(burstAt)
-            Canvas { ctx, _ in
-                let accent = Design.Retro.accent
-                let count = Int(Double(Self.ambient) * density)
-                for i in 0..<count {
-                    let s = seed(i)
-                    let speed = 0.03 + s.0 * 0.05
-                    let f = ((now * speed) + s.1).truncatingRemainder(dividingBy: 1)
-                    let startX = s.2 * size.width
-                    let startY = size.height * (0.35 + s.3 * 0.75)
-                    let sway = sin(now * 1.3 + s.1 * 20) * 18 * (1 - f)
-                    let x = startX + (origin.x - startX) * pow(f, 1.6) + sway
-                    let y = startY + (origin.y - startY) * pow(f, 1.6)
-                    let px = 1.5 + s.0 * 2
-                    let alpha = sin(f * .pi) * (0.25 + s.3 * 0.45)
-                    ctx.fill(Path(CGRect(x: x, y: y, width: px, height: px)),
-                             with: .color((i % 3 == 0 ? Color.white : accent).opacity(alpha)))
-                }
-                if age >= 0, age < 1.5 {
-                    let e = 1 - pow(1 - age / 1.5, 3)
-                    for i in 0..<Self.burst {
-                        let s = seed(i + 1000)
-                        let angle = s.0 * .pi * 2
-                        let dist = (80 + s.1 * 260) * e
-                        let x = origin.x + cos(angle) * dist
-                        let y = origin.y + abs(sin(angle)) * dist + age * age * 140
-                        let px = 2 + s.2 * 3
-                        let alpha = (1 - e) * 0.95
-                        ctx.fill(Path(CGRect(x: x, y: y, width: px, height: px)),
-                                 with: .color((i % 2 == 0 ? Color.white : accent).opacity(alpha)))
-                    }
-                }
-            }
-        }
-        .allowsHitTesting(false)
-    }
-
-    private func seed(_ i: Int) -> (Double, Double, Double, Double) {
-        func r(_ k: Double) -> Double {
-            let v = sin(Double(i) * 12.9898 + k * 78.233) * 43758.5453
-            return v - floor(v)
-        }
-        return (r(1), r(2), r(3), r(4))
-    }
-}
-
-/// The screen minus the card and any extra windows, for an even-odd fill
-/// or mask. The card hole is the card's rect scaled about its top centre —
-/// the same transform as the card's own scale transition — and the scale
-/// is the animatable value, so the hole and the card share one motion.
+/// The screen minus the card, for an even-odd fill. The card hole is the
+/// card's rect scaled about its top centre — the same transform as the
+/// card's own scale transition — and the scale is the animatable value,
+/// so the hole and the card share one motion.
 struct Scrim: Shape {
     var card: CGRect
     var scale: CGFloat
-    var extras: [CGRect] = []
 
     var animatableData: CGFloat {
         get { scale }
@@ -668,43 +597,7 @@ struct Scrim: Shape {
             path.addPath(Path(roundedRect: hole, cornerRadii: RectangleCornerRadii(
                 topLeading: 0, bottomLeading: r, bottomTrailing: r, topTrailing: 0)))
         }
-        for hole in extras {
-            path.addPath(Path(roundedRect: hole, cornerRadius: 10))
-        }
         return path
-    }
-}
-
-/// A moment's worth of celebration: a check that draws on and one line.
-struct MilestoneBadge: View {
-    let text: String
-    @State private var drawn: CGFloat = 0
-
-    var body: some View {
-        HStack(spacing: Design.Space.roomy) {
-            ZStack {
-                Circle().fill(Design.Retro.accent.opacity(0.18))
-                Circle().strokeBorder(Design.Retro.accent, lineWidth: 2)
-                CheckMark()
-                    .trim(from: 0, to: drawn)
-                    .stroke(Design.Retro.accent, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-                    .padding(11)
-            }
-            .frame(width: 40, height: 40)
-            .shadow(color: Design.Retro.accent.opacity(0.6), radius: 12)
-            Text(text)
-                .font(Design.Typography.display())
-                .foregroundStyle(Design.Ink.primary)
-        }
-        .padding(.horizontal, Design.Space.section)
-        .padding(.vertical, Design.Space.loose)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-            .fill(Design.Retro.bg.opacity(0.97)))
-        .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-            .strokeBorder(Design.Retro.accent.opacity(0.6), lineWidth: Design.Stroke.hairline))
-        .shadow(color: .black.opacity(0.5), radius: 30, y: 10)
-        .onAppear { withAnimation(Design.Motion.animation(.easeOut(duration: 0.45))) { drawn = 1 } }
-        .accessibilityIdentifier("visor.takeover.milestone")
     }
 }
 
@@ -717,8 +610,6 @@ private struct CheckMark: Shape {
         return p
     }
 }
-
-// MARK: - Sketch strokes
 
 /// A ring that looks drawn by hand: an ellipse whose radius wobbles a
 /// little along the way, overshooting where it closes.

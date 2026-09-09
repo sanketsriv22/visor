@@ -145,8 +145,9 @@ done
 for f in "$REPO/app/Sources/Visor/Resources"/*.otf; do
     [ -f "$f" ] && cp "$f" "$APP/Contents/Resources/"
 done
-# The introduction's 3D mark, rendered in Blender as a sprite sheet.
-for f in "$REPO/app/Sources/Visor/Resources"/hero-*.png; do
+# The introduction's 3D mark, rendered in Blender as a sprite sheet, and the
+# founder's welcome video if one has been recorded (Resources/intro.mp4).
+for f in "$REPO/app/Sources/Visor/Resources"/hero-*.png "$REPO/app/Sources/Visor/Resources"/intro.mp4; do
     [ -f "$f" ] && cp "$f" "$APP/Contents/Resources/"
 done
 
