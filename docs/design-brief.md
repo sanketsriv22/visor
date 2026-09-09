@@ -141,33 +141,35 @@ focus or window ordering.
 
 ## Onboarding
 
-The introduction is a screen takeover built from the product's own
-components (`docs/onboarding-concepts.md` has the two concepts and the
-choice). Eight moments, each advancing when the real thing happens:
-wake (the mark rises from the notch) → summon with the real shortcut →
-connect a detected agent, add a key, or go on with a labelled stand-in →
-send a pre-filled first task and answer its approval → let a scripted
-driver work a practice window → stop it and continue → ask something of
-your own → return into the notch. The one question it answers on every
-step and again at the end is *how do I get Visor back?*
+The introduction is a screen takeover that tells its own story on the
+product's own surfaces (`docs/onboarding-concepts.md`). Six moments: wake
+(the mark rises from the notch) → the notch shows where it lives and opens
+itself → the person names and connects an agent, the tour's one form → the
+tour types and sends a first task on their behalf and they allow the one
+thing it asks to run (a failing agent falls back to a labelled stand-in
+without asking) → Computer Use, Visor's third face, drives a demonstration
+run in its real card, and Stop is there to press (the tour presses it if
+they don't) → the way back. Inputs: a name, a connection, Allow, and
+optionally Stop.
 
 Rules the takeover keeps:
 
-- A panel at the notch's level, above the notch's windows, never key, with
-  real transparent holes for the card, the notch's click band and the
-  practice window, so clicks fall through to them. Hidden during a
-  Settings excursion; back when Settings closes, re-checking what changed.
-- It advances on real state (`UIState`, `ChatController` approvals and
-  streaming, `PracticeDriver`), never on timers except the reveal and
-  short pauses after a success.
-- Progress persists past connect, the first task and the practice
-  (`visor.intro.progress`). Skip and Back are always one click away;
-  replay from the menu-bar panel or Settings starts fresh.
-- Practice computer use is scripted, and says so: `ComputerUseAgent` will
-  not drive Visor's own windows. The real computer-use face is one click
-  away afterwards.
-- Reduce Motion turns off the pixel field, the sweep and the typing;
-  Reduce Transparency is inherited from the surfaces underneath.
+- A panel at the notch's level, above the notch's windows. Its scrim's hole
+  is the card's own scale transition, changed inside the notch controller's
+  own animation transaction, so the hole and the card are one motion. The
+  notch gets no hole, only a tap target.
+- The guide has one home beside the card once the card is open; nothing
+  hops between moments. The mark travels to what just happened; the two
+  successes end in a milestone flash.
+- It advances on real state (`UIState`, `ChatController` approvals,
+  streaming and errors, `ComputerUseAgent.demonstrating`) and on its own
+  beats; no click is required except the form, Allow and Finish.
+- Progress persists (`visor.intro.progress`); Skip is always one click
+  away; replay from the menu-bar panel or Settings starts fresh.
+- Computer use in the tour is a demonstration inside the real card:
+  `ComputerUseAgent` will not drive Visor's own windows, and a real run
+  asks for Accessibility first.
+- Reduce Motion turns off the pixel field, the sweep and the typing.
 
 ## Verification loop
 

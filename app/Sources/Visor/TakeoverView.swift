@@ -81,9 +81,7 @@ struct TakeoverView: View {
                     MilestoneBadge(text: milestone)
                         // Below the card and the practice window, never over
                         // the thing that just succeeded.
-                        .position(x: size.width / 2,
-                                  y: max(size.height * 0.42,
-                                         (practiceRect?.maxY ?? card.maxY) + 70))
+                        .position(x: size.width / 2, y: max(size.height * 0.42, card.maxY + 70))
                         .transition(.scale(scale: 0.9).combined(with: .opacity))
                 }
 
@@ -122,9 +120,7 @@ struct TakeoverView: View {
         state.geometry.hud ? CGRect(origin: .zero, size: size) : card
     }
 
-    private func extraHoles(size: CGSize) -> [CGRect] {
-        state.geometry.practice.map { [view($0)] } ?? []
-    }
+    private func extraHoles(size: CGSize) -> [CGRect] { [] }
 
     /// When a step lands, the mark leaves the bubble, flies to what happened
     /// and vanishes in the burst — the reward travels to the thing you did.
@@ -152,7 +148,6 @@ struct TakeoverView: View {
     private var card: CGRect { view(state.geometry.card) }
     private var notchRect: CGRect { view(state.geometry.notch) }
     private var notchH: CGFloat { notchRect.height }
-    private var practiceRect: CGRect? { state.geometry.practice.map(view) }
 
     private struct Target {
         var ring: CGRect?
@@ -166,30 +161,30 @@ struct TakeoverView: View {
     private func target(size: CGSize) -> Target {
         let c = card
         let bw = bubbleWidth
-        // Clear of the top bar (Back · step · Skip), which sits at y 30–58.
-        let right = CGPoint(x: min(c.maxX + 48, size.width - bw - 32), y: c.minY + notchH + 76)
-        let identity = CGRect(x: c.minX + 10, y: c.minY + notchH + 30, width: 210, height: 30)
+        // One home for the guide once the card is open — beside it, clear of
+        // the top bar — so nothing on screen hops between moments.
+        let beside = CGPoint(x: min(c.maxX + 48, size.width - bw - 32), y: c.minY + notchH + 76)
         let composer = CGRect(x: c.minX + 10, y: c.maxY - 118, width: c.width - 20, height: 106)
+        let identity = CGRect(x: c.minX + 10, y: c.minY + notchH + 30, width: 210, height: 30)
         switch state.step {
         case .summon:
             let ring = notchRect.insetBy(dx: -22, dy: -14)
             return Target(ring: ring, arrowTo: CGPoint(x: ring.midX, y: ring.maxY + 6),
                           bubble: CGPoint(x: size.width / 2 - bw / 2, y: notchRect.maxY + 150))
-        case .connect:
-            return Target(ring: state.chosen == nil ? nil : identity,
-                          arrowTo: CGPoint(x: identity.maxX + 6, y: identity.midY),
-                          bubble: right, bubbleHeight: 260)
+        case .agent:
+            return Target(ring: state.created ? identity : nil,
+                          arrowTo: state.created ? CGPoint(x: identity.maxX + 6, y: identity.midY) : nil,
+                          bubble: beside, bubbleHeight: 320)
         case .firstTask:
-            let ring = state.awaitingApproval ? nil : (state.taskDone ? nil : composer)
-            return Target(ring: ring, arrowTo: ring.map { CGPoint(x: $0.maxX + 6, y: $0.midY) }, bubble: right)
-        case .practice, .control:
-            let p = practiceRect ?? CGRect(x: c.minX, y: c.maxY + 40, width: c.width, height: 300)
-            let bubble = CGPoint(x: min(p.maxX + 40, size.width - bw - 32), y: p.minY + 8)
-            return Target(ring: state.step == .practice ? p.insetBy(dx: -8, dy: -8) : nil,
-                          arrowTo: CGPoint(x: p.maxX + 10, y: p.midY), bubble: bubble, bubbleHeight: 220)
-        case .yours:
-            return Target(ring: composer, arrowTo: CGPoint(x: composer.maxX + 6, y: composer.midY),
-                          bubble: right, bubbleHeight: 260)
+            let ring = (state.awaitingApproval || state.taskDone) ? nil : composer
+            return Target(ring: ring, arrowTo: ring.map { CGPoint(x: $0.maxX + 6, y: $0.midY) },
+                          bubble: beside)
+        case .drive:
+            // The Stop control in the Computer Use card's task field.
+            let stop = CGRect(x: c.maxX - 62, y: c.minY + notchH + 42, width: 44, height: 44)
+            return Target(ring: state.askStop ? stop : nil,
+                          arrowTo: state.askStop ? CGPoint(x: stop.maxX + 6, y: stop.midY) : nil,
+                          bubble: beside)
         default:
             return Target(ring: nil, arrowTo: nil, bubble: CGPoint(x: size.width / 2 - bw / 2, y: c.maxY + 72))
         }
@@ -213,21 +208,6 @@ struct TakeoverView: View {
                 .trim(from: 0, to: draw)
                 .stroke(accent, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
                 .shadow(color: accent.opacity(0.6), radius: 6)
-        }
-        // The handoff: a beam from the notch to the practice window as it
-        // opens, so the window reads as something Visor sent down.
-        if state.step == .practice, let p = practiceRect {
-            // Arcs around the card's right edge rather than through it.
-            Path { path in
-                path.move(to: origin)
-                path.addQuadCurve(to: CGPoint(x: p.maxX - 40, y: p.minY - 6),
-                                  control: CGPoint(x: card.maxX + 120, y: (origin.y + p.minY) / 2))
-            }
-            .trim(from: 0, to: draw)
-            .stroke(LinearGradient(colors: [accent.opacity(0.0), accent.opacity(0.9)],
-                                   startPoint: .top, endPoint: .bottom),
-                    style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [3, 7]))
-            .shadow(color: accent.opacity(0.5), radius: 6)
         }
     }
 
@@ -315,14 +295,8 @@ struct TakeoverView: View {
                 }
             }
 
-            HStack(spacing: Design.Space.normal) {
-                ActionChip(title: "Finish", prominent: true, action: actions.finish)
-                    .accessibilityIdentifier("visor.takeover.finish")
-                if state.chosen == nil {
-                    ActionChip(title: "Add an agent", action: actions.addKey)
-                        .accessibilityIdentifier("visor.takeover.addAgent")
-                }
-            }
+            ActionChip(title: "Finish", prominent: true, action: actions.finish)
+                .accessibilityIdentifier("visor.takeover.finish")
         }
         .padding(Design.Space.section + 6)
         .frame(width: 560, alignment: .topLeading)
@@ -336,22 +310,19 @@ struct TakeoverView: View {
         .accessibilityIdentifier("visor.takeover.finale")
     }
 
-    /// Skip, Back and the step count, out of the way at the top right.
+    /// Skip and the step count, out of the way at the top right. No Back:
+    /// the story drives itself, and a replay is one click away afterwards.
     private func topBar(size: CGSize) -> some View {
         HStack(spacing: Design.Space.normal) {
-            if state.step.rawValue > TakeoverState.Step.summon.rawValue, state.step != .finale {
-                ActionChip(title: "Back", action: actions.back)
-                    .accessibilityIdentifier("visor.takeover.back")
-            }
             if state.step != .boot, state.step != .finale {
-                Text("\(state.step.rawValue) / 6")
+                Text("\(state.step.rawValue) / 4")
                     .font(Design.Typography.mono(0.9))
                     .foregroundStyle(Design.Ink.faint)
             }
             ActionChip(title: state.step == .finale ? "Close" : "Skip the tour", action: actions.skip)
                 .accessibilityIdentifier("visor.takeover.skip")
         }
-        .position(x: size.width - 160, y: 44)
+        .position(x: size.width - 120, y: 44)
     }
 }
 
@@ -371,7 +342,7 @@ private struct GuideBubble: View {
                     SectionLabel(state.line.kicker, tint: Design.Retro.accent)
                     Spacer(minLength: 0)
                     HStack(spacing: 4) {
-                        ForEach(1..<7, id: \.self) { i in
+                        ForEach(1..<5, id: \.self) { i in
                             RoundedRectangle(cornerRadius: 1)
                                 .fill(i <= state.step.rawValue ? Design.Retro.accent : Color.white.opacity(0.18))
                                 .frame(width: i == state.step.rawValue ? 14 : 6, height: 3)
@@ -392,7 +363,7 @@ private struct GuideBubble: View {
 
                     controls
                 }
-                .id("\(state.step.rawValue)-\(state.trouble == nil)-\(state.taskDone)-\(state.awaitingApproval)")
+                .id("\(state.step.rawValue)-\(state.trouble == nil)-\(state.taskDone)-\(state.awaitingApproval)-\(state.created)-\(state.askStop)-\(state.driveStopped)-\(state.driveDone)")
                 .transition(.opacity)
             }
             .animation(Design.Motion.animation(.easeInOut(duration: 0.22)), value: state.step)
@@ -413,88 +384,92 @@ private struct GuideBubble: View {
         .accessibilityIdentifier("visor.takeover.bubble")
     }
 
-    /// The moment's own controls, from the product's chips.
+    /// The tour's one form, and nothing else: name, connection, Create.
     @ViewBuilder
     private var controls: some View {
-        switch state.step {
-        case .connect where state.chosen == nil:
-            VStack(alignment: .leading, spacing: Design.Space.normal) {
-                if state.checking {
-                    HStack(spacing: Design.Space.snug) {
-                        DotMatrixIndicator(size: 10, tint: Design.Retro.accent)
-                        Text("Looking for agents on this Mac…")
-                            .font(Design.Typography.caption()).foregroundStyle(Design.Ink.tertiary)
-                    }
-                }
-                ForEach(state.options.filter(\.ready)) { option in
-                    ActionChip(title: "Use \(option.name)", prominent: true) { actions.useAgent(option.name) }
-                        .accessibilityIdentifier("visor.takeover.use.\(option.name)")
-                }
-                HStack(spacing: Design.Space.normal) {
-                    ActionChip(title: state.hasKey ? "Change key" : "Add an OpenRouter key", action: actions.addKey)
-                        .accessibilityIdentifier("visor.takeover.addKey")
-                    ActionChip(title: "Skip for now", action: actions.skipAgent)
-                        .accessibilityIdentifier("visor.takeover.skipAgent")
-                }
-                if let notReady = state.options.first(where: { !$0.ready && !$0.detail.isEmpty }) {
-                    Text("\(notReady.name): \(notReady.detail)")
-                        .font(Design.Typography.caption()).foregroundStyle(Design.Ink.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(.top, Design.Space.tight)
-        case .firstTask where state.trouble != nil:
-            HStack(spacing: Design.Space.normal) {
-                ActionChip(title: "Use the stand-in", prominent: true, action: actions.useStandIn)
-                    .accessibilityIdentifier("visor.takeover.standIn")
-                ActionChip(title: "Skip this step", action: actions.skipStep)
-                    .accessibilityIdentifier("visor.takeover.skipStep")
-            }
-            .padding(.top, Design.Space.tight)
-        case .practice:
-            HStack(spacing: Design.Space.normal) {
-                ActionChip(title: state.practice.running ? "Running…" : "Run", prominent: !state.practice.running,
-                           action: actions.runPractice)
-                    .disabled(state.practice.running)
-                    .accessibilityIdentifier("visor.takeover.run")
-                if state.practice.running {
-                    ActionChip(title: "Stop", destructive: true, action: actions.stopPractice)
-                        .accessibilityIdentifier("visor.takeover.stop")
-                } else {
-                    ActionChip(title: "Skip this step", action: actions.skipStep)
-                        .accessibilityIdentifier("visor.takeover.skipStep")
-                }
-            }
-            .padding(.top, Design.Space.tight)
-        case .control:
-            HStack(spacing: Design.Space.normal) {
-                if state.practice.running {
-                    ActionChip(title: "Stop", prominent: true, destructive: true, action: actions.stopPractice)
-                        .accessibilityIdentifier("visor.takeover.stop")
-                } else if state.practice.stopped {
-                    ActionChip(title: "Continue", prominent: true, action: actions.continuePractice)
-                        .accessibilityIdentifier("visor.takeover.continue")
-                }
-            }
-            .padding(.top, Design.Space.tight)
-        case .yours:
-            VStack(alignment: .leading, spacing: Design.Space.snug) {
-                ForEach(["Explain what's on my screen", "Tidy my Desktop into folders by type",
-                         "Draft a reply to my last email"], id: \.self) { text in
-                    ExampleChip(text: text) { actions.suggest(text) }
-                }
-                ActionChip(title: "I'm done", action: actions.done)
-                    .padding(.top, Design.Space.tight)
-                    .accessibilityIdentifier("visor.takeover.done")
-            }
-            .padding(.top, Design.Space.tight)
-        default:
-            EmptyView()
+        if state.step == .agent, !state.created {
+            AgentForm(state: state, create: actions.createAgent)
+                .padding(.top, Design.Space.tight)
         }
     }
 }
 
-/// The mark: the Blender-rendered trefoil turning, or the flat BeamMark if
+/// Name and connect an agent — the only thing the introduction asks the
+/// person to do. A found, signed-in CLI is one click; otherwise a key.
+private struct AgentForm: View {
+    @ObservedObject var state: TakeoverState
+    let create: () -> Void
+    @FocusState private var focus: Field?
+    private enum Field { case name, key }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Design.Space.roomy) {
+            VStack(alignment: .leading, spacing: Design.Space.snug) {
+                SectionLabel("Name")
+                TextField("Claude", text: $state.agentName)
+                    .textFieldStyle(.plain)
+                    .font(Design.Typography.body())
+                    .foregroundStyle(Design.Ink.primary)
+                    .focused($focus, equals: .name)
+                    .padding(.horizontal, Design.Space.roomy)
+                    .frame(height: Design.Metric.large)
+                    .raised(Design.Radius.control, strong: true,
+                            stroke: focus == .name ? Design.Stroke.control : Design.Stroke.edge)
+                    .onSubmit { if state.connection == .openRouter, !state.hasKey { focus = .key } else if state.canCreate { create() } }
+                    .accessibilityIdentifier("visor.takeover.agentName")
+            }
+
+            VStack(alignment: .leading, spacing: Design.Space.snug) {
+                SectionLabel("Runs on")
+                SelectorSegments(
+                    options: [(String?.some("cli"), state.cliFound?.name ?? "Claude Code"),
+                              (String?.some("openrouter"), "OpenRouter key")],
+                    selected: state.connection == .cli ? "cli" : "openrouter") { id in
+                        state.connection = id == "cli" ? .cli : .openRouter
+                    }
+                if state.connection == .cli {
+                    Text(state.cliFound.map { "\($0.name) on this Mac, \($0.detail)." }
+                         ?? "No signed-in CLI found on this Mac. Install Claude Code and sign in, or use a key.")
+                        .font(Design.Typography.caption())
+                        .foregroundStyle(state.cliFound == nil ? Design.Ink.warning : Design.Ink.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if state.hasKey {
+                    Text("A key is already saved. Any model on OpenRouter.")
+                        .font(Design.Typography.caption())
+                        .foregroundStyle(Design.Ink.tertiary)
+                } else {
+                    SecureField("sk-or-v1-…", text: $state.keyInput)
+                        .textFieldStyle(.plain)
+                        .font(Design.Typography.mono())
+                        .foregroundStyle(Design.Ink.primary)
+                        .focused($focus, equals: .key)
+                        .padding(.horizontal, Design.Space.roomy)
+                        .frame(height: Design.Metric.large)
+                        .raised(Design.Radius.control, strong: true,
+                                stroke: focus == .key ? Design.Stroke.control : Design.Stroke.edge)
+                        .onSubmit { if state.canCreate { create() } }
+                        .accessibilityIdentifier("visor.takeover.key")
+                    Text("From openrouter.ai/keys. It stays in your Keychain.")
+                        .font(Design.Typography.caption())
+                        .foregroundStyle(Design.Ink.tertiary)
+                }
+            }
+
+            if let error = state.formError {
+                Text(error).font(Design.Typography.caption()).foregroundStyle(Design.Ink.warning)
+            }
+
+            ActionChip(title: state.creating ? "Creating…" : "Create \(state.agentName.trimmingCharacters(in: .whitespaces).isEmpty ? "agent" : state.agentName)",
+                       prominent: true, action: create)
+                .disabled(!state.canCreate)
+                .opacity(state.canCreate ? 1 : 0.5)
+                .accessibilityIdentifier("visor.takeover.create")
+        }
+        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { focus = .name } }
+    }
+}
+
+/// The mark: the Blender-rendered trefoil turning/// The mark: the Blender-rendered trefoil turning, or the flat BeamMark if
 /// the sheet isn't bundled. Bobs gently so it reads as alive, not pasted.
 struct HeroMark: View {
     var size: CGFloat

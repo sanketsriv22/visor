@@ -183,6 +183,90 @@ enum DesignLab {
                 AnyView(f.takeover(.boot, chat: f.chat(.empty), expanded: false))
             },
             Scenario(name: "takeover-summon", size: hud, themed: false,
+                     note: "01 The notch: ring, guide below; it opens itself a beat later") { f in
+                AnyView(f.takeover(.summon, chat: f.chat(.empty), expanded: false))
+            },
+            Scenario(name: "takeover-open", size: hud, themed: false,
+                     note: "The card opening under the takeover — capture with --frames") { f in
+                AnyView(f.takeover(.summon, chat: f.chat(.empty), expanded: false, openAfter: 0.25))
+            },
+            Scenario(name: "takeover-agent", size: hud, themed: false,
+                     note: "02 The one form: name, runs-on, key, Create") { f in
+                AnyView(f.takeover(.agent, chat: f.chat(.empty), expanded: true, mode: .chat) { s in
+                    s.cliFound = ("Claude Code", "claude", "signed in as sanket@kitalabs.dev")
+                    s.connection = .cli
+                })
+            },
+            Scenario(name: "takeover-agent-key", size: hud, themed: false,
+                     note: "02 The form with no CLI found: the key path") { f in
+                AnyView(f.takeover(.agent, chat: f.chat(.empty), expanded: true, mode: .chat) { s in
+                    s.connection = .openRouter
+                })
+            },
+            Scenario(name: "takeover-task", size: hud, themed: false,
+                     note: "03 The tour typing the request into the composer") { f in
+                AnyView(f.takeover(.firstTask, chat: f.chat(.multiline), expanded: true, mode: .chat) { s in
+                    s.created = true
+                })
+            },
+            Scenario(name: "takeover-approval", size: hud, themed: false,
+                     note: "03 The approval card is up; the guide names it") { f in
+                AnyView(f.takeover(.firstTask, chat: f.chat(.approval), expanded: true, mode: .chat) { s in
+                    s.created = true; s.awaitingApproval = true
+                })
+            },
+            Scenario(name: "takeover-trouble", size: hud, themed: false,
+                     note: "03 The agent failed; the tour says so and runs the stand-in itself") { f in
+                AnyView(f.takeover(.firstTask, chat: f.chat(.error), expanded: true, mode: .chat) { s in
+                    s.created = true; s.trouble = "OpenRouter says this account is out of credit."; s.standIn = true
+                })
+            },
+            Scenario(name: "takeover-milestone", size: hud, themed: false,
+                     note: "The milestone flash after the first task") { f in
+                AnyView(f.takeover(.firstTask, chat: f.chat(.complete), expanded: true, mode: .chat) { s in
+                    s.created = true; s.taskDone = true; s.milestone = "First task, done"
+                })
+            },
+            Scenario(name: "takeover-drive", size: hud, themed: false,
+                     note: "04 Computer Use, Visor's own face, mid-demonstration; Stop asked for") { f in
+                ComputerUseAgent.shared.previewState(
+                    running: true, status: "Clicking “Displays”",
+                    log: ["Opened System Settings", "Read the sidebar: 24 items", "Scrolled to Displays", "Clicked “Displays”"])
+                ComputerUseAgent.shared.draft = "Turn on Night Shift in System Settings"
+                return AnyView(f.takeover(.drive, chat: f.chat(.complete), expanded: true, mode: .computerUse) { s in
+                    s.askStop = true
+                })
+            },
+            Scenario(name: "takeover-stopped", size: hud, themed: false,
+                     note: "04 Stopped between actions") { f in
+                ComputerUseAgent.shared.previewState(
+                    running: false, status: "Stopped — nothing further will happen.",
+                    log: ["Opened System Settings", "Read the sidebar: 24 items", "Scrolled to Displays", "Clicked “Displays”"])
+                return AnyView(f.takeover(.drive, chat: f.chat(.complete), expanded: true, mode: .computerUse) { s in
+                    s.driveStopped = true
+                })
+            },
+            Scenario(name: "takeover-finale", size: hud, themed: false,
+                     note: "The return: cheat sheet and the way out") { f in
+                AnyView(f.takeover(.finale, chat: f.chat(.complete), expanded: true, mode: .chat))
+            },
+            Scenario(name: "menu-panel", size: CGSize(width: 300, height: 360), themed: true,
+                     note: "The menu-bar dropdown") { f in
+                AnyView(f.menuPanel())
+            },
+            Scenario(name: "settings-appearance", size: CGSize(width: 620, height: 560), themed: true,
+                     note: "Settings → Appearance") { _ in
+                AnyView(AppearancePane()
+                    .padding(24)
+                    .frame(width: 620, height: 560, alignment: .topLeading)
+                    .background(Design.Retro.bg)
+                    .environment(\.colorScheme, VisorTheme.current.isDark ? .dark : .light))
+            },
+            Scenario(name: "takeover-boot", size: hud, themed: false,
+                     note: "The reveal: mark risen from the notch, wordmark, sweep") { f in
+                AnyView(f.takeover(.boot, chat: f.chat(.empty), expanded: false))
+            },
+            Scenario(name: "takeover-summon", size: hud, themed: false,
                      note: "01 Summon: ring around the notch, guide below") { f in
                 AnyView(f.takeover(.summon, chat: f.chat(.empty), expanded: false))
             },
@@ -606,7 +690,7 @@ enum DesignLab {
         /// it: the card and the practice window below, the takeover on top
         /// with holes cut for them.
         func takeover(_ step: TakeoverState.Step, chat: ChatController,
-                      expanded: Bool, mode: VisorMode = .notes, practice: Bool = false,
+                      expanded: Bool, mode: VisorMode = .notes,
                       openAfter: TimeInterval? = nil,
                       configure: (TakeoverState) -> Void = { _ in }) -> some View {
             let bounds = CGRect(x: 0, y: 0, width: 1512, height: 982)
@@ -619,12 +703,9 @@ enum DesignLab {
             let distance = (notch.width + NotchController.notchClearance) / 2 + ModeSwitcher.width / 2
             let switcher = CGRect(x: notchRect.midX - distance - ModeSwitcher.width / 2,
                                   y: notchRect.minY, width: ModeSwitcher.width, height: notch.height)
-            let practiceRect = CGRect(x: bounds.midX - PracticeWindow.size.width / 2,
-                                      y: card.minY - PracticeWindow.size.height - 36,
-                                      width: PracticeWindow.size.width, height: PracticeWindow.size.height)
             let state = TakeoverState(
                 geometry: .init(bounds: bounds, notch: notchRect, card: card, switcher: switcher,
-                                expanded: expanded, practice: practice ? practiceRect : nil),
+                                expanded: expanded),
                 step: step)
             state.stepStarted = DesignLab.liveTiming ? Date() : Date(timeIntervalSinceNow: -30)
             configure(state)
@@ -633,8 +714,6 @@ enum DesignLab {
             ui.mode = mode
             ui.notchSize = notch
             ui.trueNotch = notch
-            let pView = CGRect(x: practiceRect.minX, y: bounds.maxY - practiceRect.maxY,
-                               width: practiceRect.width, height: practiceRect.height)
             return ZStack(alignment: .topLeading) {
                 LinearGradient(colors: [Color(red: 0.30, green: 0.34, blue: 0.48),
                                         Color(red: 0.16, green: 0.18, blue: 0.28)],
@@ -651,21 +730,12 @@ enum DesignLab {
                 StickyRootView(store: notes, ui: ui, ai: ai, chat: chat,
                                onToggle: {}, onMode: { ui.mode = $0 })
                     .frame(width: bounds.width, height: bounds.height, alignment: .top)
-                if practice {
-                    PracticeView(driver: state.practice)
-                        .frame(width: pView.width, height: pView.height)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .offset(x: pView.minX, y: pView.minY)
-                }
                 TakeoverView(state: state, actions: TakeoverActions())
             }
             .environment(\.colorScheme, .dark)
             .onAppear {
                 guard let openAfter else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + openAfter) {
-                    // Exactly as the notch controller does it: one transaction
-                    // for the card and, through the guide's synchronous sink,
-                    // the scrim's hole.
                     withAnimation(Design.Motion.surface) {
                         ui.expanded = true
                         state.geometry.expanded = true

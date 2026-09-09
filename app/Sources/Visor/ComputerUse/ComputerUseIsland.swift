@@ -162,6 +162,8 @@ struct ComputerUseCard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(\.colorScheme, .dark)
         .onAppear { DispatchQueue.main.async { focused = true } }
+        // The introduction types on the user's behalf.
+        .onChange(of: agent.draft) { text in task = text }
     }
 
     private var header: some View {

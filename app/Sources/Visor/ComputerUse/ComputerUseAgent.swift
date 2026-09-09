@@ -17,6 +17,12 @@ final class ComputerUseAgent: ObservableObject {
     @Published private(set) var running = false
     @Published private(set) var status = "Type a task and press ⏎."
     @Published private(set) var log: [String] = []
+    /// Text the introduction types into the card's task field on the
+    /// user's behalf. The card mirrors it into its own field.
+    @Published var draft = ""
+    /// True while a scripted demonstration run is showing in the card.
+    @Published private(set) var demonstrating = false
+    private var demoWork: [DispatchWorkItem] = []
 
     /// The vision model, chosen in the card. It must accept images. Defaults to
     /// a fast one — with the Accessibility element list doing the grounding, the
@@ -60,6 +66,7 @@ final class ComputerUseAgent: ObservableObject {
     }
 
     func stop() {
+        if demonstrating { stopDemo(); return }
         task?.cancel()
         task = nil
         running = false
@@ -645,6 +652,50 @@ final class ComputerUseAgent: ObservableObject {
 
 
 extension ComputerUseAgent {
+    /// A scripted demonstration in the real card: the status and steps a
+    /// run produces, on a timer, without touching the Mac. The
+    /// introduction uses it so computer use is shown in Visor's own face
+    /// before any permission or key exists. Stop cancels it like a real run.
+    func demoRun(steps: [(status: String, line: String)], final: String,
+                 every: TimeInterval = 1.15) {
+        cancelDemo()
+        demonstrating = true
+        running = true
+        log = []
+        status = steps.first?.status ?? "Working…"
+        for (i, step) in steps.enumerated() {
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, self.demonstrating else { return }
+                self.status = step.status
+                self.log.append(step.line)
+            }
+            demoWork.append(work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + every * Double(i + 1), execute: work)
+        }
+        let done = DispatchWorkItem { [weak self] in
+            guard let self, self.demonstrating else { return }
+            self.demonstrating = false
+            self.running = false
+            self.status = final
+        }
+        demoWork.append(done)
+        DispatchQueue.main.asyncAfter(deadline: .now() + every * Double(steps.count + 1), execute: done)
+    }
+
+    /// Stop, for a demonstration: halts between steps, says so, and can be
+    /// resumed by `demoRun` again or left there.
+    func stopDemo() {
+        cancelDemo()
+        demonstrating = false
+        running = false
+        status = "Stopped — nothing further will happen."
+    }
+
+    private func cancelDemo() {
+        demoWork.forEach { $0.cancel() }
+        demoWork.removeAll()
+    }
+
     /// Scripted state for the Design Lab: shows a run without running one.
     /// Same-file extension so the private setters are reachable; the app
     /// never calls this.
