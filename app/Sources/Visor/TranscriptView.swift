@@ -37,7 +37,7 @@ struct TranscriptView<Empty: View>: View {
     /// Within this many points of the end counts as "at the bottom": far
     /// enough that the tail of a growing reply doesn't unpin you, close
     /// enough that a deliberate scroll up does.
-    private static let followThreshold: CGFloat = 48
+    private static var followThreshold: CGFloat { 48 }
 
     var body: some View {
         ScrollViewReader { proxy in
