@@ -25,11 +25,11 @@ struct MessageBody: View {
     @StateObject private var throttle = StreamThrottle()
 
     var body: some View {
+        // The code block style lives inside the theme rather than as a
+        // separate modifier: `.markdownTheme` replaces the whole theme in the
+        // environment, so a block style applied outside it was overwritten.
         Markdown(streaming ? throttle.displayed : content)
             .markdownTheme(.visor(scale: scale))
-            .markdownBlockStyle(\.codeBlock) { configuration in
-                VisorCodeBlock(configuration: configuration, scale: scale)
-            }
             .textSelection(.enabled)
             .onAppear { throttle.push(content, immediate: true) }
             .onChange(of: content) { new in throttle.push(new, immediate: !streaming) }
@@ -188,6 +188,9 @@ extension MarkdownUI.Theme {
             }
             .listItem { configuration in
                 configuration.label.markdownMargin(top: .em(0.2))
+            }
+            .codeBlock { configuration in
+                VisorCodeBlock(configuration: configuration, scale: scale)
             }
             .thematicBreak {
                 Rectangle()

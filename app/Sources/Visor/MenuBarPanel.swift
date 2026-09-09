@@ -29,7 +29,7 @@ struct MenuBarPanel: View {
 
             row("Settings", glyph: Glyph.settings, hint: "⌘,", action: onSettings)
             row("What's New", glyph: Glyph.whatsNew, action: onWhatsNew)
-            row("Introduction", glyph: Glyph.open, action: onIntroduction)
+            row("Introduction", glyph: Glyph.star, action: onIntroduction)
             row("Check for Updates", glyph: Glyph.update, action: onCheckUpdates)
 
             rule()
