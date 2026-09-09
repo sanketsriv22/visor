@@ -31,11 +31,21 @@ enum DesignLab {
         let out = URL(fileURLWithPath: (args[i + 1] as NSString).expandingTildeInPath, isDirectory: true)
         let only = value(after: "--scenario", in: args)
         let theme = value(after: "--theme", in: args)
+        frames = Int(value(after: "--frames", in: args) ?? "") ?? 1
+        every = (Double(value(after: "--every", in: args) ?? "") ?? 250) / 1000
         Task { @MainActor in
             run(out: out, only: only, theme: theme)
         }
         return true
     }
+
+    /// Frame sequences: `--frames 12 --every 250` captures twelve frames a
+    /// quarter-second apart of each chosen scenario, so a transition can be
+    /// judged as motion rather than one still. Fixtures use live timing
+    /// when more than one frame is asked for.
+    static var frames = 1
+    static var every: TimeInterval = 0.25
+    static var liveTiming: Bool { frames > 1 }
 
     private static func value(after flag: String, in args: [String]) -> String? {
         guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
@@ -396,32 +406,46 @@ enum DesignLab {
         }
     }
 
-    /// Give SwiftUI a moment to settle, then draw the view into a 2× bitmap.
+    /// Give SwiftUI a moment to settle, then draw the view into a 2× bitmap
+    /// — once, or as a numbered sequence when frames were asked for.
     private static func snapshot(_ view: NSView?, size: CGSize, to url: URL,
                                  completion: @escaping (Bool) -> Void) {
         guard let view else { completion(false); return }
         view.layoutSubtreeIfNeeded()
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 450_000_000)
-            view.layoutSubtreeIfNeeded()
-            view.displayIfNeeded()
-            let scale: CGFloat = 2
-            guard let rep = NSBitmapImageRep(
-                bitmapDataPlanes: nil,
-                pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
-                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else {
-                completion(false)
-                return
+            try? await Task.sleep(nanoseconds: liveTiming ? 80_000_000 : 450_000_000)
+            var ok = true
+            for frame in 0..<max(1, frames) {
+                view.layoutSubtreeIfNeeded()
+                view.displayIfNeeded()
+                let target: URL
+                if frames > 1 {
+                    let base = url.deletingPathExtension().lastPathComponent
+                    target = url.deletingLastPathComponent()
+                        .appendingPathComponent(String(format: "%@-f%02d.png", base, frame))
+                } else {
+                    target = url
+                }
+                ok = write(view, size: size, to: target) && ok
+                if frame < frames - 1 {
+                    try? await Task.sleep(nanoseconds: UInt64(every * 1_000_000_000))
+                }
             }
-            rep.size = size
-            view.cacheDisplay(in: view.bounds, to: rep)
-            if let png = rep.representation(using: .png, properties: [:]) {
-                completion((try? png.write(to: url)) != nil)
-            } else {
-                completion(false)
-            }
+            completion(ok)
         }
+    }
+
+    private static func write(_ view: NSView, size: CGSize, to url: URL) -> Bool {
+        let scale: CGFloat = 2
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return false }
+        rep.size = size
+        view.cacheDisplay(in: view.bounds, to: rep)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return false }
+        return (try? png.write(to: url)) != nil
     }
 
     // MARK: - Fixtures
@@ -605,7 +629,7 @@ enum DesignLab {
                 geometry: .init(bounds: bounds, notch: notchRect, card: card, switcher: switcher,
                                 expanded: expanded, practice: practice ? practiceRect : nil),
                 step: step)
-            state.stepStarted = Date(timeIntervalSinceNow: -30)
+            state.stepStarted = DesignLab.liveTiming ? Date() : Date(timeIntervalSinceNow: -30)
             configure(state)
             let ui = UIState()
             ui.expanded = expanded

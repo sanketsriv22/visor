@@ -26,6 +26,11 @@ Directly on the MacBook:
 open -n -W /Applications/Visor.app --args --design-lab /tmp/lab --theme all
 ```
 
+Transitions as frame sequences: `scripts/design-lab.sh out --scenario
+takeover-boot --frames 14 --every 250` writes `takeover-boot-f00.png` …
+`-f13.png` a quarter-second apart with live timing, so the reveal, the
+practice driver and the pixel field can be judged as motion.
+
 Font can be pinned the same way UserDefaults arguments always work:
 `--args --design-lab /tmp/lab -visor.fontFamily "Departure Mono"`.
 

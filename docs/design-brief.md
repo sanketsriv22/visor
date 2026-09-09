@@ -141,27 +141,33 @@ focus or window ordering.
 
 ## Onboarding
 
-The introduction is a screen takeover, not a window. The Mac dims; a guide
-draws rough accent strokes on the real screen and waits for the real
-thing to happen: click the notch → type a task and press Return → flip to
-chat → send a message (the one scripted reply, so no key is needed) →
-expand into the HUD and come back → make Visor disappear → summon it. The
-one question it answers, on every step and again at the end, is *how do I
-get Visor back?*
+The introduction is a screen takeover built from the product's own
+components (`docs/onboarding-concepts.md` has the two concepts and the
+choice). Eight moments, each advancing when the real thing happens:
+wake (the mark rises from the notch) → summon with the real shortcut →
+connect a detected agent, add a key, or go on with a labelled stand-in →
+send a pre-filled first task and answer its approval → let a scripted
+driver work a practice window → stop it and continue → ask something of
+your own → return into the notch. The one question it answers on every
+step and again at the end is *how do I get Visor back?*
 
 Rules the takeover keeps:
 
-- It is a panel at the notch's level, ordered **above** the notch's
-  windows and **never key**. Its scrim has a real transparent hole where
-  the card and the notch are, so clicks fall through to the real controls
-  and strokes drawn over the card stay visible. Over the HUD the scrim is
-  gone entirely; only the guide stays.
-- It advances on real state (`UIState`, `NotesStore.items`,
-  `ChatController.demoTurns`), never on timers except the boot and the
-  HUD-landed pause.
-- Skip is always one click away, top right. Replay lives in the menu-bar
-  panel.
-- Reduce Motion turns off the pixel field, the sweep and the typing.
+- A panel at the notch's level, above the notch's windows, never key, with
+  real transparent holes for the card, the notch's click band and the
+  practice window, so clicks fall through to them. Hidden during a
+  Settings excursion; back when Settings closes, re-checking what changed.
+- It advances on real state (`UIState`, `ChatController` approvals and
+  streaming, `PracticeDriver`), never on timers except the reveal and
+  short pauses after a success.
+- Progress persists past connect, the first task and the practice
+  (`visor.intro.progress`). Skip and Back are always one click away;
+  replay from the menu-bar panel or Settings starts fresh.
+- Practice computer use is scripted, and says so: `ComputerUseAgent` will
+  not drive Visor's own windows. The real computer-use face is one click
+  away afterwards.
+- Reduce Motion turns off the pixel field, the sweep and the typing;
+  Reduce Transparency is inherited from the surfaces underneath.
 
 ## Verification loop
 
