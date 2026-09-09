@@ -24,9 +24,19 @@ h2{font-size:15px;margin:0 0 4px}.note{color:var(--dim);font-size:13px;margin:0 
 .pair figure{margin:0}.pair figcaption{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:0 0 6px}
 .pair img{width:100%;height:auto;border:1px solid var(--line);border-radius:8px;display:block}
 .only{grid-template-columns:1fr}
+.changes{margin:0 0 32px;padding:0 0 0 18px;color:var(--ink);max-width:80ch}.changes li{margin:0 0 4px}.changes b{font-weight:600}
+h1{letter-spacing:-.01em}
 </style>
-<h1>Visor redesign — before and after</h1>
-<p class="lead">Same fixtures, same theme (Midnight Purple), same display size, rendered through the Design Lab. Before is the build from the start of the redesign; after is the current branch. Captures show layout, type, density and hierarchy; focus, hover, caret and window ordering are hardware checks and are not represented here.</p>
+<h1>Visor Redesign Evidence</h1>
+<p class="lead">Same fixtures, same theme (Midnight Purple), same 1512 × 982 point stage, rendered through the Design Lab at 2×. <strong>Before</strong> is the branch at the start of the redesign (builds 384–394); <strong>after</strong> is the current branch. Captures show layout, type, density and hierarchy. Focus, hover, caret, window ordering and the real notch's alignment are hardware checks and are not represented here. The two <em>study</em> pairs compare the shipping clarity direction with the retro study on identical content; the <em>reveal</em> and <em>practice</em> frames are quarter- and half-second sequences from the introduction.</p>
+<ul class="changes">
+<li><b>Tokens</b> — six type roles, 4pt spacing, controls at 24/28/32, radii by role, device-pixel hairlines, three surface levels, four motion presets.</li>
+<li><b>Compact card</b> — the agent's identity leads; agent-first invitation with example requests; assistant replies unboxed at full measure; approvals on the accent.</li>
+<li><b>Selectors</b> — one family for model, reasoning/speed, CLI model and agent; content-sized, then scrolling.</li>
+<li><b>HUD</b> — conversation dominant at a 720pt measure; rails sized to content, collapsible, no borders; a thicker, darker glass.</li>
+<li><b>Computer use</b> — task field in the composer's clothes; current action, numbered steps, Stop.</li>
+<li><b>Introduction</b> — eight moments on the real product: wake, summon, connect, first task with approval, practice window, stop and continue, your turn, return.</li>
+</ul>
 HTML
 for s in "${scenes[@]}"; do
   b="$BEFORE/$s.png"; a="$AFTER/$s.png"
