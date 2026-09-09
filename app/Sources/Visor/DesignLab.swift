@@ -497,7 +497,8 @@ enum DesignLab {
             let switcher = CGRect(x: notchRect.midX - distance - ModeSwitcher.width / 2,
                                   y: notchRect.minY, width: ModeSwitcher.width, height: notch.height)
             let state = TakeoverState(
-                geometry: .init(bounds: bounds, notch: notchRect, card: card, switcher: switcher),
+                geometry: .init(bounds: bounds, notch: notchRect, card: card, switcher: switcher,
+                                expanded: expanded),
                 step: step)
             state.stepStarted = Date(timeIntervalSinceNow: -30)
             let ui = UIState()

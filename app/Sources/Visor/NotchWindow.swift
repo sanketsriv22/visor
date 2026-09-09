@@ -626,7 +626,8 @@ final class NotchController {
         let switcher = NSRect(x: notch.midX - distance - ModeSwitcher.width / 2,
                               y: notch.minY, width: ModeSwitcher.width, height: notch.height)
         return TakeoverState.Geometry(bounds: screen.frame, notch: notch, card: card,
-                                      switcher: switcher, hud: ui.mode.isFullScreen)
+                                      switcher: switcher, expanded: ui.expanded,
+                                      hud: ui.mode.isFullScreen)
     }
 
     /// Put the notch's windows above whatever was just ordered in at the same

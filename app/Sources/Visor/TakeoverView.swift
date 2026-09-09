@@ -27,17 +27,23 @@ struct TakeoverView: View {
             let notch = view(state.geometry.notch)
             let origin = CGPoint(x: notch.midX, y: notch.maxY)
 
+            let holes = holes(size: size)
+
             ZStack(alignment: .topLeading) {
-                // The scrim. Thin over the HUD so the glass stays readable.
-                Color.black
-                    .opacity(scrimOpacity)
-                    .animation(.easeInOut(duration: 0.5), value: state.step)
+                // The scrim, with the card and the notch cut out of it. The
+                // cut is real transparency, which is what lets clicks fall
+                // through this window to the controls underneath.
+                Cutout(holes: holes)
+                    .fill(Color.black.opacity(scrimOpacity), style: FillStyle(eoFill: true))
+                    .animation(.easeInOut(duration: 0.4), value: state.step)
 
                 if !reduced {
-                    Scanlines().opacity(state.geometry.hud ? 0.35 : 1)
-                    if state.step == .boot { CRTSweep(start: state.stepStarted, height: size.height) }
-                    PixelField(origin: origin, size: size, burstAt: state.lastBurst,
-                               density: state.geometry.hud ? 0.35 : 1)
+                    Group {
+                        Scanlines()
+                        if state.step == .boot { CRTSweep(start: state.stepStarted, height: size.height) }
+                        PixelField(origin: origin, size: size, burstAt: state.lastBurst)
+                    }
+                    .mask(Cutout(holes: holes).fill(style: FillStyle(eoFill: true)))
                 }
 
                 annotations(size: size)
@@ -58,7 +64,9 @@ struct TakeoverView: View {
             }
             .onAppear {
                 withAnimation(Design.Motion.animation(.easeOut(duration: 0.85))) { draw = 1 }
-                let settle = reduced ? 0.1 : 0.9
+                // Rendered late (the lab): skip straight to the settled mark.
+                if Date().timeIntervalSince(state.stepStarted) > 1.5 { bootPhase = 1 }
+                let settle = reduced ? 0.1 : 0.35
                 let fly = reduced ? 0.5 : 2.6
                 DispatchQueue.main.asyncAfter(deadline: .now() + settle) {
                     withAnimation(Design.Motion.animation(.easeOut(duration: 0.4))) { bootPhase = 1 }
@@ -76,8 +84,19 @@ struct TakeoverView: View {
 
     private var scrimOpacity: Double {
         if state.leaving { return 0 }
-        if state.geometry.hud { return 0.22 }
         return state.step == .boot ? 0.9 : 0.78
+    }
+
+    /// Where the scrim is not: the whole screen while the HUD is up, the
+    /// card plus the notch while the card is open, the notch's click band
+    /// otherwise.
+    private func holes(size: CGSize) -> [CGRect] {
+        let g = state.geometry
+        if g.hud { return [CGRect(origin: .zero, size: size)] }
+        let strip = notchRect.insetBy(dx: -6, dy: 0)
+        let band = CGRect(x: strip.minX, y: strip.minY, width: strip.width, height: strip.height + 10)
+        if g.expanded { return [card, band] }
+        return [band]
     }
 
     // MARK: Coordinates
@@ -268,7 +287,8 @@ struct TakeoverView: View {
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Design.Retro.bg.opacity(0.96)))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(accent.opacity(0.5), lineWidth: 1))
         .shadow(color: accent.opacity(0.25), radius: 40)
-        .position(x: size.width / 2, y: size.height / 2 + 60)
+        // Below the card, never over it.
+        .position(x: size.width / 2, y: max(size.height / 2 + 40, card.maxY + 40 + 250))
         .transition(.opacity.combined(with: .scale(scale: 0.96)))
         .accessibilityIdentifier("visor.takeover.finale")
     }
@@ -332,8 +352,8 @@ private struct GuideBubble: View {
             .shadow(color: .black.opacity(0.5), radius: 24, y: 8)
             .shadow(color: Design.Retro.accent.opacity(0.18), radius: 30)
 
-            HeroMark(size: 46)
-                .offset(x: -22, y: -22)
+            HeroMark(size: 60)
+                .offset(x: -30, y: -30)
         }
         .accessibilityIdentifier("visor.takeover.bubble")
     }
@@ -528,6 +548,25 @@ private struct PixelField: View {
             return v - floor(v)
         }
         return (r(1), r(2), r(3), r(4))
+    }
+}
+
+/// The screen minus some rectangles, for an even-odd fill or mask. The card
+/// hole keeps the card's rounded bottom so the scrim hugs its silhouette.
+struct Cutout: Shape {
+    let holes: [CGRect]
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.addRect(rect)
+        for hole in holes {
+            if hole.height > 200 {
+                path.addRoundedRect(in: hole, cornerSize: CGSize(width: 18, height: 18))
+            } else {
+                path.addRect(hole)
+            }
+        }
+        return path
     }
 }
 

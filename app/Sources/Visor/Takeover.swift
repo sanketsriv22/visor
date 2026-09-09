@@ -26,6 +26,8 @@ final class TakeoverState: ObservableObject {
         var card: CGRect
         /// The mode switcher, on the notch's left shoulder.
         var switcher: CGRect
+        /// Whether the card is open (the hole in the scrim follows it).
+        var expanded = false
         /// Whether the HUD is up, which changes what the scrim has to do.
         var hud = false
     }
@@ -148,9 +150,11 @@ final class TakeoverGuide {
             onAddAgent: { [weak self] in self?.addAgent() },
             onDone: { [weak self] in self?.finish() }))
         panel.setFrame(frame, display: false)
-        // Shown, then the notch's own windows go back on top of it.
+        // Above the notch's windows. The scrim has a hole cut where the
+        // card and the notch are, so clicks there fall through to the real
+        // controls; the notch re-orders its own windows on every expand, so
+        // this panel is re-fronted after each change too.
         panel.orderFrontRegardless()
-        controller.bringToFront()
         self.panel = panel
 
         // The story starts with the notch closed, on the notes face.
@@ -210,6 +214,9 @@ final class TakeoverGuide {
 
     private func refreshGeometry() {
         if let geo = controller.takeoverGeometry() { state.geometry = geo }
+        // The notch orders its card (and the HUD) front when they appear;
+        // this goes back on top on the next turn of the loop.
+        DispatchQueue.main.async { [weak self] in self?.panel?.orderFrontRegardless() }
     }
 
     private func expandedChanged(_ expanded: Bool) {
@@ -238,16 +245,12 @@ final class TakeoverGuide {
             demoBaseline = controller.chat.demoTurns
             celebrate(then: .ask)
         case .expandHUD where mode.isFullScreen:
-            // Above the HUD so the guide reads over the glass; the scrim
-            // thins for the same reason. Esc still reaches the HUD because
-            // this panel is never key.
+            // Over the HUD the scrim goes away entirely and only the guide
+            // stays. Esc still reaches the HUD because this panel is never key.
             schedule(after: Design.Motion.reduced ? 0.3 : 1.4) { [weak self] in
-                guard let self else { return }
-                self.panel?.orderFrontRegardless()
-                self.advance(to: .backDown)
+                self?.advance(to: .backDown)
             }
         case .backDown where !mode.isFullScreen:
-            controller.bringToFront()
             celebrate(then: .hide)
         default:
             break

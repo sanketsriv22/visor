@@ -151,9 +151,11 @@ get Visor back?*
 
 Rules the takeover keeps:
 
-- It is a panel at the notch's level, ordered **under** the notch's
-  windows and **never key**, so the card is clickable and typeable through
-  it. During the HUD steps it moves above the glass and thins its scrim.
+- It is a panel at the notch's level, ordered **above** the notch's
+  windows and **never key**. Its scrim has a real transparent hole where
+  the card and the notch are, so clicks fall through to the real controls
+  and strokes drawn over the card stay visible. Over the HUD the scrim is
+  gone entirely; only the guide stays.
 - It advances on real state (`UIState`, `NotesStore.items`,
   `ChatController.demoTurns`), never on timers except the boot and the
   HUD-landed pause.
