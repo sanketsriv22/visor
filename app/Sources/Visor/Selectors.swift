@@ -112,6 +112,8 @@ private struct SelectorRowView: View {
             }
             .buttonStyle(.visorBare)
             .disabled(!row.enabled)
+            .accessibilityIdentifier("visor.selector.row.\(row.id)")
+            .accessibilityAddTraits(row.selected ? .isSelected : [])
 
             if let accessory { accessory }
         }

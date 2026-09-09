@@ -6,7 +6,9 @@ keep doing so unless the owner explicitly raises it.
 
 ## Before any UI work
 
-Read `docs/design-brief.md`. It holds the design principles, the window and
+Read `docs/design-system.md` (tokens, components, rules — the source of
+truth for every surface, onboarding included) and `docs/design-brief.md`. The
+brief holds the design principles, the window and
 focus invariants that earlier bugs paid for, the transition spec, and the
 regression scenarios. Do not undo an invariant to fix a symptom.
 
