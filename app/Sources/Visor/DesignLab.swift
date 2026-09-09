@@ -511,7 +511,6 @@ enum DesignLab {
                                         Color(red: 0.16, green: 0.18, blue: 0.28)],
                                startPoint: .top, endPoint: .bottom)
                 Rectangle().fill(Color.black.opacity(0.28)).frame(height: notch.height)
-                TakeoverView(state: state, onSkip: {}, onAddAgent: {}, onDone: {})
                 UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 10,
                                        bottomTrailingRadius: 10, topTrailingRadius: 0)
                     .fill(Color.black)
@@ -520,6 +519,8 @@ enum DesignLab {
                     StickyRootView(store: notes, ui: ui, ai: ai, chat: chat,
                                    onToggle: {}, onMode: { ui.mode = $0 })
                 }
+                // On top, as the app orders it; the scrim's hole shows the card.
+                TakeoverView(state: state, onSkip: {}, onAddAgent: {}, onDone: {})
             }
             .environment(\.colorScheme, .dark)
         }
