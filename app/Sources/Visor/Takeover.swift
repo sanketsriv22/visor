@@ -60,10 +60,12 @@ final class TakeoverState: ObservableObject {
     /// Practice and control steps.
     let practice: PracticeDriver
 
-    init(geometry: Geometry, step: Step = .boot, practice: PracticeDriver = PracticeDriver()) {
+    /// `practice` is optional rather than defaulted: the driver is
+    /// main-actor isolated and a default argument is evaluated outside it.
+    init(geometry: Geometry, step: Step = .boot, practice: PracticeDriver? = nil) {
         self.geometry = geometry
         self.step = step
-        self.practice = practice
+        self.practice = practice ?? PracticeDriver()
     }
 
     struct Line {

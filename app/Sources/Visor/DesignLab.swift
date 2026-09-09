@@ -241,18 +241,6 @@ enum DesignLab {
                      note: "The takeover powering on: hero mark, wordmark, sweep") { f in
                 AnyView(f.takeover(.boot, chat: f.chat(.empty), expanded: false))
             },
-            Scenario(name: "takeover-notch", size: hud, themed: false,
-                     note: "Step 1: ring around the notch, guide below") { f in
-                AnyView(f.takeover(.clickNotch, chat: f.chat(.empty), expanded: false))
-            },
-            Scenario(name: "takeover-note", size: hud, themed: false,
-                     note: "Step 2: the note is open, ring on the add-task button") { f in
-                AnyView(f.takeover(.addTask, chat: f.chat(.empty), expanded: true, mode: .notes))
-            },
-            Scenario(name: "takeover-ask", size: hud, themed: false,
-                     note: "Step 4: chat face, ring on the composer") { f in
-                AnyView(f.takeover(.ask, chat: f.chat(.empty), expanded: true, mode: .chat))
-            },
             Scenario(name: "takeover-finale", size: hud, themed: false,
                      note: "The cheat sheet and the way out") { f in
                 AnyView(f.takeover(.finale, chat: f.chat(.complete), expanded: true, mode: .chat))
