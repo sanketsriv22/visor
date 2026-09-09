@@ -6,12 +6,16 @@ let package = Package(
     platforms: [.macOS(.v13)],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
+        // Block-level Markdown for replies: headings, lists, tables, fences.
+        // Supports macOS 12+, so the macOS 13 floor stays where it is.
+        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.1.0"),
     ],
     targets: [
         .executableTarget(
             name: "Visor",
             dependencies: [
                 .product(name: "Sparkle", package: "Sparkle"),
+                .product(name: "MarkdownUI", package: "swift-markdown-ui"),
             ],
             path: "Sources/Visor",
             // Menu-bar icon PNGs live here as build inputs for make-app.sh, which

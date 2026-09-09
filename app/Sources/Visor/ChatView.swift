@@ -19,7 +19,6 @@ struct ChatCard: View {
     var onClose: () -> Void
 
     @State private var copied = false
-    @State private var draftHeight: CGFloat = 16
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,8 +28,10 @@ struct ChatCard: View {
             if chat.showingHistory {
                 history
             } else {
-                transcript
-                composer
+                TranscriptView(chat: chat, layout: .compact) { emptyState }
+                Composer(chat: chat, layout: .compact)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
             }
         }
         // Chrome and size belong to StickyRootView, so the card morphs between
@@ -79,16 +80,20 @@ struct ChatCard: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.visor)
+                    .accessibilityIdentifier("visor.chat.stop")
                     .help("Stop the reply — this also stops it being billed")
                 }
                 // Two buttons and an overflow. Five icon-only controls in a
                 // 106pt strip is a puzzle, not a toolbar — new chat and expand
                 // are the ones worth a permanent slot.
                 headerButton("square.and.pencil", "New chat") { chat.newChat() }
+                    .accessibilityIdentifier("visor.chat.new")
                 headerButton("arrow.up.left.and.arrow.down.right",
                              "Expand to HUD — \(ShortcutSettings.hint(.hud))",
                              action: onHUD)
+                    .accessibilityIdentifier("visor.chat.hud")
                 overflowMenu.frame(width: 20)
+                    .accessibilityIdentifier("visor.chat.overflow")
                 Spacer(minLength: 0)
             }
             .frame(width: NotchController.shoulderWidth, alignment: .leading)
@@ -172,6 +177,7 @@ struct ChatCard: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        .accessibilityIdentifier("visor.chat.agent")
     }
 
     /// Everything that doesn't need to be one click away.
@@ -209,49 +215,7 @@ struct ChatCard: View {
         .help("Past chats, export, settings")
     }
 
-    // MARK: - Transcript
-
-    private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    if chat.conversation.messages.isEmpty {
-                        emptyState
-                    }
-                    ForEach(chat.conversation.messages) { message in
-                        MessageRow(message: message,
-                                   isStreaming: chat.isStreaming && message.id == chat.conversation.messages.last?.id)
-                            .id(message.id)
-                    }
-                    if let pending = chat.pendingApproval {
-                        ToolApprovalRow(pending: pending,
-                                        allow: { chat.approvePending(always: false) },
-                                        allowAlways: { chat.approvePending(always: true) },
-                                        deny: chat.denyPending)
-                            .id("approval")
-                    }
-                    if let error = chat.error {
-                        Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.orange)
-                            .padding(.top, 2)
-                            .id("error")
-                    }
-                    // Anchor to scroll to; scrolling to the last message would
-                    // stop short of the composer while text is still growing.
-                    Color.clear.frame(height: 1).id("bottom")
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-            }
-            .onChange(of: chat.conversation.messages.last?.content) { _ in
-                proxy.scrollTo("bottom", anchor: .bottom)
-            }
-            .onChange(of: chat.conversation.messages.count) { _ in
-                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
-            }
-        }
-    }
+    // MARK: - Empty transcript
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -278,82 +242,6 @@ struct ChatCard: View {
             }
         }
         .padding(.top, 6)
-    }
-
-    // MARK: - Composer
-
-    private var composer: some View {
-        VStack(spacing: 7) {
-            ZStack(alignment: .topLeading) {
-                if chat.draft.isEmpty {
-                    Text("Message \(chat.agent?.name ?? "your agent")…")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.3))
-                        .allowsHitTesting(false)
-                }
-                ComposerField(text: $chat.draft, onSubmit: chat.send) { height in
-                    // Clamped here rather than in the field: the field
-                    // measures, the composer decides how much room to give.
-                    let clamped = min(max(height, 16), Self.composerMaxHeight)
-                    if abs(clamped - draftHeight) > 0.5 { draftHeight = clamped }
-                }
-            }
-            .frame(height: draftHeight)
-            .animation(.easeOut(duration: 0.12), value: draftHeight)
-
-            // The model belongs here, not two rows up: it's a decision you
-            // make about the message you're writing.
-            HStack(spacing: 6) {
-                // Only for hosted agents: a local CLI agent picks its model
-                // through its own arguments, so offering OpenRouter's
-                // catalogue here was a control that silently did nothing.
-                if chat.agent?.isChat ?? false {
-                    InlineModelPicker(chat: chat)
-                    ComposerOptions(chat: chat)
-                } else if chat.isCLIAgent {
-                    CLIModelPicker(chat: chat)
-                }
-
-                // No "working" here and no keyboard hint. The transcript
-                // already shows the agent thinking, where the reply will
-                // appear; saying it twice is noise, and the ↩ / ⌘. glyph read
-                // as a second button rather than a hint.
-                Spacer(minLength: 0)
-
-                Button(action: chat.isStreaming ? chat.stop : chat.send) {
-                    Image(systemName: chat.isStreaming ? "stop.circle.fill" : "arrow.up.circle.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(chat.isStreaming
-                                         ? Color.orange
-                                         : (canSend ? Color.white.opacity(0.9) : Color.white.opacity(0.22)))
-                }
-                .buttonStyle(.visorBare)
-                .disabled(!chat.isStreaming && !canSend)
-                .keyboardShortcut(chat.isStreaming ? "." : .return, modifiers: [.command])
-            }
-            // Fixed, because a hosted agent shows three controls here and a CLI
-            // agent shows one label — without this the whole composer changed
-            // height as you switched between them.
-            .frame(height: 20)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(
-            RoundedRectangle(cornerRadius: Design.Radius.panel)
-                .fill(Design.Surface.hover)
-                .overlay(RoundedRectangle(cornerRadius: Design.Radius.panel)
-                    .stroke(.white.opacity(0.09), lineWidth: 1)))
-        .padding(.horizontal, 12)
-        .padding(.bottom, 12)
-    }
-
-    /// Three lines, then it scrolls. Enough to see what you're writing
-    /// without the composer eating the transcript it belongs to.
-    static let composerMaxHeight: CGFloat = 48
-
-    private var canSend: Bool {
-        !chat.isStreaming
-            && !chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - History
@@ -443,6 +331,7 @@ struct MessageRow: View {
                     .font(.system(size: 12 * scale))
                     .foregroundStyle(.white.opacity(0.92))
                     .textSelection(.enabled)
+                    .accessibilityIdentifier("visor.message.user")
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
                     .background(
@@ -496,28 +385,12 @@ struct MessageRow: View {
         }
     }
 
-    /// Markdown is parsed only once the reply is complete. Re-parsing an
-    /// attributed string on every streamed token is the difference between a
-    /// smooth stream and a stuttering one.
-    @ViewBuilder
+    /// Real Markdown blocks, streamed on a throttle and settled once the
+    /// reply completes — see `MessageBody`.
     private var replyText: some View {
-        if isStreaming {
-            Text(message.content)
-                .font(.system(size: 12 * scale))
-                .foregroundStyle(.white.opacity(0.88))
-        } else {
-            Text(Self.rendered(message.content))
-                .font(.system(size: 12 * scale))
-                .foregroundStyle(.white.opacity(0.88))
-                .textSelection(.enabled)
-        }
-    }
-
-    private static func rendered(_ markdown: String) -> AttributedString {
-        (try? AttributedString(
-            markdown: markdown,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(markdown)
+        MessageBody(content: message.content, streaming: isStreaming, scale: scale)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("visor.message.assistant")
     }
 }
 
@@ -628,6 +501,7 @@ struct ModeSwitcher: View {
                 // The selected fill is the style's business now, so the
                 // switcher's "on" state matches every other on state.
                 .buttonStyle(.visor(active: candidate == mode))
+                .accessibilityIdentifier("visor.mode.\(candidate.rawValue)")
                 .help(candidate == .computerUse
                       ? "Computer Use — click to open"
                       : "\(candidate.title) — \(ShortcutSettings.hint(.swapMode)) swaps from anywhere")
@@ -1437,12 +1311,17 @@ struct HUDView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.visor)
+                .accessibilityIdentifier("visor.hud.exit")
                 .help("Back to the notch — Esc, or \(ShortcutSettings.hint(.hud))")
             }
 
-            HUDTranscript(chat: chat)
+            TranscriptView(chat: chat, layout: .hud, active: visible) { EmptyView() }
+                .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
+                    .fill(.white.opacity(0.04)))
+                .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
+                    .stroke(Design.Surface.hairline, lineWidth: 1))
 
-            HUDComposer(chat: chat)
+            Composer(chat: chat, layout: .hud)
         }
         .frame(maxWidth: .infinity)
     }
@@ -1559,118 +1438,6 @@ struct HUDView: View {
                 }
             }
         }
-    }
-}
-
-/// The transcript, sized for the HUD.
-private struct HUDTranscript: View {
-    @ObservedObject var chat: ChatController
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    ForEach(chat.conversation.messages) { message in
-                        MessageRow(message: message,
-                                   isStreaming: chat.isStreaming
-                                       && message.id == chat.conversation.messages.last?.id)
-                    }
-                    if let pending = chat.pendingApproval {
-                        ToolApprovalRow(pending: pending,
-                                        allow: { chat.approvePending(always: false) },
-                                        allowAlways: { chat.approvePending(always: true) },
-                                        deny: chat.denyPending)
-                    }
-                    if let error = chat.error {
-                        Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.orange)
-                    }
-                    Color.clear.frame(height: 1).id("bottom")
-                }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .onChange(of: chat.conversation.messages.last?.content) { _ in
-                proxy.scrollTo("bottom", anchor: .bottom)
-            }
-        }
-        .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-            .fill(.white.opacity(0.04)))
-        .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-            .stroke(Design.Surface.hairline, lineWidth: 1))
-    }
-}
-
-/// The composer, wider and taller than in the notch but the same control.
-private struct HUDComposer: View {
-    @ObservedObject var chat: ChatController
-
-    var body: some View {
-        VStack(spacing: 12) {
-            ZStack(alignment: .topLeading) {
-                if chat.draft.isEmpty {
-                    Text("Message \(chat.agent?.name ?? "your agent")…")
-                        // Matches the field's own point size — at full screen the
-                        // old 13pt read as a caption against everything else.
-                        .font(.system(size: 15))
-                        .foregroundStyle(.white.opacity(0.3))
-                        .allowsHitTesting(false)
-                }
-                ComposerField(text: $chat.draft, onSubmit: chat.send, fontSize: 15)
-            }
-            .frame(height: 66)
-
-            // A hairline between the message and its controls, so the row of
-            // pickers reads as a toolbar for the field above rather than a
-            // second thing floating in the same box.
-            Rectangle()
-                .fill(.white.opacity(0.07))
-                .frame(height: 1)
-
-            HStack(spacing: 8) {
-                // Gated exactly as the notch composer is. Ungated, the HUD
-                // offered OpenRouter's whole catalogue to a Claude Code agent
-                // — hundreds of models it has no way to run, from providers
-                // that have nothing to do with the subscription it's using.
-                // Two composers for one conversation is two places to get this
-                // right, and this was the one that got missed.
-                if chat.agent?.isChat ?? false {
-                    InlineModelPicker(chat: chat)
-                    ComposerOptions(chat: chat)
-                } else if chat.isCLIAgent {
-                    CLIModelPicker(chat: chat)
-                }
-                if chat.isStreaming {
-                    DotMatrixIndicator(size: 11)
-                    Text("working").font(.system(size: 9)).foregroundStyle(.white.opacity(0.4))
-                }
-                Spacer(minLength: 0)
-                Button(action: chat.isStreaming ? chat.stop : chat.send) {
-                    Image(systemName: chat.isStreaming
-                          ? "stop.circle.fill" : "arrow.up.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundStyle(chat.isStreaming ? Color.orange
-                                         : (canSend ? Color.white : Color.white.opacity(0.25)))
-                }
-                .buttonStyle(.visorBare)
-                .disabled(!chat.isStreaming && !canSend)
-                // No ⌘↩ here: the field already sends on Return, and the notch
-                // composer (mounted at the same time) owns that chord — two
-                // views claiming it is how you get a shortcut that fires twice.
-            }
-        }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-            .fill(Design.Surface.raised))
-        .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-            .stroke(.white.opacity(0.09), lineWidth: 1))
-    }
-
-    private var canSend: Bool {
-        !chat.isStreaming
-            && !chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -2464,10 +2231,13 @@ struct ToolApprovalRow: View {
                 Button("Allow", action: allow)
                     .buttonStyle(.visorBare)
                     .composerPill(active: true)
+                    .accessibilityIdentifier("visor.approval.allow")
                 Button("Always", action: allowAlways)
                     .buttonStyle(.visorBare)
                     .composerPill()
+                    .accessibilityIdentifier("visor.approval.always")
                 Button("Deny", action: deny)
+                    .accessibilityIdentifier("visor.approval.deny")
                     .buttonStyle(.visorBare)
                     .composerPill()
                 Spacer(minLength: 0)

@@ -16,6 +16,12 @@ final class ChatController: ObservableObject {
     /// attempt — this is the app's only channel for explaining itself.
     @Published private(set) var error: String?
     @Published var showingHistory = false
+    /// Where the reader is in the transcript, shared by the notch card and the
+    /// HUD so a surface change lands on the same message. Not published: the
+    /// transcript writes these on every scroll and nothing else needs to
+    /// re-render for it.
+    var transcriptFollowing = true
+    var readingAnchor: UUID?
     /// A tool run waiting on the user. While this is set the turn is paused —
     /// nothing runs and no request is in flight.
     @Published private(set) var pendingApproval: PendingApproval?
