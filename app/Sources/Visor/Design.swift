@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The one place the app's visual constants live.
@@ -57,6 +58,25 @@ enum Design {
     /// Short enough to feel immediate, long enough not to snap.
     static let hover = Animation.easeOut(duration: 0.11)
     static let press = Animation.easeOut(duration: 0.07)
+
+    /// Surface motion, gated on the system accessibility settings.
+    ///
+    /// Every animation that moves a surface — the card opening, the faces
+    /// swapping, the HUD unfolding — goes through `animation(_:)`, which
+    /// returns `nil` under Reduce Motion so the change lands in one frame
+    /// and nothing is left mid-flight. Read live rather than cached: the
+    /// setting can change while the app runs.
+    enum Motion {
+        static var reduced: Bool {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        }
+        static var reducedTransparency: Bool {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        }
+        static func animation(_ animation: Animation) -> Animation? {
+            reduced ? nil : animation
+        }
+    }
 }
 
 /// A control that responds to being hovered and to being pressed.

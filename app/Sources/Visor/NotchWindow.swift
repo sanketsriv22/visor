@@ -642,7 +642,7 @@ final class NotchController {
         // Neither window changes size here. The HUD has its own, built at
         // full screen and simply shown or hidden, so the transition is pure
         // SwiftUI on both sides.
-        withAnimation(curve) { ui.mode = mode }
+        withAnimation(Design.Motion.animation(curve)) { ui.mode = mode }
         if mode.isFullScreen { showHUD() } else { hideHUD() }
     }
 
@@ -661,7 +661,7 @@ final class NotchController {
         }
         applyFrame(expanded: true)
         ui.settling = true
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.95)) {
+        withAnimation(Design.Motion.animation(.spring(response: 0.34, dampingFraction: 0.95))) {
             ui.mode = .computerUse
             ui.expanded = true
         }
@@ -986,7 +986,7 @@ final class NotchController {
             // Suppress the notch hover popup until the collapse + window resize
             // settle, so it doesn't reflow right-to-left under a resting cursor.
             ui.settling = true
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            withAnimation(Design.Motion.animation(.spring(response: 0.3, dampingFraction: 0.85))) {
                 ui.expanded = false
             }
             panel.resignKey()
@@ -997,7 +997,7 @@ final class NotchController {
                 self.applyFrame(expanded: false)
                 // Window is now its final notch size — let the popup appear cleanly.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    withAnimation(.easeInOut(duration: 0.2)) { self.ui.settling = false }
+                    withAnimation(Design.Motion.animation(.easeInOut(duration: 0.2))) { self.ui.settling = false }
                 }
             }
         } else if UserDefaults.standard.bool(forKey: hudResumeKey) {
@@ -1009,7 +1009,7 @@ final class NotchController {
             ui.settling = true
             // Higher damping so the card settles at its resting spot instead
             // of overshooting (dropping too low) before springing back.
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.95)) {
+            withAnimation(Design.Motion.animation(.spring(response: 0.34, dampingFraction: 0.95))) {
                 ui.expanded = true
             }
             panel.makeKeyAndOrderFront(nil)
@@ -1041,7 +1041,7 @@ final class NotchController {
         panel.orderFront(nil)
 
         ui.settling = true
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+        withAnimation(Design.Motion.animation(.spring(response: 0.42, dampingFraction: 0.86))) {
             ui.mode = .chat
             ui.expanded = false
         }
@@ -1050,7 +1050,7 @@ final class NotchController {
         let work = DispatchWorkItem { [weak self] in
             guard let self, !self.ui.expanded else { return }
             self.hudPanel?.orderOut(nil)
-            withAnimation(.easeInOut(duration: 0.2)) { self.ui.settling = false }
+            withAnimation(Design.Motion.animation(.easeInOut(duration: 0.2))) { self.ui.settling = false }
         }
         panelWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.62, execute: work)
@@ -1064,7 +1064,7 @@ final class NotchController {
         UserDefaults.standard.set(VisorMode.hud.rawValue, forKey: modeKey)
         applyFrame(expanded: true)
         ui.settling = true
-        withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) {
+        withAnimation(Design.Motion.animation(.spring(response: 0.55, dampingFraction: 0.78))) {
             ui.mode = .hud
             ui.expanded = true
         }

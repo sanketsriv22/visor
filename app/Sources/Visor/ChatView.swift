@@ -1222,8 +1222,12 @@ struct HUDView: View {
             // only the black overlay moved, so the blur stayed at full strength
             // and the HUD could never be more than translucent no matter how
             // far the slider went.
+            // Under Reduce Transparency the glass is a plain dark fill: the
+            // overlay still reads as an overlay by its edge, not its blur.
             RoundedRectangle(cornerRadius: Design.Radius.surface, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(Design.Motion.reducedTransparency
+                      ? AnyShapeStyle(Color.black.opacity(0.94))
+                      : AnyShapeStyle(.ultraThinMaterial))
                 .overlay(RoundedRectangle(cornerRadius: Design.Radius.surface, style: .continuous)
                     .fill(Color.black.opacity(0.55)))
                 .opacity(glass)
@@ -1279,7 +1283,7 @@ struct HUDView: View {
         // One curve for everything. Long and well damped, because it covers a
         // screen of travel and anything snappier reads as a snap rather than an
         // expansion.
-        .animation(.spring(response: 0.52, dampingFraction: 0.86), value: visible)
+        .animation(Design.Motion.animation(.spring(response: 0.52, dampingFraction: 0.86)), value: visible)
         .onExitCommand(perform: onExit)
     }
 
