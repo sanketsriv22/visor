@@ -48,7 +48,7 @@ screen.
 ## Type and colour
 
 - Every text style comes from `Design.Text` (`SettingsKit.swift`,
-  `RetroTheme.swift`). Chat body text is `12 × hudScale`. No raw
+  `RetroTheme.swift`). Chat body text is `13.5 × hudScale`. No raw
   `.system(size:)` in new code; use the scale.
 - Colours come from `Design.Ink` / `Design.Surface` (on the black card) and
   `Design.Retro` (themed surfaces: Settings, menu panel, computer use). Do

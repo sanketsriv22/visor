@@ -136,6 +136,7 @@ struct Composer: View {
             .contentShape(Circle())
         }
         .buttonStyle(.visorBare)
+        .focusable(false)
         .disabled(!chat.isStreaming && !canSend)
         .accessibilityIdentifier(chat.isStreaming ? "visor.composer.stop" : "visor.composer.send")
         .help(chat.isStreaming ? "Stop the reply — ⌘." : "Send — ↩ (⇧↩ for a new line)")

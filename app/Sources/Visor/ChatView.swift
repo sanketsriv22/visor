@@ -1746,6 +1746,7 @@ struct DictationControl: View {
                     .contentShape(Circle())
             }
             .buttonStyle(circular ? .visor(radius: size / 2) : .visor)
+            .focusable(false)
             .help(helpText)
         }
     }
@@ -1945,6 +1946,7 @@ struct ComposerOptions: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.visor(radius: 16))
+        .focusable(false)
         .disabled(chat.agent == nil)
         .help("Reasoning effort and speed — \(summary)")
         .popover(isPresented: $showing, arrowEdge: .top) {
@@ -2221,6 +2223,11 @@ struct ComposerPill: ViewModifier {
                 Capsule().fill(.white.opacity(
                     !enabled ? 0.02 : hovering ? 0.12 : 0.05)))
             .overlay(Capsule().stroke(.white.opacity(enabled ? 0.16 : 0.06), lineWidth: 1))
+            // Keyboard focus never lands on a chip: the ring AppKit draws for
+            // it is a rounded rectangle that shows as ticks past a capsule's
+            // ends. Return and ⌘↩ are the composer's keys; the chips are
+            // for the pointer.
+            .focusable(false)
             .contentShape(Capsule())
             .onHover { hovering = $0 && enabled }
             .animation(.easeOut(duration: 0.12), value: hovering)
