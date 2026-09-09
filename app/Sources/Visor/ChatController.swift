@@ -108,7 +108,7 @@ final class ChatController: ObservableObject {
         storeObserver = store.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
-        graphObserver = graph.objectWillChange.sink { [weak self] _ in
+        graphObserver = self.graph.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
 
