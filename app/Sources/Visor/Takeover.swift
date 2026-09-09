@@ -210,17 +210,12 @@ final class TakeoverGuide {
         detectAgents()
         observe()
 
-        // Resume past what's already been done; the reveal always plays.
-        let saved = TakeoverState.Step(rawValue: UserDefaults.standard.integer(forKey: Self.progressKey))
+        // The reveal and the summon always play; after that, resume from
+        // the last moment that was completed before an interruption.
         if controller.ui.expanded { controller.toggle() }
         state.stepStarted = Date()
         schedule(after: Design.Motion.reduced ? 0.8 : 3.4) { [weak self] in
-            guard let self else { return }
-            if let saved, saved.rawValue >= TakeoverState.Step.connect.rawValue, saved != .finale {
-                self.advance(to: .summon)
-            } else {
-                self.advance(to: .summon)
-            }
+            self?.advance(to: .summon)
         }
     }
 
@@ -402,11 +397,21 @@ final class TakeoverGuide {
         DispatchQueue.main.async { [weak self] in self?.panel?.orderFrontRegardless() }
     }
 
+    /// Where the summon lands: the saved moment if one was reached, else
+    /// connect. Finale is never resumed into — a finished tour is finished.
+    private var resumeTarget: TakeoverState.Step {
+        let raw = UserDefaults.standard.integer(forKey: Self.progressKey)
+        guard let saved = TakeoverState.Step(rawValue: raw),
+              saved.rawValue >= TakeoverState.Step.connect.rawValue,
+              saved.rawValue <= TakeoverState.Step.yours.rawValue else { return .connect }
+        return saved
+    }
+
     private func expandedChanged(_ expanded: Bool) {
         refreshGeometry()
         if state.step == .summon, expanded {
             if controller.ui.mode != .chat { controller.setMode(.chat) }
-            celebrate(then: .connect)
+            celebrate(then: resumeTarget)
         }
     }
 
