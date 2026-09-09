@@ -45,9 +45,34 @@ final class HUDLayout: ObservableObject {
     private static let leftKey = "visor.hud.left"
     private static let rightKey = "visor.hud.right"
 
+    /// Panels folded to their header, remembered.
+    @Published private(set) var collapsed: Set<HUDPanel> {
+        didSet { UserDefaults.standard.set(collapsed.map(\.rawValue), forKey: Self.collapsedKey) }
+    }
+    private static let collapsedKey = "visor.hud.collapsed"
+
     init() {
-        left = Self.load(Self.leftKey, fallback: [.agents, .memory])
-        right = Self.load(Self.rightKey, fallback: [.tasks, .chats])
+        var left = Self.load(Self.leftKey, fallback: [.agents, .chats])
+        var right = Self.load(Self.rightKey, fallback: [.tasks, .memory])
+        // A panel appears once. Two agent lists in the default arrangement
+        // was the single biggest reason the HUD read as clutter; a user can
+        // still choose the same panel twice deliberately, but a saved layout
+        // that doubled up by accident is repaired here.
+        var seen = Set<HUDPanel>()
+        func dedupe(_ panels: [HUDPanel]) -> [HUDPanel] {
+            panels.map { panel in
+                guard panel != .none else { return panel }
+                if seen.contains(panel) { return .none }
+                seen.insert(panel)
+                return panel
+            }
+        }
+        left = dedupe(left)
+        right = dedupe(right)
+        self.left = left
+        self.right = right
+        let raw = UserDefaults.standard.stringArray(forKey: Self.collapsedKey) ?? []
+        collapsed = Set(raw.compactMap(HUDPanel.init(rawValue:)))
     }
 
     private static func load(_ key: String, fallback: [HUDPanel]) -> [HUDPanel] {
@@ -69,69 +94,87 @@ final class HUDLayout: ObservableObject {
         }
     }
 
+    func isCollapsed(_ panel: HUDPanel) -> Bool { collapsed.contains(panel) }
+
+    func toggleCollapsed(_ panel: HUDPanel) {
+        if collapsed.contains(panel) { collapsed.remove(panel) } else { collapsed.insert(panel) }
+    }
+
     enum Side { case left, right }
 }
 
-/// One rail: a header that doubles as the panel picker, and the panel itself.
+/// One panel on a rail: a header that doubles as the panel picker, a
+/// collapse control, and the panel itself — sized to what it holds. A rail
+/// used to stretch every panel to full height and box it in a border; the
+/// boxes were most of what the eye saw.
 struct HUDPanelSlot<Content: View>: View {
     let panel: HUDPanel
-    let scale: Double
+    var collapsed = false
     let onPick: (HUDPanel) -> Void
+    var onToggle: () -> Void = {}
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Menu {
-                ForEach(HUDPanel.allCases) { option in
-                    Button {
-                        onPick(option)
-                    } label: {
-                        Label(option.title, systemImage: option.symbol)
+        VStack(alignment: .leading, spacing: collapsed ? 0 : Design.Space.normal) {
+            HStack(spacing: Design.Space.snug) {
+                Menu {
+                    ForEach(HUDPanel.allCases) { option in
+                        Button { onPick(option) } label: {
+                            Label(option.title, systemImage: option.symbol)
+                        }
                     }
+                } label: {
+                    HStack(spacing: Design.Space.snug) {
+                        Self.headerIcon(for: panel)
+                        SectionLabel(panel.title)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(Design.Ink.faint)
+                    }
+                    .frame(height: Design.Metric.small)
+                    .contentShape(Rectangle())
                 }
-            } label: {
-                HStack(spacing: 5) {
-                    Self.headerIcon(for: panel, scale: scale)
-                    Text(panel.title.uppercased())
-                        .font(.system(size: 9 * scale, weight: .semibold))
-                        .tracking(0.8)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 6 * scale, weight: .bold))
-                        .opacity(0.6)
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(.white.opacity(0.4))
-                .contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Choose what this panel shows")
 
-            content()
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
+
+                IconButton(symbol: collapsed ? "chevron.left" : "chevron.down",
+                           size: Design.Metric.small, tint: Design.Ink.faint,
+                           help: collapsed ? "Expand" : "Collapse", action: onToggle)
+                    .accessibilityIdentifier("visor.hud.panel.toggle")
+            }
+
+            if !collapsed {
+                content()
+            }
         }
-        .padding(12)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-            .fill(.white.opacity(0.05)))
-        .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-            .stroke(Design.Surface.hairline, lineWidth: 1))
+        .padding(.horizontal, Design.Space.roomy)
+        .padding(.vertical, Design.Space.normal)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Design.Radius.panel, style: .continuous)
+            .fill(Design.Surface.rail))
+        .animation(Design.Motion.animation(Design.Motion.standard), value: collapsed)
+        .accessibilityIdentifier("visor.hud.panel.\(panel.rawValue)")
     }
 
     /// The rail's leading glyph. Tasks get the Visor mark itself — the panel
-    /// writes to the same note the notch edits, so it should wear the app's own
-    /// face rather than a stock "checklist" clipboard that read as belonging to
-    /// some other app. Everything else stays an SF Symbol.
+    /// writes to the same note the notch edits.
     @ViewBuilder
-    static func headerIcon(for panel: HUDPanel, scale: Double) -> some View {
+    static func headerIcon(for panel: HUDPanel) -> some View {
         if panel == .tasks, let mark = hudVisorMark {
             Image(nsImage: mark)
                 .resizable()
                 .renderingMode(.template)
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 10 * scale, height: 10 * scale)
+                .frame(width: 10, height: 10)
+                .foregroundStyle(Design.Ink.tertiary)
         } else {
             Image(systemName: panel.symbol)
-                .font(.system(size: 8 * scale, weight: .semibold))
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Design.Ink.tertiary)
         }
     }
 }

@@ -263,8 +263,9 @@ enum DesignLab {
         }
         // Pin the HUD rails so a capture never depends on — or shows — the
         // user's own layout or dictation log.
-        domain["visor.hud.left"] = ["agents", "memory"]
-        domain["visor.hud.right"] = ["tasks", "chats"]
+        domain["visor.hud.left"] = ["agents", "chats"]
+        domain["visor.hud.right"] = ["tasks", "memory"]
+        domain["visor.hud.collapsed"] = [String]()
         UserDefaults.standard.setVolatileDomain(domain, forName: UserDefaults.argumentDomain)
     }
 

@@ -912,144 +912,147 @@ struct HUDView: View {
     /// Put Visor away entirely, remembering it was the HUD you closed. Distinct
     /// from `onExit`, which steps back down to the chat card.
     var onClose: () -> Void
-    /// Drives the whole entrance and exit. One value, one animation — the
-    /// previous version ran a `.transition` on the HUD *and* a separate delayed
-    /// offset on the rails, so two curves competed over the same frames, which
-    /// is what made it feel laggy and arrive in pieces.
+    /// Drives the whole entrance and exit. One value, one animation — two
+    /// curves competing over the same frames is what made it arrive in pieces.
     var visible: Bool
     /// Bumped after a deletion so the dictation panel re-reads the log.
     @State private var voiceRefresh: Int = 0
     @StateObject private var layout = HUDLayout()
     /// Persisted so the HUD reopens at the density you left it.
     @AppStorage("visor.hudOpacity") private var glass: Double = 0.8
-    /// Everything in the HUD scales from this, so it can be read from across
-    /// the room or packed in tight.
+    /// Reading text scales from this — body, secondary and caption roles in
+    /// the conversation. Chrome and rails never do: layout adapts by rule.
     @AppStorage("visor.hudScale") private var scale: Double = 1.0
+
+    /// Below this width the rails step aside and the conversation has the
+    /// whole surface.
+    private static let railsBreakpoint: CGFloat = 1180
+    private static let leftRail: CGFloat = 236
+    private static let rightRail: CGFloat = 260
 
     var body: some View {
         ZStack(alignment: .top) {
-            // The glass. Dark enough to read against, sheer enough that the
-            // desktop underneath still reads as "overlay", not "app".
-            // The slider fades the *material* as well as the tint. Previously
-            // only the black overlay moved, so the blur stayed at full strength
-            // and the HUD could never be more than translucent no matter how
-            // far the slider went.
-            // Under Reduce Transparency the glass is a plain dark fill: the
-            // overlay still reads as an overlay by its edge, not its blur.
-            RoundedRectangle(cornerRadius: Design.Radius.surface, style: .continuous)
-                .fill(Design.Motion.reducedTransparency
-                      ? AnyShapeStyle(Color.black.opacity(0.94))
-                      : AnyShapeStyle(.ultraThinMaterial))
-                .overlay(RoundedRectangle(cornerRadius: Design.Radius.surface, style: .continuous)
-                    .fill(Color.black.opacity(0.55)))
-                .opacity(glass)
-                .overlay(RoundedRectangle(cornerRadius: Design.Radius.surface, style: .continuous)
-                    .stroke(.white.opacity(0.06 + 0.1 * glass), lineWidth: 1))
-                // The glass fades; only the content scales. A material that is
-                // being scaled gets rasterised at whatever size the animation
-                // passes through and re-rendered sharply once it settles, which
-                // reads as the panel shifting tone abruptly at the end. This
-                // way the blur is only ever drawn at its final size.
+            backdrop
+                // The glass fades; only the content moves. A material being
+                // scaled is rasterised mid-animation and re-rendered sharp
+                // at the end, which reads as a tone shift. This way the blur
+                // is only ever drawn at its final size.
                 .opacity(visible ? 1 : 0)
 
-            HStack(alignment: .top, spacing: 18) {
-                VStack(spacing: 14) {
-                    ForEach(Array(layout.left.enumerated()), id: \.offset) { index, panel in
-                        HUDPanelSlot(panel: panel, scale: scale) {
-                            layout.set($0, side: .left, index: index)
-                        } content: {
-                            panelContent(panel)
-                        }
+            GeometryReader { geo in
+                let wide = geo.size.width >= Self.railsBreakpoint
+                HStack(alignment: .top, spacing: Design.Space.wide) {
+                    if wide {
+                        rail(layout.left, side: .left)
+                            .frame(width: Self.leftRail)
+                            // Offsets rather than conditionals, so the centre
+                            // never shifts as the rails arrive.
+                            .offset(x: visible ? 0 : -(Self.leftRail + 60))
+                            .opacity(visible ? 1 : 0)
+                    }
+
+                    // Grows out of the notch: the screen's top centre.
+                    centre
+                        .frame(maxWidth: .infinity)
+                        .scaleEffect(visible ? 1 : 0.04, anchor: .top)
+                        .opacity(visible ? 1 : 0)
+
+                    if wide {
+                        rail(layout.right, side: .right)
+                            .frame(width: Self.rightRail)
+                            .offset(x: visible ? 0 : Self.rightRail + 60)
+                            .opacity(visible ? 1 : 0)
                     }
                 }
-                .frame(width: 230 * scale)
-                // Offsets rather than conditionals, so the centre never shifts
-                // as the rails arrive.
-                .offset(x: visible ? 0 : -(230 * scale + 60))
-                .opacity(visible ? 1 : 0)
-
-                // Grows out of the notch: the screen's top centre, which is
-                // what .top anchors to.
-                centre
-                    .scaleEffect(visible ? 1 : 0.04, anchor: .top)
-                    .opacity(visible ? 1 : 0)
-
-                VStack(spacing: 14) {
-                    ForEach(Array(layout.right.enumerated()), id: \.offset) { index, panel in
-                        HUDPanelSlot(panel: panel, scale: scale) {
-                            layout.set($0, side: .right, index: index)
-                        } content: {
-                            panelContent(panel)
-                        }
-                    }
-                }
-                .frame(width: 250 * scale)
-                .offset(x: visible ? 0 : 250 * scale + 60)
-                .opacity(visible ? 1 : 0)
+                .padding(.horizontal, Design.Space.section)
+                .padding(.top, topInset + Design.Space.loose)
+                .padding(.bottom, Design.Space.wide)
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
             }
-            .padding(.horizontal, 22)
-            .padding(.top, topInset + 16)
-            .padding(.bottom, 20)
             .environment(\.hudScale, scale)
         }
         // One curve for everything. Long and well damped, because it covers a
-        // screen of travel and anything snappier reads as a snap rather than an
-        // expansion.
-        .animation(Design.Motion.animation(.spring(response: 0.52, dampingFraction: 0.86)), value: visible)
+        // screen of travel and anything snappier reads as a snap.
+        .animation(Design.Motion.animation(Design.Motion.hud), value: visible)
         .onExitCommand(perform: onExit)
+    }
+
+    // MARK: Backdrop
+
+    /// The glass. A material thick enough to suppress the desktop's detail,
+    /// tinted dark enough to read against; the slider fades the whole thing
+    /// so it can range from overlay to opaque. Under Reduce Transparency it
+    /// is a plain dark fill, and reads as an overlay by its edge alone.
+    private var backdrop: some View {
+        RoundedRectangle(cornerRadius: Design.Radius.surface, style: .continuous)
+            .fill(Design.Motion.reducedTransparency
+                  ? AnyShapeStyle(Design.Surface.glassOpaque)
+                  : AnyShapeStyle(.regularMaterial))
+            .overlay(RoundedRectangle(cornerRadius: Design.Radius.surface, style: .continuous)
+                .fill(Design.Surface.glassTint))
+            .opacity(Design.Motion.reducedTransparency ? 1 : glass)
+            .overlay(RoundedRectangle(cornerRadius: Design.Radius.surface, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06 + 0.08 * glass), lineWidth: Design.Stroke.hairline))
     }
 
     // MARK: Centre column
 
+    /// The conversation is the surface. No box around the transcript: the
+    /// glass is its background, and the reading measure is the constraint.
     private var centre: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 8) {
+        VStack(spacing: Design.Space.roomy) {
+            HStack(spacing: Design.Space.normal) {
+                AgentIdentity(chat: chat)
                 Text(chat.conversation.title.isEmpty ? "New conversation" : chat.conversation.title)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.85))
+                    .font(Design.Typography.secondary())
+                    .foregroundStyle(Design.Ink.tertiary)
                     .lineLimit(1)
-                if chat.isStreaming { DotMatrixIndicator(size: 11) }
                 Spacer(minLength: 0)
-
-                // The microphone lives in the composer now, where ChatGPT
-                // keeps it; the composer's mic shows the level while open.
-
-                // Transparency belongs in the HUD, not buried in Settings —
-                // the right value depends on what's behind it right now.
-
-
-                Button(action: onExit) {
-                    Image(systemName: "arrow.down.right.and.arrow.up.left")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.5))
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.visor)
-                .accessibilityIdentifier("visor.hud.exit")
-                .help("Back to the notch — Esc, or \(ShortcutSettings.hint(.hud))")
+                IconButton(symbol: "arrow.down.right.and.arrow.up.left",
+                           help: "Back to the notch — Esc, or \(ShortcutSettings.hint(.hud))",
+                           action: onExit)
+                    .accessibilityIdentifier("visor.hud.exit")
             }
+            .frame(maxWidth: Design.Metric.readingWidth + Design.Space.section * 2)
 
-            TranscriptView(chat: chat, layout: .hud, active: visible) { EmptyView() }
-                .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-                    .fill(.white.opacity(0.04)))
-                .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-                    .stroke(Design.Surface.hairline, lineWidth: 1))
+            TranscriptView(chat: chat, layout: .hud, active: visible) {
+                EmptyInvitation(chat: chat, scale: scale)
+                    .padding(.top, Design.Space.section)
+            }
+            .frame(maxWidth: Design.Metric.readingWidth + Design.Space.section * 2)
 
             Composer(chat: chat, layout: .hud)
+                .frame(maxWidth: Design.Metric.readingWidth)
+                .padding(.bottom, Design.Space.tight)
         }
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: Panels
+    // MARK: Rails
+
+    private func rail(_ panels: [HUDPanel], side: HUDLayout.Side) -> some View {
+        VStack(spacing: Design.Space.roomy) {
+            ForEach(Array(panels.enumerated()), id: \.offset) { index, panel in
+                if panel != .none {
+                    HUDPanelSlot(panel: panel,
+                                 collapsed: layout.isCollapsed(panel),
+                                 onPick: { layout.set($0, side: side, index: index) },
+                                 onToggle: { layout.toggleCollapsed(panel) }) {
+                        panelContent(panel)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
 
     /// Each panel is the real feature, not a view of it.
     @ViewBuilder
     private func panelContent(_ panel: HUDPanel) -> some View {
         switch panel {
         case .agents:    agentsPanel
-        case .tasks:     HUDTasksPanel(store: store, chat: chat, scale: scale)
-        case .chats:     HUDChatsPanel(chat: chat, scale: scale)
+        case .tasks:     HUDTasksPanel(store: store, chat: chat, scale: 1)
+        case .chats:     HUDChatsPanel(chat: chat, scale: 1)
         case .memory:    memoryPanel
         case .dictation: dictationPanel
         case .none:      EmptyView()
@@ -1057,43 +1060,40 @@ struct HUDView: View {
     }
 
     private var agentsPanel: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: Design.Space.hair) {
             if chat.chatAgents.isEmpty {
                 Text("No agents yet.")
-                    .font(.system(size: 11 * scale))
-                    .foregroundStyle(.white.opacity(0.3))
+                    .font(Design.Typography.secondary())
+                    .foregroundStyle(Design.Ink.tertiary)
             }
             ForEach(Array(chat.chatAgents.enumerated()), id: \.element.id) { index, agent in
+                let current = agent.name == chat.agent?.name
                 Button { chat.use(agent) } label: {
-                    HStack(spacing: 7) {
-                        Circle()
-                            .fill(agent.name == chat.agent?.name
-                                  ? Design.Retro.accent : Color.white.opacity(0.22))
-                            .frame(width: 5, height: 5)
+                    HStack(spacing: Design.Space.normal) {
+                        StatusDot(state: current && chat.isStreaming ? .working : (current ? .idle : .absent))
                         VStack(alignment: .leading, spacing: 1) {
                             Text(agent.name)
-                                .font(.system(size: 12 * scale))
-                                .foregroundStyle(.white.opacity(0.85))
+                                .font(current ? Design.Typography.secondaryMedium() : Design.Typography.secondary())
+                                .foregroundStyle(Design.Ink.primary)
                                 .lineLimit(1)
-                            Text(agent.model ?? ChatController.defaultModel)
-                                .font(.system(size: 9 * scale))
-                                .foregroundStyle(.white.opacity(0.3))
+                            Text(agent.isNotchCLI ? agent.command : (agent.model ?? ChatController.defaultModel))
+                                .font(Design.Typography.caption())
+                                .foregroundStyle(Design.Ink.tertiary)
                                 .lineLimit(1).truncationMode(.middle)
                         }
                         Spacer(minLength: 0)
                         if index < 5 {
                             Text(ShortcutSettings.agentHint(index))
-                                .font(.system(size: 8 * scale, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.22))
+                                .font(Design.Typography.mono(0.85))
+                                .foregroundStyle(Design.Ink.faint)
                         }
                     }
-                    .padding(.horizontal, 6).padding(.vertical, 5)
-                    .background(RoundedRectangle(cornerRadius: Design.Radius.control)
-                        .fill(agent.name == chat.agent?.name
-                              ? Design.Surface.hover : .clear))
+                    .padding(.horizontal, Design.Space.normal)
+                    .frame(height: 38)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.visorBare)
+                .buttonStyle(.visor(active: current))
+                .focusable(false)
             }
         }
     }
@@ -1102,31 +1102,31 @@ struct HUDView: View {
     private var memoryPanel: some View {
         if !chat.graph.isEnabled {
             Text("Off. Turn it on in Settings → Memory and Visor starts learning from your conversations.")
-                .font(.system(size: 10 * scale))
-                .foregroundStyle(.white.opacity(0.35))
+                .font(Design.Typography.caption())
+                .foregroundStyle(Design.Ink.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
             let top = chat.graph.prominent(limit: 8)
             if top.isEmpty {
                 Text("Nothing learned yet — it fills in as you talk.")
-                    .font(.system(size: 10 * scale))
-                    .foregroundStyle(.white.opacity(0.35))
+                    .font(Design.Typography.caption())
+                    .foregroundStyle(Design.Ink.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                VStack(alignment: .leading, spacing: 5) {
+                VStack(alignment: .leading, spacing: Design.Space.snug) {
                     ForEach(top, id: \.node.id) { entry in
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        HStack(alignment: .firstTextBaseline, spacing: Design.Space.snug) {
                             Text(entry.node.name)
-                                .font(.system(size: 12 * scale))
-                                .foregroundStyle(.white.opacity(0.8))
+                                .font(Design.Typography.secondary())
+                                .foregroundStyle(Design.Ink.primary)
                                 .lineLimit(1)
                             Text(entry.node.kind)
-                                .font(.system(size: 8 * scale))
-                                .foregroundStyle(.white.opacity(0.3))
+                                .font(Design.Typography.caption())
+                                .foregroundStyle(Design.Ink.tertiary)
                             Spacer(minLength: 0)
                             Text("\(entry.degree)")
-                                .font(.system(size: 9 * scale, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.3))
+                                .font(Design.Typography.mono(0.85))
+                                .foregroundStyle(Design.Ink.faint)
                         }
                     }
                 }
@@ -1140,14 +1140,13 @@ struct HUDView: View {
         let _ = voiceRefresh   // re-reads when an entry is deleted
         if recent.isEmpty {
             Text("Nothing dictated yet.")
-                .font(.system(size: 11 * scale))
-                .foregroundStyle(.white.opacity(0.3))
+                .font(Design.Typography.secondary())
+                .foregroundStyle(Design.Ink.tertiary)
         } else {
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: Design.Space.snug) {
                 ForEach(recent) { entry in
-                    HUDVoiceRow(entry: entry, scale: scale) {
+                    HUDVoiceRow(entry: entry, scale: 1) {
                         VoiceLog.delete(entry.id)
-                        // Nudges the panel to re-read the log.
                         voiceRefresh &+= 1
                     }
                 }
