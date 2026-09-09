@@ -95,6 +95,11 @@ final class NotesStore: ObservableObject {
     }
     @Published private(set) var noteSort: NoteSort = .name
 
+    /// Which note reopens next launch. Skipped for a fixture store.
+    private func rememberActiveName() {
+        if !ephemeral { UserDefaults.standard.set(activeName, forKey: activeKey) }
+    }
+
     private func markDirty() {
         guard !suppressDirty else { return }
         dirty = true
@@ -153,10 +158,22 @@ final class NotesStore: ObservableObject {
 
     var openTaskCount: Int { openTasks.count }
 
-    init() {
-        folder = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/Visor", isDirectory: true)
-        if let env = ProcessInfo.processInfo.environment["STICKY_NOTES_FILE"] {
+    /// True for a fixture store (the Design Lab): everything lives under the
+    /// given folder and nothing is written to UserDefaults, so rendering a
+    /// scenario can't change which note the real app opens next.
+    private let ephemeral: Bool
+
+    /// - Parameters:
+    ///   - folder: where notes live. Defaults to `VISOR_DATA_DIR` if set (the
+    ///     same override `ChatStore` honours — notes used to ignore it, so the
+    ///     two stores could point at different places), else ~/Documents/Visor.
+    ///   - ephemeral: keep every side effect inside `folder`.
+    init(folder: URL? = nil, ephemeral: Bool = false) {
+        self.ephemeral = ephemeral
+        self.folder = folder ?? ChatStore.defaultRoot
+        if ephemeral {
+            mirror = self.folder.appendingPathComponent("sticky.md")
+        } else if let env = ProcessInfo.processInfo.environment["STICKY_NOTES_FILE"] {
             mirror = URL(fileURLWithPath: (env as NSString).expandingTildeInPath)
         } else {
             mirror = FileManager.default.homeDirectoryForCurrentUser
@@ -500,7 +517,7 @@ final class NotesStore: ObservableObject {
             cacheActive()                 // …then remember it
         }
 
-        UserDefaults.standard.set(activeName, forKey: activeKey)
+        rememberActiveName()
         attachSyncForActive()
 
         // Repoint the mirror symlink (for the MCP server / agents) in the
@@ -563,7 +580,7 @@ final class NotesStore: ObservableObject {
         suppressDirty = true; title = ""; items = []; suppressDirty = false
         dirty = true
         saveNow()
-        UserDefaults.standard.set(activeName, forKey: activeKey)
+        rememberActiveName()
         attachSyncForActive() // a fresh note isn't shared — detach any prior sync
         refreshNoteNames()
     }
@@ -630,7 +647,7 @@ final class NotesStore: ObservableObject {
         dirty = true
         saveNow()
         setSharedRef(ref, for: name)
-        UserDefaults.standard.set(activeName, forKey: activeKey)
+        rememberActiveName()
         refreshNoteNames()
         refreshSharedState()
         sync.join(ref: ref) { [weak self] markdown in
@@ -709,20 +726,20 @@ final class NotesStore: ObservableObject {
     private func setSharedRef(_ ref: BeamRef, for name: String) {
         var map = sharedRefMap()
         map[name] = ref.id
-        UserDefaults.standard.set(map, forKey: sharedRefsKey)
+        if !ephemeral { UserDefaults.standard.set(map, forKey: sharedRefsKey) }
     }
 
     private func removeSharedRef(for name: String) {
         var map = sharedRefMap()
         map.removeValue(forKey: name)
-        UserDefaults.standard.set(map, forKey: sharedRefsKey)
+        if !ephemeral { UserDefaults.standard.set(map, forKey: sharedRefsKey) }
     }
 
     private func moveSharedRef(from old: String, to new: String) {
         var map = sharedRefMap()
         guard let v = map.removeValue(forKey: old) else { return }
         map[new] = v
-        UserDefaults.standard.set(map, forKey: sharedRefsKey)
+        if !ephemeral { UserDefaults.standard.set(map, forKey: sharedRefsKey) }
     }
 
     private func noteNameForSharedRef(_ ref: BeamRef) -> String? {
@@ -750,7 +767,7 @@ final class NotesStore: ObservableObject {
         suppressDirty = true; title = t; items = it; suppressDirty = false
         dirty = true
         saveNow()
-        UserDefaults.standard.set(activeName, forKey: activeKey)
+        rememberActiveName()
         refreshNoteNames()
     }
 
@@ -779,7 +796,7 @@ final class NotesStore: ObservableObject {
             dirty = true
             saveNow()
         }
-        UserDefaults.standard.set(activeName, forKey: activeKey)
+        rememberActiveName()
         ensureMirrorSymlink()
         attachSyncForActive() // sync the note we landed on (archived note's link is kept)
         refreshNoteNames()
@@ -800,7 +817,7 @@ final class NotesStore: ObservableObject {
         refreshArchivedNames()
         activeName = target
         loadActive()
-        UserDefaults.standard.set(activeName, forKey: activeKey)
+        rememberActiveName()
         ensureMirrorSymlink()
         attachSyncForActive()
     }
@@ -825,7 +842,7 @@ final class NotesStore: ObservableObject {
                 dirty = true
                 saveNow()
             }
-            UserDefaults.standard.set(activeName, forKey: activeKey)
+            rememberActiveName()
             ensureMirrorSymlink()
             attachSyncForActive()
         } else {
@@ -837,7 +854,7 @@ final class NotesStore: ObservableObject {
     /// Change how the switcher orders notes (persisted).
     func setNoteSort(_ sort: NoteSort) {
         noteSort = sort
-        UserDefaults.standard.set(sort.rawValue, forKey: noteSortKey)
+        if !ephemeral { UserDefaults.standard.set(sort.rawValue, forKey: noteSortKey) }
         refreshNoteNames()
     }
 
@@ -869,7 +886,7 @@ final class NotesStore: ObservableObject {
             activeName = (saved != nil && noteNames.contains(saved!)) ? saved! : noteNames[0]
             loadActive()
         }
-        UserDefaults.standard.set(activeName, forKey: activeKey)
+        rememberActiveName()
         ensureMirrorSymlink()
     }
 
@@ -986,7 +1003,7 @@ final class NotesStore: ObservableObject {
         activeName = target
         cache.removeValue(forKey: previous) // file moved to the new name
         moveSharedRef(from: previous, to: target) // keep the live link tied to the note
-        UserDefaults.standard.set(activeName, forKey: activeKey)
+        rememberActiveName()
         lastMTime = mtime(activeURL)
         cacheActive()
         ensureMirrorSymlink()

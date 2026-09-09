@@ -12,6 +12,7 @@ struct MenuBarPanel: View {
     let onDictate: () -> Void
     let onSettings: () -> Void
     let onWhatsNew: () -> Void
+    let onIntroduction: () -> Void
     let onCheckUpdates: () -> Void
     let onQuit: () -> Void
 
@@ -28,6 +29,7 @@ struct MenuBarPanel: View {
 
             row("Settings", glyph: Glyph.settings, hint: "⌘,", action: onSettings)
             row("What's New", glyph: Glyph.whatsNew, action: onWhatsNew)
+            row("Introduction", glyph: Glyph.open, action: onIntroduction)
             row("Check for Updates", glyph: Glyph.update, action: onCheckUpdates)
 
             rule()

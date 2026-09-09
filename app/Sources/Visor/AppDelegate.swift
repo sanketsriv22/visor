@@ -20,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private var runModeMenu: NSMenu?
     private var runInFolderMenu: NSMenu?
     private var settingsWindow: NSWindow?
+    private var onboardingWindow: NSWindow?
+    /// Set once the introduction has been seen or skipped.
+    static let introducedKey = "visor.introduced"
     /// Global shortcuts, held for the app's lifetime — releasing one
     /// unregisters it.
     private var hotKeys: [HotKey] = []
@@ -84,6 +87,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.registerBundledFonts()
         let args = ProcessInfo.processInfo.arguments
+
+        // Before the single-instance check and before any store or key is
+        // touched: the lab renders fixtures next to a running Visor and must
+        // not read or change anything of the user's.
+        if DesignLab.runIfRequested(args) { return }
 
         if args.contains("--probe") {
             Self.printScreenProbe()
@@ -175,6 +183,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
 
         if args.contains("--settings") { openSettings() }
+
+        // The introduction, once. It answers the one question a notch app has
+        // to answer — how do I get it back? — and is replayable from the
+        // menu-bar panel. Slightly after launch so the status item and the
+        // notch exist for it to point at.
+        NotificationCenter.default.addObserver(
+            forName: .visorReplayIntroduction, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.showOnboarding()
+        }
+        if !UserDefaults.standard.bool(forKey: Self.introducedKey) || args.contains("--intro") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                self?.showOnboarding()
+            }
+        }
 
         // A beam link / .visor file that launched the app arrived before the
         // controller existed.
@@ -332,6 +355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             onDictate:      { close(); self.controller?.toggleDictation() },
             onSettings:     { close(); self.openSettings() },
             onWhatsNew:     { close(); self.openReleases() },
+            onIntroduction: { close(); self.showOnboarding() },
             onCheckUpdates: { close(); self.updater.controller.checkForUpdates(nil) },
             onQuit:         { NSApp.terminate(nil) })
     }
@@ -555,6 +579,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
         NSApp.activate(ignoringOtherApps: true) // accessory app must activate to take focus
         settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// The first-launch introduction, in its own themed window. Replayable.
+    private func showOnboarding() {
+        if onboardingWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 560, height: 520),
+                styleMask: [.titled, .closable, .fullSizeContentView],
+                backing: .buffered, defer: false)
+            window.title = "Welcome to Visor"
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.isMovableByWindowBackground = true
+            window.appearance = NSAppearance(named: VisorTheme.current.isDark ? .darkAqua : .aqua)
+            window.isReleasedWhenClosed = false
+            window.center()
+            onboardingWindow = window
+        }
+        let finish: () -> Void = { [weak self] in
+            UserDefaults.standard.set(true, forKey: Self.introducedKey)
+            self?.onboardingWindow?.orderOut(nil)
+        }
+        onboardingWindow?.contentView = NSHostingView(rootView: OnboardingView(
+            step: 0,
+            shortcut: ShortcutSettings.hint(.toggle),
+            onShowNotch: { [weak self] in self?.controller?.showNote() },
+            onOpenSettings: { [weak self] in self?.showSettings(focusing: nil) },
+            onDone: finish))
+        NSApp.activate(ignoringOtherApps: true)
+        onboardingWindow?.makeKeyAndOrderFront(nil)
     }
 
     @objc private func toggleNote() { controller?.toggle() }

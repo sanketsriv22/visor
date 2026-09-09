@@ -208,6 +208,13 @@ final class AIRunner: ObservableObject {
     private let runModeKey = "visor.runMode"
     private let projectDirKey = "visor.projectDir"
 
+    /// A runner with the given agents and nothing read from or written to
+    /// disk — for the Design Lab's fixtures.
+    init(fixtureProviders: [AIProvider]) {
+        providers = fixtureProviders
+        defaultProviderName = fixtureProviders.first?.name ?? ""
+    }
+
     init() {
         loadProviders()
         if let raw = UserDefaults.standard.string(forKey: runModeKey),

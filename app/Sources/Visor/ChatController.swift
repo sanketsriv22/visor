@@ -44,7 +44,10 @@ final class ChatController: ObservableObject {
     let catalog = ModelCatalog()
     /// Facts extracted from conversations, for recall by traversal rather than
     /// by similarity.
-    let graph = KnowledgeGraph()
+    let graph: KnowledgeGraph
+    /// True for a fixture (the Design Lab): no model catalogue fetch, no
+    /// network at all.
+    var offline = false
     /// Dictation. Transcripts land in the draft rather than sending straight
     /// off, so a misheard word is editable before it costs a request.
     let voice = VoiceInput()
@@ -80,10 +83,12 @@ final class ChatController: ObservableObject {
     /// starting point.
     static let defaultModel = "anthropic/claude-opus-5"
 
-    init(ai: AIRunner, store: ChatStore = ChatStore(), memory: KnowledgeBase = KnowledgeBase()) {
+    init(ai: AIRunner, store: ChatStore = ChatStore(), memory: KnowledgeBase = KnowledgeBase(),
+         graph: KnowledgeGraph = KnowledgeGraph()) {
         self.ai = ai
         self.store = store
         self.memory = memory
+        self.graph = graph
         self.conversation = Self.blank(agent: nil)
         self.conversation = Self.blank(agent: chatAgents.first)
         // Model, effort and fast are stored on the agent, which lives in
@@ -223,7 +228,28 @@ final class ChatController: ObservableObject {
         return ids
     }
 
-    func loadModels() async { await catalog.loadIfNeeded() }
+    func loadModels() async {
+        guard !offline else { return }
+        await catalog.loadIfNeeded()
+    }
+
+    /// A controller in a chosen state, for the Design Lab. Same object the
+    /// real card uses; only the state is scripted. `private(set)` is why this
+    /// lives here rather than in the lab.
+    static func fixture(ai: AIRunner, root: URL, conversation: Conversation,
+                        streaming: Bool = false, pending: PendingApproval? = nil,
+                        error: String? = nil, draft: String = "") -> ChatController {
+        let chat = ChatController(ai: ai, store: ChatStore(root: root),
+                                  memory: KnowledgeBase(root: root),
+                                  graph: KnowledgeGraph(root: root))
+        chat.offline = true
+        chat.conversation = conversation
+        chat.isStreaming = streaming
+        chat.pendingApproval = pending
+        chat.error = error
+        chat.draft = draft
+        return chat
+    }
 
     /// Model id minus the vendor prefix — the full id doesn't fit in a notch.
     var shortModelName: String {
