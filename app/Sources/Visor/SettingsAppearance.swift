@@ -28,7 +28,7 @@ struct AppearancePane: View {
 
             SettingsCard(label: "Font") {
                 fontDropdown
-                Text("Any font installed on your Mac. Departure Mono ships with the app and is the default; icons stay pixel whatever you pick.")
+                Text("Any font installed on your Mac. The system font is the default; Departure Mono, the pixel face, ships with the app. Icons stay pixel whatever you pick.")
                     .font(Design.Text.caption2).foregroundStyle(Design.Retro.dim)
                     .fixedSize(horizontal: false, vertical: true)
             }

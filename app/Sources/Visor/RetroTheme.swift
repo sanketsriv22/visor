@@ -64,12 +64,15 @@ enum VisorTheme: String, CaseIterable, Identifiable {
 }
 
 /// The app's UI typeface — any font family installed on the machine, chosen in
-/// Settings → Appearance. Stored as a family name; the bundled Departure Mono
-/// (shipped with the app) is the default. `Design.Text.f(size)` reads this.
+/// Settings → Appearance. Stored as a family name; the system font (San
+/// Francisco) is the default, and the bundled Departure Mono pixel face is the
+/// pinned alternative. `Design.Text.f(size)` reads this.
 enum VisorFont {
     static let key = "visor.fontFamily"
     static let system = "System"
-    static let defaultFamily = "Departure Mono"
+    /// The bundled pixel face — still used for pixel icons whatever UI font is chosen.
+    static let pixelFamily = "Departure Mono"
+    static let defaultFamily = system
 
     static var current: String { UserDefaults.standard.string(forKey: key) ?? defaultFamily }
 
@@ -82,15 +85,15 @@ enum VisorFont {
     }
     /// Departure Mono is the app's monospaced face; anything else falls back to
     /// the system monospaced font for numeric readouts.
-    static var currentIsMono: Bool { current == defaultFamily }
+    static var currentIsMono: Bool { current == pixelFamily }
 
-    /// Every installed font family, with the bundled Departure Mono and System
+    /// Every installed font family, with System and the bundled Departure Mono
     /// pinned first, then the rest alphabetically — the dropdown's contents.
     static var available: [String] {
         let all = NSFontManager.shared.availableFontFamilies
-        let rest = all.filter { $0 != defaultFamily && $0 != system }
+        let rest = all.filter { $0 != pixelFamily && $0 != system }
             .sorted { $0.lowercased() < $1.lowercased() }
-        return [defaultFamily, system] + rest
+        return [system, pixelFamily] + rest
     }
 }
 

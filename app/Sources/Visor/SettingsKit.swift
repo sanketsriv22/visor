@@ -12,7 +12,8 @@ extension Design {
     /// A type scale, so a title, a section label and a caption are the same
     /// size in every pane instead of a spread of raw `.system(size:)` literals.
     ///
-    /// Set in Departure Mono — a bundled pixel face — as an experiment in giving
+    /// Set in the chosen UI font (system by default; Departure Mono, the
+    /// bundled pixel face, is the alternative) as an experiment in giving
     /// Settings its own voice. It's a single weight, so hierarchy comes from
     /// size, not weight. `Font.custom` falls back to the system font cleanly if
     /// the face didn't register, so nothing breaks if it's missing.
