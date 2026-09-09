@@ -26,7 +26,6 @@ struct TakeoverView: View {
             let size = proxy.size
             let notch = view(state.geometry.notch)
             let origin = CGPoint(x: notch.midX, y: notch.maxY)
-            let holes = holes(size: size)
 
             let scrim = Scrim(card: cardHole(size: size), extras: extraHoles(size: size))
 
