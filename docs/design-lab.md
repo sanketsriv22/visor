@@ -43,8 +43,8 @@ Font can be pinned the same way UserDefaults arguments always work:
 | `hud`, `hud-streaming` | The HUD with pinned rails |
 | `menu-panel` † | The menu-bar dropdown |
 | `settings-appearance` † | Settings → Appearance |
-| `onboarding`, `onboarding-agents` † | First-launch introduction, hosted directly |
-| `onboarding-window` | The introduction in its real window, built exactly as the app builds it |
+| `takeover-boot`, `takeover-notch`, `takeover-note`, `takeover-ask`, `takeover-finale` | The introduction (a screen takeover) at five moments, with the real card stacked above the scrim as the app orders it |
+| `composer-parts` | The composer's controls in isolation, one variant per row |
 
 † themed: rendered once per theme with `--theme all`.
 
@@ -72,8 +72,18 @@ A capture cannot show window ordering, key status, focus, the caret, hover,
 or the notch's real alignment. Those are the regression scenarios in
 `docs/design-brief.md`, and they stay unverified until run on hardware.
 
-Time-dependent visuals (the dot-matrix indicator) are captured at whatever
-frame they were on.
+Time-dependent visuals (the dot-matrix indicator, the takeover's pixel
+field and the turning mark) are captured at whatever frame they were on.
+
+## The hero mark
+
+`Resources/hero-sheet.png` is a 6×6 sprite sheet (36 frames, 320px each)
+of the trefoil turning, rendered in Blender through its MCP: a bevelled
+trefoil curve, a purple principled body mixed with an emissive rim by
+Fresnel, a key and a rim light, an orthographic front camera, Cycles at 40
+samples with fog-glow in the compositor, film transparent. `HeroMark`
+plays it at 24 fps and falls back to the flat `BeamMark` when the sheet is
+missing.
 
 ## Adding a scenario
 

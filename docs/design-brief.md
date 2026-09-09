@@ -141,13 +141,25 @@ focus or window ordering.
 
 ## Onboarding
 
-The one question onboarding must answer unmistakably is *how do I find Visor
-again after it disappears?* — the summon shortcut and the menu-bar mark.
-Sequence: reveal the notch surface and teach the summon key; capture a note;
-offer an agent when chat is first opened; show one exchange and the HUD;
-introduce the microphone and computer-control permissions only when those
-features are first used. The introduction is replayable from the menu-bar
-panel.
+The introduction is a screen takeover, not a window. The Mac dims; a guide
+draws rough accent strokes on the real screen and waits for the real
+thing to happen: click the notch → type a task and press Return → flip to
+chat → send a message (the one scripted reply, so no key is needed) →
+expand into the HUD and come back → make Visor disappear → summon it. The
+one question it answers, on every step and again at the end, is *how do I
+get Visor back?*
+
+Rules the takeover keeps:
+
+- It is a panel at the notch's level, ordered **under** the notch's
+  windows and **never key**, so the card is clickable and typeable through
+  it. During the HUD steps it moves above the glass and thins its scrim.
+- It advances on real state (`UIState`, `NotesStore.items`,
+  `ChatController.demoTurns`), never on timers except the boot and the
+  HUD-landed pause.
+- Skip is always one click away, top right. Replay lives in the menu-bar
+  panel.
+- Reduce Motion turns off the pixel field, the sweep and the typing.
 
 ## Verification loop
 

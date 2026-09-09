@@ -547,7 +547,8 @@ struct SketchRing: Shape {
         for i in 0...steps {
             let a = -0.4 + (Double(i) / Double(steps)) * (.pi * 2 + 0.55)
             let w = wobble(i) * 2.6
-            let p = CGPoint(x: cx + cos(a) * (rx + w), y: cy + sin(a) * (ry + w * 0.8))
+            let ca = CGFloat(Foundation.cos(a)), sa = CGFloat(Foundation.sin(a))
+            let p = CGPoint(x: cx + ca * (rx + w), y: cy + sa * (ry + w * 0.8))
             if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
         }
         return path
@@ -579,11 +580,11 @@ struct SketchArrow: Shape {
         let tl = max(1, sqrt(tx * tx + ty * ty))
         let ux = tx / tl, uy = ty / tl
         let head: CGFloat = 13
-        let spread: CGFloat = 0.55
-        let left = CGPoint(x: to.x - head * (ux * cos(spread) - uy * sin(spread)),
-                           y: to.y - head * (uy * cos(spread) + ux * sin(spread)))
-        let right = CGPoint(x: to.x - head * (ux * cos(-spread) - uy * sin(-spread)),
-                            y: to.y - head * (uy * cos(-spread) + ux * sin(-spread)))
+        let cs = CGFloat(Foundation.cos(0.55)), sn = CGFloat(Foundation.sin(0.55))
+        let left = CGPoint(x: to.x - head * (ux * cs - uy * sn),
+                           y: to.y - head * (uy * cs + ux * sn))
+        let right = CGPoint(x: to.x - head * (ux * cs + uy * sn),
+                            y: to.y - head * (uy * cs - ux * sn))
         path.move(to: left)
         path.addLine(to: to)
         path.addLine(to: right)
