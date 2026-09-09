@@ -42,7 +42,7 @@ struct SelectorList: View {
             LazyVStack(alignment: .leading, spacing: 1) {
                 if rows.isEmpty {
                     Text(emptyText)
-                        .font(Design.Type.secondary())
+                        .font(Design.Typography.secondary())
                         .foregroundStyle(Design.Ink.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, Design.Space.roomy)
@@ -89,7 +89,7 @@ private struct SelectorRowView: View {
                             .truncationMode(.middle)
                         if let subtitle = row.subtitle {
                             Text(subtitle)
-                                .font(Design.Type.caption())
+                                .font(Design.Typography.caption())
                                 .foregroundStyle(Design.Ink.tertiary)
                                 .lineLimit(1)
                         }
@@ -97,7 +97,7 @@ private struct SelectorRowView: View {
                     Spacer(minLength: Design.Space.snug)
                     if let trailing = row.trailing {
                         Text(trailing)
-                            .font(Design.Type.caption())
+                            .font(Design.Typography.caption())
                             .foregroundStyle(Design.Ink.faint)
                     }
                     Image(systemName: "checkmark")
@@ -138,7 +138,7 @@ struct SelectorSearch: View {
                 .foregroundStyle(Design.Ink.tertiary)
             TextField(placeholder, text: $query)
                 .textFieldStyle(.plain)
-                .font(Design.Type.body())
+                .font(Design.Typography.body())
                 .foregroundStyle(Design.Ink.primary)
                 .onSubmit(onSubmit)
             if !query.isEmpty {
@@ -161,7 +161,7 @@ struct SelectorHeading: View {
             SectionLabel(title)
             Spacer()
             if let trailing {
-                Text(trailing).font(Design.Type.caption()).foregroundStyle(Design.Ink.faint)
+                Text(trailing).font(Design.Typography.caption()).foregroundStyle(Design.Ink.faint)
             }
         }
         .padding(.horizontal, Design.Space.roomy)
@@ -231,9 +231,9 @@ struct SelectorField<Control: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: Design.Space.roomy) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(label).font(Design.Type.secondaryMedium()).foregroundStyle(Design.Ink.primary)
+                Text(label).font(Design.Typography.secondaryMedium()).foregroundStyle(Design.Ink.primary)
                 if let detail {
-                    Text(detail).font(Design.Type.caption()).foregroundStyle(Design.Ink.tertiary)
+                    Text(detail).font(Design.Typography.caption()).foregroundStyle(Design.Ink.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -253,7 +253,7 @@ struct ExampleChip: View {
     var body: some View {
         Button(action: action) {
             Text(text)
-                .font(Design.Type.secondary())
+                .font(Design.Typography.secondary())
                 .foregroundStyle(Design.Ink.secondary)
                 .padding(.horizontal, Design.Space.roomy)
                 .frame(height: Design.Metric.regular)

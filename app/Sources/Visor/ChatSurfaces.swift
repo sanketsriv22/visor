@@ -13,12 +13,12 @@ struct AgentIdentity: View {
             HStack(spacing: Design.Space.normal) {
                 StatusDot(state: chat.isStreaming ? .working : (chat.agent == nil ? .absent : .idle))
                 Text(chat.agent?.name ?? "No agent")
-                    .font(Design.Type.heading())
+                    .font(Design.Typography.heading())
                     .foregroundStyle(Design.Ink.primary)
                     .lineLimit(1)
                 if let detail {
                     Text(detail)
-                        .font(Design.Type.secondary())
+                        .font(Design.Typography.secondary())
                         .foregroundStyle(Design.Ink.tertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -99,7 +99,7 @@ struct AgentSelector: View {
                     HStack(spacing: Design.Space.snug) {
                         Image(systemName: "slider.horizontal.3")
                             .font(.system(size: Design.Metric.iconSmall, weight: .medium))
-                        Text("Manage agents…").font(Design.Type.secondaryMedium())
+                        Text("Manage agents…").font(Design.Typography.secondaryMedium())
                     }
                     .foregroundStyle(Design.Ink.secondary)
                     .padding(.horizontal, Design.Space.normal)
@@ -147,10 +147,10 @@ struct EmptyInvitation: View {
         VStack(alignment: .leading, spacing: Design.Space.roomy) {
             if chat.chatAgents.isEmpty {
                 Text("Connect an agent to start.")
-                    .font(Design.Type.heading(scale))
+                    .font(Design.Typography.heading(scale))
                     .foregroundStyle(Design.Ink.primary)
                 Text("Any model through OpenRouter with a key, or Claude Code, Codex and Devin already on your Mac.")
-                    .font(Design.Type.secondary(scale))
+                    .font(Design.Typography.secondary(scale))
                     .foregroundStyle(Design.Ink.tertiary)
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -160,10 +160,10 @@ struct EmptyInvitation: View {
                 .accessibilityIdentifier("visor.empty.settings")
             } else {
                 Text("Ask \(chat.agent?.name ?? "your agent") for help, or hand it a task.")
-                    .font(Design.Type.heading(scale))
+                    .font(Design.Typography.heading(scale))
                     .foregroundStyle(Design.Ink.primary)
                 Text("It can read your screen, run commands, and drive your Mac. Stop it any time with ⌘.")
-                    .font(Design.Type.secondary(scale))
+                    .font(Design.Typography.secondary(scale))
                     .foregroundStyle(Design.Ink.tertiary)
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)

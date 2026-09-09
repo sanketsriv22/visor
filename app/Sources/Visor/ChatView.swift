@@ -242,9 +242,9 @@ struct MessageRow: View {
             HStack {
                 Spacer(minLength: 40)
                 Text(message.content)
-                    .font(Design.Type.body(scale))
+                    .font(Design.Typography.body(scale))
                     .foregroundStyle(Design.Ink.primary)
-                    .lineSpacing(Design.Type.bodyLeading)
+                    .lineSpacing(Design.Typography.bodyLeading)
                     .textSelection(.enabled)
                     .accessibilityIdentifier("visor.message.user")
                     .padding(.horizontal, Design.Space.roomy)
@@ -270,7 +270,7 @@ struct MessageRow: View {
                         HStack(spacing: Design.Space.snug) {
                             DotMatrixIndicator(size: 13 * scale, tint: Design.Retro.accent)
                             Text("Working")
-                                .font(Design.Type.body(scale))
+                                .font(Design.Typography.body(scale))
                                 .foregroundStyle(Design.Ink.tertiary)
                         }
                         .padding(.vertical, Design.Space.tight)
@@ -2001,7 +2001,7 @@ struct ToolActivityRow: View {
                 .font(.system(size: Design.Metric.iconSmall))
                 .foregroundStyle(Design.Ink.tertiary)
             Text(calls.map(\.name).joined(separator: ", "))
-                .font(Design.Type.mono())
+                .font(Design.Typography.mono())
                 .foregroundStyle(Design.Ink.secondary)
                 .lineLimit(1)
             Spacer(minLength: 0)
@@ -2168,13 +2168,13 @@ struct ToolApprovalRow: View {
                 Text(pending.needing.count == 1
                      ? "Let \(pending.needing[0].name) run?"
                      : "Let \(pending.needing.count) tools run?")
-                    .font(Design.Type.heading())
+                    .font(Design.Typography.heading())
                     .foregroundStyle(Design.Ink.primary)
             }
 
             ForEach(pending.needing) { call in
                 Text(summary(of: call))
-                    .font(Design.Type.mono())
+                    .font(Design.Typography.mono())
                     .foregroundStyle(Design.Ink.secondary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)

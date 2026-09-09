@@ -33,7 +33,7 @@ enum Design {
     /// Text roles. Sizes in points; every text in the product wears one of
     /// these. `hudScale` multiplies only the reading roles (body, secondary,
     /// caption) in the HUD — chrome never scales.
-    enum Type {
+    enum Typography {
         static func display(_ scale: Double = 1) -> Font { .system(size: 20 * scale, weight: .semibold) }
         static func title(_ scale: Double = 1) -> Font { .system(size: 15 * scale, weight: .semibold) }
         static func heading(_ scale: Double = 1) -> Font { .system(size: 13.5 * scale, weight: .semibold) }
@@ -298,8 +298,8 @@ struct SectionLabel: View {
 
     var body: some View {
         Text(text.uppercased())
-            .font(Design.Type.label)
-            .tracking(Design.Type.labelTracking)
+            .font(Design.Typography.label)
+            .tracking(Design.Typography.labelTracking)
             .foregroundStyle(tint)
     }
 }
