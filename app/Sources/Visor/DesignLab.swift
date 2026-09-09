@@ -51,6 +51,9 @@ enum DesignLab {
         let themed: Bool
         let note: String
         let make: @MainActor (Fixtures) -> AnyView
+        /// When set, the capture is of this real window's content view —
+        /// built exactly as the app builds it — instead of a hosted view.
+        var window: (@MainActor () -> NSWindow)? = nil
     }
 
     static func scenarios() -> [Scenario] {
@@ -127,6 +130,16 @@ enum DesignLab {
                                        onShowNotch: {}, onOpenSettings: {}, onDone: {})
                     .frame(width: 560, height: 520))
             },
+            Scenario(name: "onboarding-window", size: OnboardingWindow.size, themed: false,
+                     note: "The introduction in its real window, as the app opens it",
+                     make: { _ in AnyView(EmptyView()) },
+                     window: {
+                         let window = OnboardingWindow.make()
+                         OnboardingWindow.fill(window, with: OnboardingView(
+                            step: 0, shortcut: ShortcutSettings.hint(.toggle),
+                            onShowNotch: {}, onOpenSettings: {}, onDone: {}))
+                         return window
+                     }),
             Scenario(name: "onboarding-agents", size: CGSize(width: 560, height: 520), themed: true,
                      note: "First-launch introduction, the agent step") { _ in
                 AnyView(OnboardingView(step: 2, shortcut: ShortcutSettings.hint(.toggle),
@@ -194,14 +207,25 @@ enum DesignLab {
             applyTheme(theme)
             let suffix = (scenario.themed && theme != nil) ? "-\(theme!.rawValue)" : ""
             let file = "\(scenario.name)\(suffix).png"
-            let view = scenario.make(fixtures)
-            render(view, size: scenario.size, to: out.appendingPathComponent(file)) { ok in
+            let target = out.appendingPathComponent(file)
+            let done: (Bool) -> Void = { ok in
                 note("\(ok ? "ok  " : "FAIL") \(file)")
                 manifest.append(["file": file, "scenario": scenario.name,
                                  "theme": theme?.rawValue ?? VisorTheme.current.rawValue,
                                  "size": "\(Int(scenario.size.width))×\(Int(scenario.size.height))",
                                  "note": scenario.note])
                 next()
+            }
+            if let build = scenario.window {
+                let window = build()
+                window.alphaValue = 0
+                window.orderFrontRegardless()
+                snapshot(window.contentView, size: scenario.size, to: target) { ok in
+                    window.orderOut(nil)
+                    done(ok)
+                }
+            } else {
+                render(scenario.make(fixtures), size: scenario.size, to: target, completion: done)
             }
         }
         next()
@@ -266,32 +290,37 @@ enum DesignLab {
         host.frame = NSRect(origin: .zero, size: size)
         window.contentView = host
         window.orderFrontRegardless()
-        host.layoutSubtreeIfNeeded()
+        snapshot(host, size: size, to: url) { ok in
+            window.orderOut(nil)
+            completion(ok)
+        }
+    }
 
+    /// Give SwiftUI a moment to settle, then draw the view into a 2× bitmap.
+    private static func snapshot(_ view: NSView?, size: CGSize, to url: URL,
+                                 completion: @escaping (Bool) -> Void) {
+        guard let view else { completion(false); return }
+        view.layoutSubtreeIfNeeded()
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 450_000_000)
-            host.layoutSubtreeIfNeeded()
-            host.displayIfNeeded()
+            view.layoutSubtreeIfNeeded()
+            view.displayIfNeeded()
             let scale: CGFloat = 2
             guard let rep = NSBitmapImageRep(
                 bitmapDataPlanes: nil,
                 pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
                 bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
                 colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else {
-                window.orderOut(nil)
                 completion(false)
                 return
             }
             rep.size = size
-            host.cacheDisplay(in: host.bounds, to: rep)
-            let ok: Bool
+            view.cacheDisplay(in: view.bounds, to: rep)
             if let png = rep.representation(using: .png, properties: [:]) {
-                ok = (try? png.write(to: url)) != nil
+                completion((try? png.write(to: url)) != nil)
             } else {
-                ok = false
+                completion(false)
             }
-            window.orderOut(nil)
-            completion(ok)
         }
     }
 

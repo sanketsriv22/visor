@@ -584,24 +584,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     /// The first-launch introduction, in its own themed window. Replayable.
     private func showOnboarding() {
         if onboardingWindow == nil {
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 560, height: 520),
-                styleMask: [.titled, .closable, .fullSizeContentView],
-                backing: .buffered, defer: false)
-            window.title = "Welcome to Visor"
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
-            window.isMovableByWindowBackground = true
-            window.appearance = NSAppearance(named: VisorTheme.current.isDark ? .darkAqua : .aqua)
-            window.isReleasedWhenClosed = false
-            window.center()
-            onboardingWindow = window
+            onboardingWindow = OnboardingWindow.make()
         }
         let finish: () -> Void = { [weak self] in
             UserDefaults.standard.set(true, forKey: Self.introducedKey)
             self?.onboardingWindow?.orderOut(nil)
         }
-        onboardingWindow?.contentView = NSHostingView(rootView: OnboardingView(
+        OnboardingWindow.fill(onboardingWindow!, with: OnboardingView(
             step: 0,
             shortcut: ShortcutSettings.hint(.toggle),
             onShowNotch: { [weak self] in self?.controller?.showNote() },

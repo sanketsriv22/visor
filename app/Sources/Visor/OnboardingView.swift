@@ -1,8 +1,44 @@
+import AppKit
 import SwiftUI
 
 extension Notification.Name {
     /// Show the introduction again — from the menu-bar panel.
     static let visorReplayIntroduction = Notification.Name("visor.replayIntroduction")
+}
+
+/// The window the introduction lives in. One place, so the app and the
+/// Design Lab build exactly the same thing and a capture of it is a capture
+/// of what the user sees.
+@MainActor
+enum OnboardingWindow {
+    static let size = CGSize(width: 560, height: 520)
+
+    static func make() -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered, defer: false)
+        window.title = "Welcome to Visor"
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
+        window.appearance = NSAppearance(named: VisorTheme.current.isDark ? .darkAqua : .aqua)
+        window.backgroundColor = NSColor(Design.Retro.bg)
+        window.isReleasedWhenClosed = false
+        window.setContentSize(size)
+        window.center()
+        return window
+    }
+
+    /// Host the view at the window's full content size. Sizing options are
+    /// cleared so the hosting view never resizes the window to the view's
+    /// ideal size (or the reverse) — the SwiftUI layout fills what it's given.
+    static func fill(_ window: NSWindow, with view: OnboardingView) {
+        let host = NSHostingView(rootView: view.frame(minWidth: size.width, minHeight: size.height))
+        host.sizingOptions = []
+        host.frame = NSRect(origin: .zero, size: size)
+        window.contentView = host
+    }
 }
 
 /// The first-launch introduction.

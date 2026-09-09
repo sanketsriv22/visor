@@ -56,6 +56,14 @@ enum VisorTheme: String, CaseIterable, Identifiable {
     }
 
     var text: Color { isDark ? Color.white.opacity(0.92) : Color.black.opacity(0.88) }
+    /// Ink on a solid accent fill.
+    var onAccent: Color {
+        switch self {
+        case .purple: return Color.white.opacity(0.96)
+        case .paper:  return Color.white.opacity(0.94)
+        default:      return Color.black.opacity(0.9)
+        }
+    }
     var dim: Color { isDark ? Color.white.opacity(0.55) : Color.black.opacity(0.55) }
     var faint: Color { isDark ? Color.white.opacity(0.32) : Color.black.opacity(0.35) }
 
@@ -111,6 +119,9 @@ extension Design {
         static var accent: Color { theme.accent }
         static var accentDim: Color { theme.accent.opacity(0.18) }
         static var accentDeep: Color { theme.accent.opacity(0.4) }
+        /// Ink drawn on top of a solid accent fill: black on the light
+        /// accents (Mono's white, Amber, Phosphor), white on the dark ones.
+        static var onAccent: Color { theme.onAccent }
         static var text: Color { theme.text }
         static var dim: Color { theme.dim }
         static var faint: Color { theme.faint }

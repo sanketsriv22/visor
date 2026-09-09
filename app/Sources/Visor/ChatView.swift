@@ -75,7 +75,7 @@ struct ChatCard: View {
                     Button(action: chat.stop) {
                         Image(systemName: "stop.circle.fill")
                             .font(.system(size: 11))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Design.Retro.accent)
                             .frame(width: 20, height: 20)
                             .contentShape(Rectangle())
                     }
@@ -164,7 +164,7 @@ struct ChatCard: View {
         } label: {
             HStack(spacing: 5) {
                 Circle()
-                    .fill(chat.isStreaming ? Color.orange : Color.white.opacity(0.35))
+                    .fill(chat.isStreaming ? Design.Retro.accent : Color.white.opacity(0.35))
                     .frame(width: 5, height: 5)
                 Text(chat.agent?.name ?? "No agent")
                     .font(.system(size: 11, weight: .medium))
@@ -415,7 +415,7 @@ private struct HistoryRow: View {
                     // A rail rather than a fill: it marks the current chat
                     // without turning the row into a block of colour.
                     RoundedRectangle(cornerRadius: 1)
-                        .fill(isCurrent ? Color.orange : .clear)
+                        .fill(isCurrent ? Design.Retro.accent : .clear)
                         .frame(width: 2, height: 22)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(summary.title.isEmpty ? "Untitled" : summary.title)
@@ -803,6 +803,8 @@ struct ComposerField: NSViewRepresentable {
     /// passes a larger value, since at full-screen the 12pt field read as a
     /// caption next to everything around it.
     var fontSize: CGFloat = 12
+    /// Reports first-responder changes, so the composer can light up.
+    var onFocusChange: ((Bool) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -889,6 +891,14 @@ struct ComposerField: NSViewRepresentable {
             guard let view = notification.object as? NSTextView else { return }
             parent.text = view.string
             reportHeight(of: view)
+        }
+
+        func textDidBeginEditing(_ notification: Notification) {
+            parent.onFocusChange?(true)
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            parent.onFocusChange?(false)
         }
 
         func reportHeight(of view: NSTextView) {
@@ -1357,7 +1367,7 @@ struct HUDView: View {
                     HStack(spacing: 7) {
                         Circle()
                             .fill(agent.name == chat.agent?.name
-                                  ? Color.orange : Color.white.opacity(0.22))
+                                  ? Design.Retro.accent : Color.white.opacity(0.22))
                             .frame(width: 5, height: 5)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(agent.name)
@@ -1734,7 +1744,7 @@ struct DictationControl: View {
 
     private var tint: Color {
         switch voice.state {
-        case .recording:         return .orange
+        case .recording:         return Design.Retro.accent
         case .denied:            return .red.opacity(0.7)
         case .failed:            return .orange.opacity(0.8)
         default:                 return .white.opacity(0.45)
@@ -2023,7 +2033,7 @@ struct FastToggle: View {
             HStack(spacing: 4) {
                 Image(systemName: "bolt.fill")
                     .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(chat.isFast ? Color.orange : Color.white.opacity(0.5))
+                    .foregroundStyle(chat.isFast ? Design.Retro.accent : Color.white.opacity(0.5))
                 // Labelled, not a bare icon. A lightning bolt on its own does
                 // not say "route to the fastest provider rather than the
                 // cheapest one" to anybody.
@@ -2154,7 +2164,7 @@ extension InlineModelPicker {
         Button { chat.toggleFavourite(id) } label: {
             Image(systemName: chat.isFavourite(id) ? "star.fill" : "star")
                 .font(.system(size: 9))
-                .foregroundStyle(chat.isFavourite(id) ? Color.orange : Color.secondary.opacity(0.45))
+                .foregroundStyle(chat.isFavourite(id) ? Design.Retro.accent : Color.secondary.opacity(0.45))
                 .frame(width: 18, height: 18)
                 .contentShape(Rectangle())
         }
@@ -2175,13 +2185,14 @@ struct ComposerPill: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .font(.system(size: 9, weight: .medium))
-            .foregroundStyle(.white.opacity(enabled ? (active ? 0.9 : 0.5) : 0.22))
-            .padding(.horizontal, 7)
-            .frame(height: 18)
+            .font(.system(size: 10.5, weight: .medium))
+            .foregroundStyle(.white.opacity(enabled ? (active ? 0.9 : 0.55) : 0.22))
+            .padding(.horizontal, 9)
+            .frame(height: 22)
             .background(
                 Capsule().fill(.white.opacity(
-                    !enabled ? 0.03 : active ? 0.14 : (hovering ? 0.10 : 0.055))))
+                    !enabled ? 0.03 : hovering ? 0.14 : active ? 0.10 : 0.06)))
+            .overlay(Capsule().stroke(.white.opacity(enabled ? 0.07 : 0.03), lineWidth: 1))
             .contentShape(Capsule())
             .onHover { hovering = $0 && enabled }
             .animation(.easeOut(duration: 0.12), value: hovering)
