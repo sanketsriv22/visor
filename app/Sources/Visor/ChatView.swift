@@ -68,31 +68,23 @@ struct ChatCard: View {
             .frame(width: NotchController.shoulderWidth, alignment: .trailing)
             Spacer(minLength: 0)
                 .frame(width: notchWidth + NotchController.notchClearance)
-            // 20pt slots with no spacing: five of these have to fit the same
-            // 106pt shoulder the note card uses.
+            // Four 24pt controls in the 106pt shoulder. One component, so
+            // their targets, icon sizes and feedback agree.
             HStack(spacing: 0) {
                 if chat.isStreaming {
-                    Button(action: chat.stop) {
-                        Image(systemName: "stop.circle.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Design.Retro.accent)
-                            .frame(width: 20, height: 20)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.visor)
-                    .accessibilityIdentifier("visor.chat.stop")
-                    .help("Stop the reply — this also stops it being billed")
+                    IconButton(symbol: "stop.fill", size: Design.Metric.small,
+                               tint: Design.Retro.accent,
+                               help: "Stop the reply — this also stops it being billed",
+                               action: chat.stop)
+                        .accessibilityIdentifier("visor.chat.stop")
                 }
-                // Two buttons and an overflow. Five icon-only controls in a
-                // 106pt strip is a puzzle, not a toolbar — new chat and expand
-                // are the ones worth a permanent slot.
-                headerButton("square.and.pencil", "New chat") { chat.newChat() }
+                IconButton(symbol: "square.and.pencil", size: Design.Metric.small,
+                           help: "New chat") { chat.newChat() }
                     .accessibilityIdentifier("visor.chat.new")
-                headerButton("arrow.up.left.and.arrow.down.right",
-                             "Expand to HUD — \(ShortcutSettings.hint(.hud))",
-                             action: onHUD)
+                IconButton(symbol: "arrow.up.left.and.arrow.down.right", size: Design.Metric.small,
+                           help: "Expand to HUD — \(ShortcutSettings.hint(.hud))", action: onHUD)
                     .accessibilityIdentifier("visor.chat.hud")
-                overflowMenu.frame(width: 20)
+                overflowMenu.frame(width: Design.Metric.small, height: Design.Metric.small)
                     .accessibilityIdentifier("visor.chat.overflow")
                 Spacer(minLength: 0)
             }
@@ -102,30 +94,17 @@ struct ChatCard: View {
         .frame(height: topInset)
     }
 
-    /// Who you're talking to and on what. Below the notch, where there's width
-    /// for it — the band itself has to stay narrow to match the note card.
+    /// Who you're talking to and on what: the agent is the product, so its
+    /// identity leads the card. One control — name, model, status — that
+    /// opens the agent selector.
     private var agentBar: some View {
-        HStack(spacing: 8) {
-            agentPicker
+        HStack(spacing: Design.Space.normal) {
+            AgentIdentity(chat: chat)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 5)
-    }
-
-    private func headerButton(_ symbol: String, _ help: String,
-                              action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 11))
-                .foregroundStyle(Design.Ink.secondary)
-                .frame(width: 20, height: 20)
-                .contentShape(Rectangle())
-        }
-        // Was .plain, which acknowledges a click with nothing at all. Every
-        // icon button in the band now lifts on hover and gives on press.
-        .buttonStyle(.visor)
-        .help(help)
+        .padding(.top, 4)
+        .padding(.bottom, 6)
     }
 
     /// What to say under an agent's name: the model for a hosted one, and for a
@@ -136,47 +115,6 @@ struct ChatCard: View {
             return account.summary
         }
         return agent.model ?? ""
-    }
-
-    /// Agents are named by the user, so the picker shows names and keeps the
-    /// model id as the subtitle — the name is what they think in.
-    private var agentPicker: some View {
-        Menu {
-            ForEach(chat.chatAgents) { agent in
-                Button {
-                    chat.use(agent)
-                } label: {
-                    Text(agent.name)
-                    // For a local agent this says whose subscription answers.
-                    // It was knowable only by asking the agent, which is not a
-                    // thing anyone thinks to do about their own billing.
-                    Text(subtitle(for: agent))
-                }
-            }
-            if chat.chatAgents.isEmpty {
-                Text("No agents yet")
-            }
-            Divider()
-            Button("Manage agents…") {
-                NotificationCenter.default.post(name: .visorOpenSettings, object: nil)
-            }
-        } label: {
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(chat.isStreaming ? Design.Retro.accent : Color.white.opacity(0.35))
-                    .frame(width: 5, height: 5)
-                Text(chat.agent?.name ?? "No agent")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.85))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.4))
-            }
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .accessibilityIdentifier("visor.chat.agent")
     }
 
     /// Everything that doesn't need to be one click away.
@@ -203,11 +141,10 @@ struct ChatCard: View {
             }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.55))
-                .frame(width: 20, height: 20)
-                .background(Circle().fill(Design.Surface.raised))
-                .contentShape(Circle())
+                .font(.system(size: Design.Metric.iconSmall, weight: .medium))
+                .foregroundStyle(Design.Ink.secondary)
+                .frame(width: Design.Metric.small, height: Design.Metric.small)
+                .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -217,30 +154,8 @@ struct ChatCard: View {
     // MARK: - Empty transcript
 
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(chat.chatAgents.isEmpty ? "No agents yet" : "Ask \(chat.agent?.name ?? "your agent") anything")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.75))
-            if chat.chatAgents.isEmpty {
-                HStack(spacing: 4) {
-                    Text("Add one with an API key in")
-                    Button("Settings") {
-                        NotificationCenter.default.post(name: .visorOpenSettings, object: nil)
-                    }
-                    .buttonStyle(.visorBare)
-                    .foregroundStyle(Color.accentColor)
-                    .underline()
-                }
-                .font(.system(size: 10))
-                .foregroundStyle(.white.opacity(0.4))
-            } else {
-                Text("Replies stream here. \(ShortcutSettings.hint(.swapMode)) switches back to your notes.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.top, 6)
+        EmptyInvitation(chat: chat)
+            .padding(.top, Design.Space.normal)
     }
 
     // MARK: - History
@@ -327,18 +242,19 @@ struct MessageRow: View {
             HStack {
                 Spacer(minLength: 40)
                 Text(message.content)
-                    .font(.system(size: 13.5 * scale))
-                    .foregroundStyle(.white.opacity(0.92))
-                    .lineSpacing(3)
+                    .font(Design.Type.body(scale))
+                    .foregroundStyle(Design.Ink.primary)
+                    .lineSpacing(Design.Type.bodyLeading)
                     .textSelection(.enabled)
                     .accessibilityIdentifier("visor.message.user")
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
+                    .padding(.horizontal, Design.Space.roomy)
+                    .padding(.vertical, Design.Space.normal)
                     .background(
                         UnevenRoundedRectangle(
-                            topLeadingRadius: 11, bottomLeadingRadius: 11,
-                            bottomTrailingRadius: 3, topTrailingRadius: 11)
-                            .fill(.white.opacity(0.11)))
+                            topLeadingRadius: Design.Radius.panel, bottomLeadingRadius: Design.Radius.panel,
+                            bottomTrailingRadius: 4, topTrailingRadius: Design.Radius.panel,
+                            style: .continuous)
+                            .fill(Design.Surface.raisedStrong))
             }
         } else {
             HStack {
@@ -351,36 +267,23 @@ struct MessageRow: View {
                         // something was happening without saying what. Sized to
                         // the text beside it, it reads as a line in the
                         // transcript rather than a graphic pasted over one.
-                        HStack(spacing: 6) {
-                            DotMatrixIndicator(size: 13 * scale)
-                            Text("working")
-                                .font(.system(size: 13.5 * scale))
-                                .foregroundStyle(.white.opacity(0.5))
+                        HStack(spacing: Design.Space.snug) {
+                            DotMatrixIndicator(size: 13 * scale, tint: Design.Retro.accent)
+                            Text("Working")
+                                .font(Design.Type.body(scale))
+                                .foregroundStyle(Design.Ink.tertiary)
                         }
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 4)
+                        .padding(.vertical, Design.Space.tight)
                     } else {
                         replyText
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                // Dimmer and squared off on the leading edge, so the two
-                // speakers read as different without shouting.
-                .background(
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 11, bottomLeadingRadius: 3,
-                        bottomTrailingRadius: 11, topTrailingRadius: 11)
-                        // 0.045 was all but invisible on black; this
-                        // reads as a surface without competing with the
-                        // user's own bubble.
-                        .fill(.white.opacity(0.085)))
-                .overlay(
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 11, bottomLeadingRadius: 3,
-                        bottomTrailingRadius: 11, topTrailingRadius: 11)
-                        .stroke(Design.Surface.hairline, lineWidth: 1))
-                Spacer(minLength: 28)
+                // The reply is the card's own voice: no bubble, full measure.
+                // One surface level fewer, and a reading width that isn't
+                // paying for a box.
+                .padding(.horizontal, Design.Space.hair)
+                .padding(.vertical, Design.Space.tight)
+                Spacer(minLength: 0)
             }
         }
     }
@@ -2093,18 +1996,19 @@ struct ToolActivityRow: View {
     let calls: [ToolCall]
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Design.Space.snug) {
             Image(systemName: "wrench.and.screwdriver")
-                .font(.system(size: 9))
-                .foregroundStyle(.white.opacity(0.35))
+                .font(.system(size: Design.Metric.iconSmall))
+                .foregroundStyle(Design.Ink.tertiary)
             Text(calls.map(\.name).joined(separator: ", "))
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.45))
+                .font(Design.Type.mono())
+                .foregroundStyle(Design.Ink.secondary)
                 .lineLimit(1)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 8).padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.pill).fill(.white.opacity(0.04)))
+        .padding(.horizontal, Design.Space.roomy)
+        .frame(height: Design.Metric.regular)
+        .raised(Design.Radius.control)
     }
 }
 
@@ -2216,14 +2120,15 @@ struct ComposerPill: ViewModifier {
     func body(content: Content) -> some View {
         content
             .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(.white.opacity(enabled ? (active ? 0.9 : 0.65) : 0.25))
-            .padding(.horizontal, 12)
-            .frame(height: 32)
+            .foregroundStyle(enabled ? (active ? Design.Ink.primary : Design.Ink.secondary) : Design.Ink.faint)
+            .padding(.horizontal, Design.Space.roomy)
+            .frame(height: Design.Metric.large)
             .background(
                 Capsule().fill(.white.opacity(
                     !enabled ? 0.02 : hovering ? 0.12 : 0.05)))
             .clipShape(Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(enabled ? 0.16 : 0.06), lineWidth: 1))
+            .overlay(Capsule().strokeBorder(enabled ? Design.Stroke.control : Design.Stroke.divider,
+                                            lineWidth: Design.Stroke.hairline))
             // Keyboard focus never lands on a chip: the ring AppKit draws for
             // it is a rounded rectangle that shows as ticks past a capsule's
             // ends. Return and ⌘↩ are the composer's keys; the chips are
@@ -2255,48 +2160,42 @@ struct ToolApprovalRow: View {
     let deny: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 5) {
+        VStack(alignment: .leading, spacing: Design.Space.normal) {
+            HStack(spacing: Design.Space.snug) {
                 Image(systemName: "hand.raised.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.orange)
+                    .font(.system(size: Design.Metric.iconSmall, weight: .medium))
+                    .foregroundStyle(Design.Retro.accent)
                 Text(pending.needing.count == 1
                      ? "Let \(pending.needing[0].name) run?"
                      : "Let \(pending.needing.count) tools run?")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.9))
+                    .font(Design.Type.heading())
+                    .foregroundStyle(Design.Ink.primary)
             }
 
             ForEach(pending.needing) { call in
                 Text(summary(of: call))
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.65))
+                    .font(Design.Type.mono())
+                    .foregroundStyle(Design.Ink.secondary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 7).padding(.vertical, 5)
+                    .padding(.horizontal, Design.Space.normal).padding(.vertical, Design.Space.snug)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: Design.Radius.control).fill(.black.opacity(0.35)))
+                    .background(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
+                        .fill(Color.black.opacity(0.4)))
             }
 
-            HStack(spacing: 6) {
-                Button("Allow", action: allow)
-                    .buttonStyle(.visorBare)
-                    .composerPill(active: true)
+            HStack(spacing: Design.Space.snug) {
+                ActionChip(title: "Allow", prominent: true, action: allow)
                     .accessibilityIdentifier("visor.approval.allow")
-                Button("Always", action: allowAlways)
-                    .buttonStyle(.visorBare)
-                    .composerPill()
+                ActionChip(title: "Always allow", action: allowAlways)
                     .accessibilityIdentifier("visor.approval.always")
-                Button("Deny", action: deny)
+                ActionChip(title: "Deny", action: deny)
                     .accessibilityIdentifier("visor.approval.deny")
-                    .buttonStyle(.visorBare)
-                    .composerPill()
                 Spacer(minLength: 0)
             }
         }
-        .padding(9)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.pill).fill(.orange.opacity(0.10)))
-        .overlay(RoundedRectangle(cornerRadius: Design.Radius.pill).stroke(.orange.opacity(0.28), lineWidth: 1))
+        .padding(Design.Space.roomy)
+        .raised(Design.Radius.panel, strong: true, stroke: Design.Retro.accent.opacity(0.45))
     }
 
     /// The arguments as written, so what's being approved is visible.

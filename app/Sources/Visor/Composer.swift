@@ -34,9 +34,10 @@ struct Composer: View {
         .padding(.bottom, metrics.paddingBottom)
         .padding(.horizontal, metrics.paddingSide)
         .background(RoundedRectangle(cornerRadius: metrics.radius, style: .continuous)
-            .fill(Color.white.opacity(metrics.fill)))
+            .fill(Design.Surface.raisedStrong))
         .overlay(RoundedRectangle(cornerRadius: metrics.radius, style: .continuous)
-            .strokeBorder(Color.white.opacity(focused ? 0.16 : 0.09), lineWidth: 1))
+            .strokeBorder(focused ? Design.Stroke.control : Design.Stroke.edge,
+                          lineWidth: Design.Stroke.hairline))
         .shadow(color: Color.black.opacity(0.28), radius: 10, y: 3)
         .animation(.easeOut(duration: 0.18), value: focused)
         .accessibilityIdentifier("visor.composer")
@@ -190,19 +191,19 @@ struct Composer: View {
         init(_ layout: ChatSurface) {
             switch layout {
             case .compact:
-                fontSize = 14; lineSpacing = 5; lineInset = 0
+                fontSize = 14; lineSpacing = 5; lineInset = 1
                 minHeight = 22; maxHeight = 84
                 textInset = 8; rowGap = 6; gap = 6
-                button = 32; chipFont = 13
+                button = Design.Metric.large; chipFont = 13
                 paddingTop = 12; paddingBottom = 8; paddingSide = 8
-                radius = 24; fill = 0.09
+                radius = Design.Radius.composer; fill = 0.09
             case .hud:
-                fontSize = 16; lineSpacing = 8; lineInset = 0
+                fontSize = 16; lineSpacing = 8; lineInset = 1
                 minHeight = 24; maxHeight = 168
                 textInset = 8; rowGap = 8; gap = 8
                 button = 36; chipFont = 14
                 paddingTop = 14; paddingBottom = 8; paddingSide = 8
-                radius = 28; fill = 0.09
+                radius = Design.Radius.composer + 4; fill = 0.09
             }
         }
     }

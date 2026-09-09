@@ -104,6 +104,13 @@ enum DesignLab {
                      note: "Computer Use card, idle") { f in
                 AnyView(f.compact(.computerUse, chat: f.chat(.empty)))
             },
+            Scenario(name: "selector-agents", size: CGSize(width: 360, height: 260), themed: false,
+                     note: "The agent selector's content, as it appears in its popover") { f in
+                AnyView(ZStack(alignment: .topLeading) {
+                    Color.black
+                    AgentSelector(chat: f.chat(.complete), dismiss: {}).padding(20)
+                })
+            },
             Scenario(name: "composer-parts", size: CGSize(width: 520, height: 420), themed: false,
                      note: "The composer's controls in isolation, one variant per row") { f in
                 AnyView(ComposerPartsProbe(chat: f.chat(.empty)))
