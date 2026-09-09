@@ -191,11 +191,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         NotificationCenter.default.addObserver(
             forName: .visorReplayIntroduction, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.showOnboarding()
+            self?.showOnboarding(fresh: true)
         }
         if !UserDefaults.standard.bool(forKey: Self.introducedKey) || args.contains("--intro") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-                self?.showOnboarding()
+                self?.showOnboarding(fresh: args.contains("--intro"))
             }
         }
 
@@ -355,7 +355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             onDictate:      { close(); self.controller?.toggleDictation() },
             onSettings:     { close(); self.openSettings() },
             onWhatsNew:     { close(); self.openReleases() },
-            onIntroduction: { close(); self.showOnboarding() },
+            onIntroduction: { close(); self.showOnboarding(fresh: true) },
             onCheckUpdates: { close(); self.updater.controller.checkForUpdates(nil) },
             onQuit:         { NSApp.terminate(nil) })
     }
@@ -582,8 +582,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     /// The first-launch introduction: a screen takeover that walks through
-    /// the real product. Replayable from the menu-bar panel.
-    private func showOnboarding() {
+    /// the real product. Replayable from the menu-bar panel and Settings; a
+    /// replay starts from the beginning, a first launch resumes any
+    /// progress it saved before an interruption.
+    private func showOnboarding(fresh: Bool = false) {
+        if fresh { UserDefaults.standard.removeObject(forKey: TakeoverGuide.progressKey) }
         guard takeover == nil, let controller, let guide = TakeoverGuide(controller: controller) else { return }
         guide.onOpenSettings = { [weak self] in self?.showSettings(focusing: nil) }
         guide.onFinish = { [weak self] in

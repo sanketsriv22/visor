@@ -252,9 +252,23 @@ final class ChatController: ObservableObject {
         if conversation.agentName.isEmpty { conversation.agentName = agent?.name ?? "Visor" }
         conversation.messages.append(question)
         if conversation.title.isEmpty { conversation.title = Self.title(from: text) }
+        // The stand-in asks first, like a real agent with a tool would: the
+        // approval card is the real control, and the introduction teaches
+        // it by having it happen.
+        let call = ToolCall(id: "intro_1", name: "run_shell",
+                            arguments: #"{"command":"ls -S ~/Desktop | head -3"}"#)
+        conversation.messages.append(ChatMessage(role: .assistant, content: "", model: "visor/intro",
+                                                 toolCalls: [call]))
+        pendingApproval = PendingApproval(calls: [call], needing: [call], model: "visor/intro",
+                                          system: nil, effort: nil, fast: false, round: 1)
+        store.save(conversation)
+    }
+
+    /// The scripted continuation after the stand-in's approval was answered.
+    private func continueDemo(allowed: Bool, question: String) {
         conversation.messages.append(ChatMessage(role: .assistant, content: "", model: "visor/intro"))
         isStreaming = true
-        let reply = Self.demoReply(to: text)
+        let reply = allowed ? Self.demoReply(to: question) : Self.demoDeclined
         let words = reply.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
         streamTask = Task { [weak self] in
             var built = ""
@@ -280,26 +294,27 @@ final class ChatController: ObservableObject {
         }
     }
 
+    private var lastQuestion: String {
+        conversation.messages.last(where: { $0.role == .user })?.content ?? ""
+    }
+
+    private static let demoDeclined = """
+    Understood — I won't run anything. That's the whole point of the ask: nothing happens on your Mac until you say so.
+
+    Say the word and I'll try again.
+    """
+
     private static func demoReply(to text: String) -> String {
-        let echo = text.count > 60 ? String(text.prefix(57)) + "…" : text
-        return """
-        That came straight through the notch. You asked:
+        """
+        Done. Three largest things on your Desktop (sample data — this is a scripted stand-in until an agent is connected):
 
-        > \(echo)
+        | File | Size |
+        |---|---|
+        | `screen-recording-2026-09-04.mov` | 1.8 GB |
+        | `Visor-notarized.dmg` | 84 MB |
+        | `IMG_4412.HEIC` | 6 MB |
 
-        There's no model behind me yet — this reply is scripted — but everything else here is real:
-
-        - **This card** is your chat. It grows with the conversation and streams replies as they arrive.
-        - **Headings, lists, tables and code** render properly, like this:
-
-        ```swift
-        let visor = Notch(origin: .yours)
-        visor.open()   // ⌘⌃K, any time
-        ```
-
-        - **Add an agent** in Settings → Agents to make it real: any model through OpenRouter with a key, or Claude Code, Codex and Devin already on your Mac.
-
-        Next: press **⌘⌃M** and watch this expand.
+        The first one is the obvious candidate. Want me to move it to the Trash? I'll ask before I do.
         """
     }
 
@@ -814,6 +829,10 @@ final class ChatController: ObservableObject {
     func approvePending(always: Bool) {
         guard let pending = pendingApproval else { return }
         pendingApproval = nil
+        if pending.model == "visor/intro" {
+            continueDemo(allowed: true, question: lastQuestion)
+            return
+        }
         if always, var agent {
             var allowed = agent.autoApprovedTools ?? []
             for call in pending.needing where !allowed.contains(call.name) {
@@ -836,6 +855,10 @@ final class ChatController: ObservableObject {
     func denyPending() {
         guard let pending = pendingApproval else { return }
         pendingApproval = nil
+        if pending.model == "visor/intro" {
+            continueDemo(allowed: false, question: lastQuestion)
+            return
+        }
         for call in pending.calls {
             conversation.messages.append(ChatMessage(
                 role: .tool,

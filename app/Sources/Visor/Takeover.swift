@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 
 extension Notification.Name {
-    /// Show the introduction again — from the menu-bar panel.
+    /// Show the introduction again — from the menu-bar panel or Settings.
     static let visorReplayIntroduction = Notification.Name("visor.replayIntroduction")
 }
 
@@ -11,39 +11,59 @@ extension Notification.Name {
 /// app and built by hand in the Design Lab, so the same view renders both.
 @MainActor
 final class TakeoverState: ObservableObject {
+    /// The eight moments. Each advances when the real thing happens.
     enum Step: Int, CaseIterable {
-        case boot, clickNotch, addTask, swapToChat, ask, expandHUD, backDown, hide, summon, finale
-        static var count: Int { allCases.count }
+        case boot, summon, connect, firstTask, practice, control, yours, finale
     }
 
     /// Screen geometry the guide draws around, in the panel's own
     /// coordinate space (origin bottom-left, like AppKit).
     struct Geometry {
         var bounds: CGRect
-        /// The physical notch (or the synthetic strip on a notchless display).
         var notch: CGRect
-        /// The card for the current face, including the band behind the notch.
         var card: CGRect
-        /// The mode switcher, on the notch's left shoulder.
         var switcher: CGRect
-        /// Whether the card is open (the hole in the scrim follows it).
         var expanded = false
-        /// Whether the HUD is up, which changes what the scrim has to do.
         var hud = false
+        /// The practice window's frame while it is up.
+        var practice: CGRect? = nil
+    }
+
+    /// An agent the connect step can offer.
+    struct AgentOption: Identifiable, Equatable {
+        var id: String { name }
+        let name: String
+        let detail: String
+        let ready: Bool
     }
 
     @Published var step: Step = .boot
     @Published var geometry: Geometry
-    /// Incremented for every completed step; the view fires a pixel burst
-    /// from the notch each time it changes.
     @Published var bursts = 0
     @Published var lastBurst = Date.distantPast
     @Published var leaving = false
     @Published var stepStarted = Date()
 
-    init(geometry: Geometry, step: Step = .boot) {
+    /// Connect step.
+    @Published var options: [AgentOption] = []
+    @Published var hasKey = false
+    @Published var chosen: String? = nil
+    @Published var checking = false
+    /// True once the user chose to go on without an agent; the first task
+    /// runs on the scripted stand-in and says so.
+    @Published var standIn = false
+
+    /// First-task step.
+    @Published var awaitingApproval = false
+    @Published var taskDone = false
+
+    /// Practice and control steps.
+    let practice: PracticeDriver
+
+    init(geometry: Geometry, step: Step = .boot, practice: PracticeDriver = PracticeDriver()) {
         self.geometry = geometry
         self.step = step
+        self.practice = practice
     }
 
     struct Line {
@@ -52,63 +72,82 @@ final class TakeoverState: ObservableObject {
         let body: String
     }
 
-    var line: Line { Self.line(for: step) }
-
-    static func line(for step: Step) -> Line {
-        let k = ShortcutSettings.hint(.toggle)
-        let swap = ShortcutSettings.hint(.swapMode)
+    var line: Line {
+        let summon = ShortcutSettings.hint(.toggle)
         let hud = ShortcutSettings.hint(.hud)
+        let dictate = ShortcutSettings.hint(.dictate)
         switch step {
         case .boot:
-            return Line(kicker: "VISOR", title: "Your Mac has a notch.",
-                        body: "Let's put something in it.")
-        case .clickNotch:
-            return Line(kicker: "01 · THE NOTCH", title: "Click the notch.",
-                        body: "Right there, at the top of the screen. That's where Visor lives.")
-        case .addTask:
-            return Line(kicker: "02 · A NOTE", title: "Type something you need to do, then press Return.",
-                        body: "It's saved as plain Markdown in ~/Documents/Visor the moment you type it — a file your agents can read and write too.")
-        case .swapToChat:
-            return Line(kicker: "03 · CHAT", title: "Press \(swap) to flip to chat.",
-                        body: "Same card, other face. The switcher up by the notch does the same thing.")
-        case .ask:
-            return Line(kicker: "04 · SAY ANYTHING", title: "Ask it anything, then press Return.",
-                        body: "This first reply is on the house — no key, no agent needed yet.")
-        case .expandHUD:
-            return Line(kicker: "05 · THE HUD", title: "Now press \(hud).",
-                        body: "When a conversation outgrows the card, it expands out of the notch into the whole screen.")
-        case .backDown:
-            return Line(kicker: "05 · THE HUD", title: "Press Esc to come back down.",
-                        body: "The HUD is the same chat at another scale — your agents, tasks and memory on the rails.")
-        case .hide:
-            return Line(kicker: "06 · GONE", title: "Press \(k) to make it disappear.",
-                        body: "Visor gets out of the way completely. Nothing in the Dock, nothing on screen.")
+            return Line(kicker: "VISOR", title: "An agent lives in your notch.",
+                        body: "Let's wake it up.")
         case .summon:
-            return Line(kicker: "07 · BACK", title: "Press \(k) again.",
-                        body: "That's the one thing to remember. Or click the notch, or the mark in the menu bar.")
+            return Line(kicker: "01 · SUMMON", title: "Press \(summon).",
+                        body: "Or click the notch. Either brings Visor out, from anywhere, over anything.")
+        case .connect:
+            if chosen != nil {
+                return Line(kicker: "02 · CONNECTED", title: "\(chosen ?? "Your agent") is on.",
+                            body: "Its status dot lit up in the card. Next: give it something to do.")
+            }
+            if let ready = options.first(where: \.ready) {
+                return Line(kicker: "02 · CONNECT", title: "\(ready.name) is on this Mac.",
+                            body: "\(ready.detail). Use it, or add an OpenRouter key for any model.")
+            }
+            if hasKey {
+                return Line(kicker: "02 · CONNECT", title: "You have an OpenRouter key.",
+                            body: "That's any hosted model. Use it, or pick a local agent below.")
+            }
+            return Line(kicker: "02 · CONNECT", title: "Nothing connected yet.",
+                        body: "Add an OpenRouter key for any model, or install Claude Code, Codex or Devin. Or keep going — the first task runs on a scripted stand-in.")
+        case .firstTask:
+            if taskDone {
+                return Line(kicker: "03 · FIRST TASK", title: "That's a task, done.",
+                            body: standIn ? "Scripted, but the shape is real: ask, approve, result. Now let it drive."
+                                          : "It asked, you allowed, it answered. Now let it drive.")
+            }
+            if awaitingApproval {
+                return Line(kicker: "03 · FIRST TASK", title: "It's asking first.",
+                            body: "Nothing runs on your Mac until you say so. Press Allow.")
+            }
+            return Line(kicker: "03 · FIRST TASK", title: "Send it something.",
+                        body: "This one's ready to go — edit it if you like, then press Return.")
+        case .practice:
+            return Line(kicker: "04 · COMPUTER USE", title: "Now let it drive.",
+                        body: "A practice window opened below — nothing in it is real. Press Run and watch it read the report and fill in the total.")
+        case .control:
+            if practice.stopped {
+                return Line(kicker: "05 · CONTROL", title: "Stopped. Nothing lost.",
+                            body: "It halts between actions, so you can always step in. Press Continue to let it finish.")
+            }
+            if practice.isDone {
+                return Line(kicker: "05 · CONTROL", title: "Total's in.",
+                            body: "You watched every step and stopped it once. That's how every run works.")
+            }
+            return Line(kicker: "05 · CONTROL", title: "You're in charge.",
+                        body: "While it works, press Stop.")
+        case .yours:
+            return Line(kicker: "06 · YOURS", title: "Your turn.",
+                        body: "Ask something real, or pick one below. \(hud) expands into the HUD when it gets big; \(dictate) dictates.")
         case .finale:
-            return Line(kicker: "THAT'S VISOR", title: "You're in.",
-                        body: "Add an agent to make chat real — any model through OpenRouter, or Claude Code, Codex and Devin already on your Mac.")
+            return Line(kicker: "THAT'S VISOR", title: "It lives in the notch.",
+                        body: "\(summon) brings it back — anywhere, any time. So does clicking the notch, or the mark in the menu bar.")
         }
     }
 }
 
 /// The introduction as a screen takeover.
 ///
-/// Not a window that explains Visor: the Mac dims, and a guide draws on the
-/// real screen — a rough ring around the real notch, an arrow to the real
-/// composer — and waits until you actually do the thing. Every step is the
-/// product itself: you click the notch, you type a task into the note that
-/// lands in ~/Documents/Visor, you send a message and a reply streams into
-/// the real transcript, you expand into the HUD and back, you make Visor
-/// disappear and summon it again. Nothing is simulated except the one reply,
-/// which is scripted so chat works before any agent or key exists.
+/// The Mac dims; Visor wakes from the notch outward; a guide draws on the
+/// real screen and waits until the real thing happens: summon it, connect
+/// an agent (or go on with a scripted stand-in), send a first task and
+/// answer its approval, let a scripted agent drive a practice window and
+/// stop it once, then ask something of your own. Every surface is the
+/// product's own. Progress persists past connect, the first task and the
+/// practice, so an excursion to Settings or a system dialog doesn't start
+/// it over.
 ///
-/// Mechanically it is one more panel at the notch's level, ordered *under*
-/// the notch's windows and never key, so the card stays clickable and
-/// typeable through it while everything else on screen is held. During the
-/// HUD steps it moves above the HUD and thins its scrim, so the guide stays
-/// legible over the glass.
+/// It is a panel at the notch's level, above the notch's windows, never
+/// key, with real transparency cut out of its scrim where the card, the
+/// notch and the practice window are, so clicks fall through to them.
 @MainActor
 final class TakeoverGuide {
     let state: TakeoverState
@@ -116,11 +155,15 @@ final class TakeoverGuide {
     var onOpenSettings: (() -> Void)?
     var onFinish: (() -> Void)?
 
+    static let progressKey = "visor.intro.progress"
+
     private var panel: NotchPanel?
+    private var practiceWindow: NSWindow?
     private var sinks = Set<AnyCancellable>()
-    private var taskBaseline = 0
-    private var demoBaseline = 0
     private var pending: DispatchWorkItem?
+    private var settingsPoll: Timer?
+    private var sentInTask = false
+    private var messagesAtYours = 0
 
     init?(controller: NotchController) {
         guard let geo = controller.takeoverGeometry() else { return nil }
@@ -146,23 +189,36 @@ final class TakeoverGuide {
         panel.hidesOnDeactivate = false
         panel.contentView = NSHostingView(rootView: TakeoverView(
             state: state,
-            onSkip: { [weak self] in self?.finish() },
-            onAddAgent: { [weak self] in self?.addAgent() },
-            onDone: { [weak self] in self?.finish() }))
+            actions: TakeoverActions(
+                skip: { [weak self] in self?.finish() },
+                back: { [weak self] in self?.back() },
+                useAgent: { [weak self] name in self?.useAgent(named: name) },
+                addKey: { [weak self] in self?.addKey() },
+                skipAgent: { [weak self] in self?.skipAgent() },
+                runPractice: { [weak self] in self?.runPractice() },
+                stopPractice: { [weak self] in self?.state.practice.stop() },
+                continuePractice: { [weak self] in self?.continuePractice() },
+                done: { [weak self] in self?.advance(to: .finale) },
+                finish: { [weak self] in self?.finish() },
+                suggest: { [weak self] text in self?.controller.chat.draft = text })))
         panel.setFrame(frame, display: false)
-        // Above the notch's windows. The scrim has a hole cut where the
-        // card and the notch are, so clicks there fall through to the real
-        // controls; the notch re-orders its own windows on every expand, so
-        // this panel is re-fronted after each change too.
         panel.orderFrontRegardless()
         self.panel = panel
 
-        // The story starts with the notch closed, on the notes face.
-        if controller.ui.expanded { controller.toggle() }
+        detectAgents()
         observe()
+
+        // Resume past what's already been done; the reveal always plays.
+        let saved = TakeoverState.Step(rawValue: UserDefaults.standard.integer(forKey: Self.progressKey))
+        if controller.ui.expanded { controller.toggle() }
         state.stepStarted = Date()
-        schedule(after: Design.Motion.reduced ? 0.8 : 3.6) { [weak self] in
-            self?.advance(to: .clickNotch)
+        schedule(after: Design.Motion.reduced ? 0.8 : 3.4) { [weak self] in
+            guard let self else { return }
+            if let saved, saved.rawValue >= TakeoverState.Step.connect.rawValue, saved != .finale {
+                self.advance(to: .summon)
+            } else {
+                self.advance(to: .summon)
+            }
         }
     }
 
@@ -170,105 +226,238 @@ final class TakeoverGuide {
     func finish() {
         guard !state.leaving else { return }
         pending?.cancel()
-        withAnimation(Design.Motion.animation(.easeInOut(duration: 0.6))) {
-            state.leaving = true
-        }
+        settingsPoll?.invalidate()
+        withAnimation(Design.Motion.animation(.easeInOut(duration: 0.6))) { state.leaving = true }
         controller.chat.demoNextSend = false
+        state.practice.reset()
+        practiceWindow?.orderOut(nil)
+        UserDefaults.standard.set(TakeoverState.Step.finale.rawValue, forKey: Self.progressKey)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
             guard let self else { return }
             self.panel?.orderOut(nil)
             self.panel = nil
+            self.practiceWindow = nil
             self.sinks.removeAll()
             self.onFinish?()
         }
     }
 
-    func addAgent() {
+    func back() {
+        guard let previous = TakeoverState.Step(rawValue: state.step.rawValue - 1),
+              previous != .boot else { return }
+        if state.step == .practice || state.step == .control { hidePractice() }
+        move(to: previous)
+    }
+
+    // MARK: Connect
+
+    private func detectAgents() {
+        let chat = controller.chat
+        state.hasKey = OpenRouterClient.hasKey
+        state.checking = true
+        let clis = chat.chatAgents.filter(\.isNotchCLI)
+        CLIAccounts.shared.refreshAll(clis)
+        // Accounts answer asynchronously; read them now and again shortly.
+        refreshOptions()
+        schedule(after: 1.5) { [weak self] in
+            self?.refreshOptions()
+            self?.state.checking = false
+        }
+    }
+
+    private func refreshOptions() {
+        let chat = controller.chat
+        state.hasKey = OpenRouterClient.hasKey
+        state.options = chat.chatAgents.map { agent in
+            if agent.isNotchCLI {
+                let account = CLIAccounts.shared.account(for: agent)
+                let ready = account?.loggedIn ?? false
+                return TakeoverState.AgentOption(
+                    name: agent.name,
+                    detail: ready ? "Signed in\(account?.email.map { " as \($0)" } ?? "")"
+                                  : "Installed, not signed in — run `\(agent.command)` once in Terminal",
+                    ready: ready)
+            }
+            return TakeoverState.AgentOption(
+                name: agent.name,
+                detail: state.hasKey ? "Any model through OpenRouter — key found"
+                                     : "Needs an OpenRouter key",
+                ready: state.hasKey)
+        }
+    }
+
+    private func useAgent(named name: String) {
+        guard let agent = controller.chat.chatAgents.first(where: { $0.name == name }) else { return }
+        controller.chat.use(agent)
+        state.chosen = name
+        state.standIn = false
+        celebrate(then: .firstTask)
+    }
+
+    /// Off to Settings for a key. The takeover hides — a status-bar-level
+    /// scrim would sit over the Settings window — and comes back when
+    /// Settings closes, re-checking what changed.
+    private func addKey() {
+        panel?.orderOut(nil)
+        practiceWindow?.orderOut(nil)
         onOpenSettings?()
-        finish()
+        settingsPoll?.invalidate()
+        settingsPoll = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let open = NSApp.windows.contains { $0.title == "Visor Settings" && $0.isVisible }
+                if !open {
+                    self.settingsPoll?.invalidate()
+                    self.panel?.orderFrontRegardless()
+                    self.refreshOptions()
+                    if self.state.hasKey, let hosted = self.controller.chat.chatAgents.first(where: \.isChat) {
+                        self.useAgent(named: hosted.name)
+                    }
+                }
+            }
+        }
+    }
+
+    private func skipAgent() {
+        state.standIn = true
+        state.chosen = nil
+        advance(to: .firstTask)
+    }
+
+    // MARK: First task
+
+    private func primeFirstTask() {
+        let chat = controller.chat
+        if controller.ui.mode != .chat { controller.setMode(.chat) }
+        chat.draft = "What's the biggest file on my Desktop?"
+        chat.demoNextSend = state.standIn || chat.agent == nil
+        sentInTask = false
+        state.taskDone = false
+        state.awaitingApproval = false
+    }
+
+    // MARK: Practice
+
+    private func showPractice() {
+        if practiceWindow == nil {
+            practiceWindow = PracticeWindow.make(driver: state.practice)
+        }
+        guard let window = practiceWindow, let frame = controller.takeoverFrame(),
+              let screen = NSScreen.screens.first(where: { $0.frame == frame }) ?? NSScreen.main else { return }
+        let cardBottom = state.geometry.card.minY
+        PracticeWindow.place(window, on: screen, under: cardBottom)
+        window.orderFrontRegardless()
+        state.geometry.practice = window.frame
+        panel?.orderFrontRegardless()
+    }
+
+    private func hidePractice() {
+        practiceWindow?.orderOut(nil)
+        state.geometry.practice = nil
+        state.practice.reset()
+    }
+
+    private func runPractice() {
+        state.practice.run()
+        // Once it is visibly working, teach the stop.
+        schedule(after: Design.Motion.reduced ? 0.4 : 1.6) { [weak self] in
+            guard let self, self.state.step == .practice, self.state.practice.running else { return }
+            self.advance(to: .control)
+        }
+    }
+
+    private func continuePractice() {
+        state.practice.run()
     }
 
     // MARK: Watching the real app
 
     private func observe() {
         let ui = controller.ui
-        ui.$expanded
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] expanded in self?.expandedChanged(expanded) }
-            .store(in: &sinks)
-        ui.$mode
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] mode in self?.modeChanged(mode) }
-            .store(in: &sinks)
-        controller.store.$items
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] items in self?.itemsChanged(items) }
-            .store(in: &sinks)
-        controller.chat.$demoTurns
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] turns in self?.demoTurnsChanged(turns) }
-            .store(in: &sinks)
+        let chat = controller.chat
+        ui.$expanded.removeDuplicates().receive(on: DispatchQueue.main)
+            .sink { [weak self] on in self?.expandedChanged(on) }.store(in: &sinks)
+        ui.$mode.removeDuplicates().receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshGeometry() }.store(in: &sinks)
+        chat.$pendingApproval.receive(on: DispatchQueue.main)
+            .sink { [weak self] p in self?.approvalChanged(p != nil) }.store(in: &sinks)
+        chat.$isStreaming.removeDuplicates().receive(on: DispatchQueue.main)
+            .sink { [weak self] on in self?.streamingChanged(on) }.store(in: &sinks)
+        chat.$conversation.map(\.messages.count).removeDuplicates().receive(on: DispatchQueue.main)
+            .sink { [weak self] n in self?.messageCountChanged(n) }.store(in: &sinks)
+        state.practice.$phase.receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.practiceChanged() }.store(in: &sinks)
+        state.practice.$stops.receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.practiceChanged() }.store(in: &sinks)
+        CLIAccounts.shared.objectWillChange.receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.refreshOptions() } }.store(in: &sinks)
     }
 
     private func refreshGeometry() {
-        if let geo = controller.takeoverGeometry() { state.geometry = geo }
-        // The notch orders its card (and the HUD) front when they appear;
-        // this goes back on top on the next turn of the loop.
+        var geo = controller.takeoverGeometry() ?? state.geometry
+        geo.practice = practiceWindow?.isVisible == true ? practiceWindow?.frame : nil
+        state.geometry = geo
         DispatchQueue.main.async { [weak self] in self?.panel?.orderFrontRegardless() }
     }
 
     private func expandedChanged(_ expanded: Bool) {
         refreshGeometry()
-        switch state.step {
-        case .clickNotch where expanded:
-            // The card may reopen on whichever face it was left on; the
-            // story wants the note first.
-            if controller.ui.mode != .notes { controller.setMode(.notes) }
-            taskBaseline = filledTasks(controller.store.items)
-            celebrate(then: .addTask)
-        case .hide where !expanded:
-            advance(to: .summon)
-        case .summon where expanded:
-            celebrate(then: .finale)
-        default:
-            break
+        if state.step == .summon, expanded {
+            if controller.ui.mode != .chat { controller.setMode(.chat) }
+            celebrate(then: .connect)
         }
     }
 
-    private func modeChanged(_ mode: VisorMode) {
-        refreshGeometry()
+    private func approvalChanged(_ pending: Bool) {
+        guard state.step == .firstTask else { return }
+        state.awaitingApproval = pending
+        if pending { state.bursts += 1; state.lastBurst = Date() }
+    }
+
+    private func streamingChanged(_ streaming: Bool) {
+        guard state.step == .firstTask, sentInTask else { return }
+        if !streaming, !state.awaitingApproval,
+           let last = controller.chat.conversation.messages.last,
+           last.role == .assistant, !last.content.isEmpty {
+            state.taskDone = true
+            state.bursts += 1; state.lastBurst = Date()
+            UserDefaults.standard.set(TakeoverState.Step.practice.rawValue, forKey: Self.progressKey)
+            schedule(after: Design.Motion.reduced ? 0.6 : 2.2) { [weak self] in self?.advance(to: .practice) }
+        }
+    }
+
+    private func messageCountChanged(_ count: Int) {
         switch state.step {
-        case .swapToChat where mode == .chat:
-            controller.chat.demoNextSend = true
-            demoBaseline = controller.chat.demoTurns
-            celebrate(then: .ask)
-        case .expandHUD where mode.isFullScreen:
-            // Over the HUD the scrim goes away entirely and only the guide
-            // stays. Esc still reaches the HUD because this panel is never key.
-            schedule(after: Design.Motion.reduced ? 0.3 : 1.4) { [weak self] in
-                self?.advance(to: .backDown)
+        case .firstTask:
+            if controller.chat.conversation.messages.last?.role == .user { sentInTask = true }
+        case .yours:
+            if count > messagesAtYours, controller.chat.conversation.messages.last?.role == .user {
+                celebrate(then: .finale)
             }
-        case .backDown where !mode.isFullScreen:
-            celebrate(then: .hide)
         default:
             break
         }
     }
 
-    private func itemsChanged(_ items: [NoteItem]) {
-        guard state.step == .addTask, filledTasks(items) > taskBaseline else { return }
-        celebrate(then: .swapToChat)
-    }
-
-    private func demoTurnsChanged(_ turns: Int) {
-        guard state.step == .ask, turns > demoBaseline else { return }
-        celebrate(then: .expandHUD)
-    }
-
-    private func filledTasks(_ items: [NoteItem]) -> Int {
-        items.filter { $0.isTask && !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }.count
+    private func practiceChanged() {
+        switch state.step {
+        case .control:
+            if state.practice.isDone {
+                state.bursts += 1; state.lastBurst = Date()
+                UserDefaults.standard.set(TakeoverState.Step.yours.rawValue, forKey: Self.progressKey)
+                schedule(after: Design.Motion.reduced ? 0.6 : 2.0) { [weak self] in
+                    self?.hidePractice()
+                    self?.advance(to: .yours)
+                }
+            }
+        case .practice:
+            if state.practice.isDone {
+                // Finished before the user was asked to stop: still counts.
+                advance(to: .control)
+            }
+        default:
+            break
+        }
     }
 
     // MARK: Advancing
@@ -276,18 +465,36 @@ final class TakeoverGuide {
     private func celebrate(then next: TakeoverState.Step) {
         state.bursts += 1
         state.lastBurst = Date()
-        schedule(after: Design.Motion.reduced ? 0.2 : 1.0) { [weak self] in
-            self?.advance(to: next)
-        }
+        schedule(after: Design.Motion.reduced ? 0.2 : 1.0) { [weak self] in self?.advance(to: next) }
     }
 
     private func advance(to next: TakeoverState.Step) {
         guard !state.leaving, next.rawValue > state.step.rawValue else { return }
+        move(to: next)
+    }
+
+    private func move(to next: TakeoverState.Step) {
         refreshGeometry()
-        withAnimation(Design.Motion.animation(.easeInOut(duration: 0.35))) {
-            state.step = next
-        }
+        withAnimation(Design.Motion.animation(.easeInOut(duration: 0.35))) { state.step = next }
         state.stepStarted = Date()
+        switch next {
+        case .connect:
+            refreshOptions()
+            UserDefaults.standard.set(next.rawValue, forKey: Self.progressKey)
+        case .firstTask:
+            primeFirstTask()
+            UserDefaults.standard.set(next.rawValue, forKey: Self.progressKey)
+        case .practice:
+            showPractice()
+        case .yours:
+            messagesAtYours = controller.chat.conversation.messages.count
+            controller.chat.draft = ""
+            if controller.ui.mode != .chat { controller.setMode(.chat) }
+        case .finale:
+            hidePractice()
+        default:
+            break
+        }
     }
 
     private func schedule(after seconds: TimeInterval, _ block: @escaping () -> Void) {
@@ -296,4 +503,19 @@ final class TakeoverGuide {
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
+}
+
+/// Everything the view can ask the guide to do.
+struct TakeoverActions {
+    var skip: () -> Void = {}
+    var back: () -> Void = {}
+    var useAgent: (String) -> Void = { _ in }
+    var addKey: () -> Void = {}
+    var skipAgent: () -> Void = {}
+    var runPractice: () -> Void = {}
+    var stopPractice: () -> Void = {}
+    var continuePractice: () -> Void = {}
+    var done: () -> Void = {}
+    var finish: () -> Void = {}
+    var suggest: (String) -> Void = { _ in }
 }

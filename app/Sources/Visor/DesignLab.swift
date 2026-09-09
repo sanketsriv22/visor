@@ -169,6 +169,75 @@ enum DesignLab {
                     .environment(\.colorScheme, VisorTheme.current.isDark ? .dark : .light))
             },
             Scenario(name: "takeover-boot", size: hud, themed: false,
+                     note: "The reveal: mark risen from the notch, wordmark, sweep") { f in
+                AnyView(f.takeover(.boot, chat: f.chat(.empty), expanded: false))
+            },
+            Scenario(name: "takeover-summon", size: hud, themed: false,
+                     note: "01 Summon: ring around the notch, guide below") { f in
+                AnyView(f.takeover(.summon, chat: f.chat(.empty), expanded: false))
+            },
+            Scenario(name: "takeover-connect", size: hud, themed: false,
+                     note: "02 Connect: a detected agent offered, the key path, skip") { f in
+                AnyView(f.takeover(.connect, chat: f.chat(.empty), expanded: true, mode: .chat) { s in
+                    s.options = [.init(name: "Claude Code", detail: "Signed in as sanket@kitalabs.dev", ready: true),
+                                 .init(name: "Claude", detail: "Needs an OpenRouter key", ready: false)]
+                })
+            },
+            Scenario(name: "takeover-task", size: hud, themed: false,
+                     note: "03 First task: the composer pre-filled, ring on it") { f in
+                AnyView(f.takeover(.firstTask, chat: f.chat(.multiline), expanded: true, mode: .chat) { s in
+                    s.chosen = "Claude Code"
+                })
+            },
+            Scenario(name: "takeover-approval", size: hud, themed: false,
+                     note: "03 First task: the approval card is up; the guide names it") { f in
+                AnyView(f.takeover(.firstTask, chat: f.chat(.approval), expanded: true, mode: .chat) { s in
+                    s.chosen = "Claude Code"; s.awaitingApproval = true
+                })
+            },
+            Scenario(name: "takeover-practice", size: hud, themed: false,
+                     note: "04 Practice: the practice window under the card, beam from the notch, Run") { f in
+                AnyView(f.takeover(.practice, chat: f.chat(.complete), expanded: true, mode: .chat,
+                                   practice: true))
+            },
+            Scenario(name: "takeover-control", size: hud, themed: false,
+                     note: "05 Control: mid-run, Stop offered") { f in
+                AnyView(f.takeover(.control, chat: f.chat(.complete), expanded: true, mode: .chat,
+                                   practice: true) { s in
+                    s.practice.run()
+                })
+            },
+            Scenario(name: "takeover-yours", size: hud, themed: false,
+                     note: "06 Yours: suggestions, HUD and dictation mentioned") { f in
+                AnyView(f.takeover(.yours, chat: f.chat(.empty), expanded: true, mode: .chat) { s in
+                    s.chosen = "Claude Code"
+                })
+            },
+            Scenario(name: "takeover-finale", size: hud, themed: false,
+                     note: "The return: cheat sheet and the way out") { f in
+                AnyView(f.takeover(.finale, chat: f.chat(.complete), expanded: true, mode: .chat) { s in
+                    s.chosen = "Claude Code"
+                })
+            },
+            Scenario(name: "practice-window", size: CGSize(width: 480, height: 300), themed: false,
+                     note: "The practice workspace, mid-run") { _ in
+                let driver = PracticeDriver()
+                return AnyView(PracticeView(driver: driver).frame(width: 480, height: 300)
+                    .onAppear { driver.run() })
+            },
+            Scenario(name: "menu-panel", size: CGSize(width: 300, height: 360), themed: true,
+                     note: "The menu-bar dropdown") { f in
+                AnyView(f.menuPanel())
+            },
+            Scenario(name: "settings-appearance", size: CGSize(width: 620, height: 560), themed: true,
+                     note: "Settings → Appearance") { _ in
+                AnyView(AppearancePane()
+                    .padding(24)
+                    .frame(width: 620, height: 560, alignment: .topLeading)
+                    .background(Design.Retro.bg)
+                    .environment(\.colorScheme, VisorTheme.current.isDark ? .dark : .light))
+            },
+            Scenario(name: "takeover-boot", size: hud, themed: false,
                      note: "The takeover powering on: hero mark, wordmark, sweep") { f in
                 AnyView(f.takeover(.boot, chat: f.chat(.empty), expanded: false))
             },
@@ -525,10 +594,12 @@ enum DesignLab {
             }
         }
 
-        /// The takeover over a synthetic screen, with the real card above it
-        /// in the same order the windows stack in the app.
+        /// The takeover over a synthetic screen, stacked as the app orders
+        /// it: the card and the practice window below, the takeover on top
+        /// with holes cut for them.
         func takeover(_ step: TakeoverState.Step, chat: ChatController,
-                      expanded: Bool, mode: VisorMode = .notes) -> some View {
+                      expanded: Bool, mode: VisorMode = .notes, practice: Bool = false,
+                      configure: (TakeoverState) -> Void = { _ in }) -> some View {
             let bounds = CGRect(x: 0, y: 0, width: 1512, height: 982)
             let notchRect = CGRect(x: bounds.midX - notch.width / 2, y: bounds.maxY - notch.height,
                                    width: notch.width, height: notch.height)
@@ -539,31 +610,44 @@ enum DesignLab {
             let distance = (notch.width + NotchController.notchClearance) / 2 + ModeSwitcher.width / 2
             let switcher = CGRect(x: notchRect.midX - distance - ModeSwitcher.width / 2,
                                   y: notchRect.minY, width: ModeSwitcher.width, height: notch.height)
+            let practiceRect = CGRect(x: bounds.midX - PracticeWindow.size.width / 2,
+                                      y: card.minY - PracticeWindow.size.height - 36,
+                                      width: PracticeWindow.size.width, height: PracticeWindow.size.height)
             let state = TakeoverState(
                 geometry: .init(bounds: bounds, notch: notchRect, card: card, switcher: switcher,
-                                expanded: expanded),
+                                expanded: expanded, practice: practice ? practiceRect : nil),
                 step: step)
             state.stepStarted = Date(timeIntervalSinceNow: -30)
+            configure(state)
             let ui = UIState()
             ui.expanded = expanded
             ui.mode = mode
             ui.notchSize = notch
             ui.trueNotch = notch
-            return ZStack(alignment: .top) {
+            let pView = CGRect(x: practiceRect.minX, y: bounds.maxY - practiceRect.maxY,
+                               width: practiceRect.width, height: practiceRect.height)
+            return ZStack(alignment: .topLeading) {
                 LinearGradient(colors: [Color(red: 0.30, green: 0.34, blue: 0.48),
                                         Color(red: 0.16, green: 0.18, blue: 0.28)],
                                startPoint: .top, endPoint: .bottom)
-                Rectangle().fill(Color.black.opacity(0.28)).frame(height: notch.height)
+                Rectangle().fill(Color.black.opacity(0.28)).frame(width: bounds.width, height: notch.height)
                 UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 10,
                                        bottomTrailingRadius: 10, topTrailingRadius: 0)
                     .fill(Color.black)
                     .frame(width: notch.width, height: notch.height)
+                    .offset(x: notchRect.minX)
                 if expanded {
                     StickyRootView(store: notes, ui: ui, ai: ai, chat: chat,
                                    onToggle: {}, onMode: { ui.mode = $0 })
+                        .frame(width: bounds.width, height: bounds.height, alignment: .top)
                 }
-                // On top, as the app orders it; the scrim's hole shows the card.
-                TakeoverView(state: state, onSkip: {}, onAddAgent: {}, onDone: {})
+                if practice {
+                    PracticeView(driver: state.practice)
+                        .frame(width: pView.width, height: pView.height)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .offset(x: pView.minX, y: pView.minY)
+                }
+                TakeoverView(state: state, actions: TakeoverActions())
             }
             .environment(\.colorScheme, .dark)
         }

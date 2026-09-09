@@ -26,6 +26,19 @@ struct AppearancePane: View {
                 }
             }
 
+            SettingsCard(label: "Introduction") {
+                HStack(spacing: Design.Space.roomy) {
+                    Text("The two-minute tour: summon, connect an agent, a first task, computer use, and how to stop it.")
+                        .font(Design.Text.caption2).foregroundStyle(Design.Retro.dim)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    ActionChip(title: "Replay") {
+                        NotificationCenter.default.post(name: .visorReplayIntroduction, object: nil)
+                    }
+                    .accessibilityIdentifier("visor.settings.replayIntro")
+                }
+            }
+
             SettingsCard(label: "Font") {
                 fontDropdown
                 Text("Any font installed on your Mac. The system font is the default; Departure Mono, the pixel face, ships with the app. Icons stay pixel whatever you pick.")

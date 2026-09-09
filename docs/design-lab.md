@@ -43,7 +43,10 @@ Font can be pinned the same way UserDefaults arguments always work:
 | `hud`, `hud-streaming` | The HUD with pinned rails |
 | `menu-panel` † | The menu-bar dropdown |
 | `settings-appearance` † | Settings → Appearance |
-| `takeover-boot`, `takeover-notch`, `takeover-note`, `takeover-ask`, `takeover-finale` | The introduction (a screen takeover) at five moments, with the real card stacked above the scrim as the app orders it |
+| `takeover-boot`, `-summon`, `-connect`, `-task`, `-approval`, `-practice`, `-control`, `-yours`, `-finale` | The introduction at each moment, with the card and the practice window under the scrim's holes as the app orders them |
+| `practice-window` | The practice workspace mid-run |
+| `selector-models`, `selector-options`, `selector-agents` | The selector family's content |
+| `computer-use-running`, `computer-use-done` | Computer use mid-task and finished |
 | `composer-parts` | The composer's controls in isolation, one variant per row |
 
 † themed: rendered once per theme with `--theme all`.

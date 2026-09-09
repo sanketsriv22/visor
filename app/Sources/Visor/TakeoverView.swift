@@ -1,22 +1,19 @@
 import AppKit
 import SwiftUI
 
-/// The takeover's picture: a scrim over the Mac, scanlines, a field of
-/// pixels drifting into the notch, rough accent strokes drawn around the
-/// real thing to do next, a guide with a speech bubble, a 3D mark on boot,
-/// and a cheat sheet at the end.
-///
-/// Everything time-based is a pure function of the clock (TimelineView +
-/// Canvas), so there is no per-frame state to fall behind, and Reduce
-/// Motion turns the field and the sweep off.
+/// The takeover's picture: a scrim over the Mac with real holes cut for the
+/// card, the notch and the practice window; scanlines; a field of pixels
+/// drifting into the notch; rough accent strokes around the real thing to
+/// do next; a guide with a speech bubble and the controls each moment
+/// needs; the 3D mark rising from the notch on boot; a cheat sheet at the
+/// end. Built from the design system's components — the bubble's buttons
+/// are the product's `ActionChip`s and `ExampleChip`s.
 struct TakeoverView: View {
     @ObservedObject var state: TakeoverState
-    var onSkip: () -> Void
-    var onAddAgent: () -> Void
-    var onDone: () -> Void
+    var actions: TakeoverActions
 
     @State private var draw: CGFloat = 0
-    @State private var bootPhase = 0   // 0 arriving, 1 settled, 2 flew into the notch
+    @State private var bootPhase = 0   // 0 arriving, 1 risen, 2 flew back into the notch
 
     private var reduced: Bool { Design.Motion.reduced }
     private var accent: Color { Design.Retro.accent }
@@ -26,16 +23,12 @@ struct TakeoverView: View {
             let size = proxy.size
             let notch = view(state.geometry.notch)
             let origin = CGPoint(x: notch.midX, y: notch.maxY)
-
             let holes = holes(size: size)
 
             ZStack(alignment: .topLeading) {
-                // The scrim, with the card and the notch cut out of it. The
-                // cut is real transparency, which is what lets clicks fall
-                // through this window to the controls underneath.
                 Cutout(holes: holes)
                     .fill(Color.black.opacity(scrimOpacity), style: FillStyle(eoFill: true))
-                    .animation(.easeInOut(duration: 0.4), value: state.step)
+                    .animation(Design.Motion.animation(.easeInOut(duration: 0.4)), value: state.step)
 
                 if !reduced {
                     Group {
@@ -46,7 +39,7 @@ struct TakeoverView: View {
                     .mask(Cutout(holes: holes).fill(style: FillStyle(eoFill: true)))
                 }
 
-                annotations(size: size)
+                annotations(size: size, origin: origin)
 
                 switch state.step {
                 case .boot:    boot(size: size, origin: origin)
@@ -54,8 +47,7 @@ struct TakeoverView: View {
                 default:       bubble(size: size)
                 }
 
-                skip
-                    .position(x: size.width - 60, y: 44)
+                topBar(size: size)
             }
             .frame(width: size.width, height: size.height)
             .onChange(of: state.step) { _ in
@@ -64,17 +56,14 @@ struct TakeoverView: View {
             }
             .onAppear {
                 withAnimation(Design.Motion.animation(.easeOut(duration: 0.85))) { draw = 1 }
-                // Rendered late (the lab): skip straight to the settled mark.
                 if Date().timeIntervalSince(state.stepStarted) > 1.5 { bootPhase = 1 }
-                let settle = reduced ? 0.1 : 0.35
-                let fly = reduced ? 0.5 : 2.6
-                DispatchQueue.main.asyncAfter(deadline: .now() + settle) {
-                    withAnimation(Design.Motion.animation(.easeOut(duration: 0.4))) { bootPhase = 1 }
+                let rise = reduced ? 0.1 : 0.3
+                let settle = reduced ? 0.5 : 2.5
+                DispatchQueue.main.asyncAfter(deadline: .now() + rise) {
+                    withAnimation(Design.Motion.animation(.spring(response: 0.9, dampingFraction: 0.78))) { bootPhase = 1 }
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + fly) {
-                    withAnimation(Design.Motion.animation(.spring(response: 0.7, dampingFraction: 0.82))) {
-                        bootPhase = 2
-                    }
+                DispatchQueue.main.asyncAfter(deadline: .now() + settle) {
+                    withAnimation(Design.Motion.animation(Design.Motion.hud)) { bootPhase = 2 }
                 }
             }
         }
@@ -84,24 +73,23 @@ struct TakeoverView: View {
 
     private var scrimOpacity: Double {
         if state.leaving { return 0 }
-        return state.step == .boot ? 0.9 : 0.78
+        return state.step == .boot ? 0.9 : 0.76
     }
 
-    /// Where the scrim is not: the whole screen while the HUD is up, the
-    /// card plus the notch while the card is open, the notch's click band
-    /// otherwise.
+    /// Where the scrim is not: the whole screen while the HUD is up; the
+    /// card, the notch's click band and the practice window otherwise.
     private func holes(size: CGSize) -> [CGRect] {
         let g = state.geometry
         if g.hud { return [CGRect(origin: .zero, size: size)] }
         let strip = notchRect.insetBy(dx: -6, dy: 0)
-        let band = CGRect(x: strip.minX, y: strip.minY, width: strip.width, height: strip.height + 10)
-        if g.expanded { return [card, band] }
-        return [band]
+        var holes = [CGRect(x: strip.minX, y: strip.minY, width: strip.width, height: strip.height + 10)]
+        if g.expanded { holes.append(card) }
+        if let p = g.practice { holes.append(view(p)) }
+        return holes
     }
 
     // MARK: Coordinates
 
-    /// AppKit rect (origin bottom-left) → SwiftUI rect (origin top-left).
     private func view(_ r: CGRect) -> CGRect {
         let b = state.geometry.bounds
         return CGRect(x: r.minX - b.minX, y: b.maxY - r.maxY, width: r.width, height: r.height)
@@ -109,55 +97,53 @@ struct TakeoverView: View {
 
     private var card: CGRect { view(state.geometry.card) }
     private var notchRect: CGRect { view(state.geometry.notch) }
-    private var switcher: CGRect { view(state.geometry.switcher) }
     private var notchH: CGFloat { notchRect.height }
+    private var practiceRect: CGRect? { state.geometry.practice.map(view) }
 
-    /// What each step points at, and where the bubble sits so it doesn't
-    /// cover it.
     private struct Target {
         var ring: CGRect?
         var arrowTo: CGPoint?
-        var bubble: CGPoint    // top-leading corner
+        var bubble: CGPoint
+        var bubbleHeight: CGFloat = 170
     }
+
+    private let bubbleWidth: CGFloat = 400
 
     private func target(size: CGSize) -> Target {
         let c = card
-        let bw: CGFloat = 380
-        let rightOfCard = CGPoint(x: min(c.maxX + 56, size.width - bw - 32), y: c.minY + notchH + 24)
-        let leftOfCard = CGPoint(x: max(c.minX - bw - 56, 32), y: c.minY + notchH + 24)
-        let below = CGPoint(x: size.width / 2 - bw / 2, y: c.maxY + 72)
+        let bw = bubbleWidth
+        let right = CGPoint(x: min(c.maxX + 48, size.width - bw - 32), y: c.minY + notchH + 16)
+        let identity = CGRect(x: c.minX + 10, y: c.minY + notchH + 30, width: 210, height: 30)
+        let composer = CGRect(x: c.minX + 10, y: c.maxY - 118, width: c.width - 20, height: 106)
         switch state.step {
-        case .clickNotch, .summon:
+        case .summon:
             let ring = notchRect.insetBy(dx: -22, dy: -14)
             return Target(ring: ring, arrowTo: CGPoint(x: ring.midX, y: ring.maxY + 6),
                           bubble: CGPoint(x: size.width / 2 - bw / 2, y: notchRect.maxY + 150))
-        case .addTask:
-            let plus = CGRect(x: c.maxX - 62, y: c.minY + notchH + 8, width: 44, height: 44)
-            return Target(ring: plus, arrowTo: CGPoint(x: plus.maxX + 6, y: plus.midY), bubble: rightOfCard)
-        case .swapToChat:
-            let ring = switcher.insetBy(dx: -10, dy: -6)
-            return Target(ring: ring, arrowTo: CGPoint(x: ring.minX - 6, y: ring.midY),
-                          bubble: CGPoint(x: leftOfCard.x, y: leftOfCard.y))
-        case .ask:
-            let composer = CGRect(x: c.minX + 10, y: c.maxY - 118, width: c.width - 20, height: 106)
+        case .connect:
+            return Target(ring: state.chosen == nil ? nil : identity,
+                          arrowTo: CGPoint(x: identity.maxX + 6, y: identity.midY),
+                          bubble: right, bubbleHeight: 260)
+        case .firstTask:
+            let ring = state.awaitingApproval ? nil : (state.taskDone ? nil : composer)
+            return Target(ring: ring, arrowTo: ring.map { CGPoint(x: $0.maxX + 6, y: $0.midY) }, bubble: right)
+        case .practice, .control:
+            let p = practiceRect ?? CGRect(x: c.minX, y: c.maxY + 40, width: c.width, height: 300)
+            let bubble = CGPoint(x: min(p.maxX + 40, size.width - bw - 32), y: p.minY + 8)
+            return Target(ring: state.step == .practice ? p.insetBy(dx: -8, dy: -8) : nil,
+                          arrowTo: CGPoint(x: p.maxX + 10, y: p.midY), bubble: bubble, bubbleHeight: 220)
+        case .yours:
             return Target(ring: composer, arrowTo: CGPoint(x: composer.maxX + 6, y: composer.midY),
-                          bubble: rightOfCard)
-        case .expandHUD:
-            let expand = CGRect(x: notchRect.maxX + 30, y: notchRect.minY + 4, width: 30, height: 30)
-            return Target(ring: expand, arrowTo: CGPoint(x: expand.maxX + 6, y: expand.midY), bubble: rightOfCard)
-        case .backDown:
-            return Target(ring: nil, arrowTo: nil, bubble: CGPoint(x: 40, y: size.height - 240))
-        case .hide:
-            return Target(ring: nil, arrowTo: nil, bubble: below)
+                          bubble: right, bubbleHeight: 260)
         default:
-            return Target(ring: nil, arrowTo: nil, bubble: below)
+            return Target(ring: nil, arrowTo: nil, bubble: CGPoint(x: size.width / 2 - bw / 2, y: c.maxY + 72))
         }
     }
 
     // MARK: Layers
 
     @ViewBuilder
-    private func annotations(size: CGSize) -> some View {
+    private func annotations(size: CGSize, origin: CGPoint) -> some View {
         let t = target(size: size)
         if let ring = t.ring {
             SketchRing(rect: ring, seed: state.step.rawValue)
@@ -167,18 +153,30 @@ struct TakeoverView: View {
                 .shadow(color: accent.opacity(0.35), radius: 18)
         }
         if let to = t.arrowTo {
-            let from = arrowStart(from: t.bubble, to: to, size: size)
+            let from = arrowStart(from: t.bubble, height: t.bubbleHeight, to: to)
             SketchArrow(from: from, to: to, seed: state.step.rawValue)
                 .trim(from: 0, to: draw)
                 .stroke(accent, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
                 .shadow(color: accent.opacity(0.6), radius: 6)
         }
+        // The handoff: a beam from the notch to the practice window as it
+        // opens, so the window reads as something Visor sent down.
+        if state.step == .practice, let p = practiceRect {
+            Path { path in
+                path.move(to: origin)
+                path.addQuadCurve(to: CGPoint(x: p.midX, y: p.minY - 4),
+                                  control: CGPoint(x: origin.x + 40, y: (origin.y + p.minY) / 2))
+            }
+            .trim(from: 0, to: draw)
+            .stroke(LinearGradient(colors: [accent.opacity(0.0), accent.opacity(0.9)],
+                                   startPoint: .top, endPoint: .bottom),
+                    style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [3, 7]))
+            .shadow(color: accent.opacity(0.5), radius: 6)
+        }
     }
 
-    /// The arrow leaves the bubble from whichever edge faces the target.
-    private func arrowStart(from bubble: CGPoint, to: CGPoint, size: CGSize) -> CGPoint {
-        let bw: CGFloat = 380, bh: CGFloat = 150
-        let rect = CGRect(origin: bubble, size: CGSize(width: bw, height: bh))
+    private func arrowStart(from bubble: CGPoint, height: CGFloat, to: CGPoint) -> CGPoint {
+        let rect = CGRect(origin: bubble, size: CGSize(width: bubbleWidth, height: height))
         if to.y < rect.minY { return CGPoint(x: rect.midX, y: rect.minY - 8) }
         if to.x < rect.minX { return CGPoint(x: rect.minX - 8, y: rect.midY) }
         if to.x > rect.maxX { return CGPoint(x: rect.maxX + 8, y: rect.midY) }
@@ -187,168 +185,160 @@ struct TakeoverView: View {
 
     private func bubble(size: CGSize) -> some View {
         let t = target(size: size)
-        return GuideBubble(line: state.line, step: state.step, started: state.stepStarted)
-            .frame(width: 380, alignment: .topLeading)
-            .position(x: t.bubble.x + 190, y: t.bubble.y + 75)
-            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+        return GuideBubble(state: state, actions: actions)
+            .frame(width: bubbleWidth, alignment: .topLeading)
+            .position(x: t.bubble.x + bubbleWidth / 2, y: t.bubble.y + t.bubbleHeight / 2)
+            .transition(.opacity.combined(with: .scale(scale: 0.97)))
             .id(state.step)
     }
 
+    /// The reveal: the mark rises out of the notch, turns once above it
+    /// while the wordmark types, then drops back in — everything emanates
+    /// from the notch, including Visor itself.
     private func boot(size: CGSize, origin: CGPoint) -> some View {
-        let centre = CGPoint(x: size.width / 2, y: size.height / 2 - 40)
+        let risen = CGPoint(x: origin.x, y: origin.y + 210)
         let flew = bootPhase == 2
         return ZStack {
-            HeroMark(size: 300)
-                .scaleEffect(bootPhase == 0 ? 0.6 : (flew ? 0.04 : 1))
+            HeroMark(size: 260)
+                .scaleEffect(bootPhase == 0 ? 0.08 : (flew ? 0.06 : 1))
                 .opacity(bootPhase == 0 ? 0 : (flew ? 0 : 1))
-                .position(flew ? origin : centre)
+                .position(bootPhase == 1 ? risen : origin)
 
-            VStack(spacing: 14) {
+            VStack(spacing: 12) {
                 TypewriterText("VISOR", start: state.stepStarted, cps: reduced ? 1000 : 9)
-                    .font(.custom(Design.Text.face, size: 84)).tracking(18)
+                    .font(.custom(Design.Text.face, size: 72)).tracking(16)
                     .foregroundStyle(.white)
                     .shadow(color: accent.opacity(0.8), radius: 24)
                 Text(state.line.title)
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.92))
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(Design.Ink.primary)
                 Text(state.line.body)
-                    .font(.system(size: 16))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .font(.system(size: 15))
+                    .foregroundStyle(Design.Ink.secondary)
             }
-            .position(x: size.width / 2, y: centre.y + 240)
-            .opacity(bootPhase == 0 ? 0 : (flew ? 0 : 1))
+            .position(x: size.width / 2, y: risen.y + 230)
+            .opacity(bootPhase == 1 ? 1 : 0)
         }
         .accessibilityIdentifier("visor.takeover.boot")
     }
 
     private func finale(size: CGSize) -> some View {
-        let k = ShortcutSettings.hint(.toggle)
         let keys: [(String, String)] = [
-            (k, "open · close"),
-            (ShortcutSettings.hint(.swapMode), "notes ↔ chat"),
+            (ShortcutSettings.hint(.toggle), "summon · put away"),
             (ShortcutSettings.hint(.hud), "expand to the HUD"),
             (ShortcutSettings.hint(.dictate), "dictate anywhere"),
+            ("⌘.", "stop a reply"),
         ]
-        return VStack(alignment: .leading, spacing: 22) {
-            HStack(spacing: 12) {
+        return VStack(alignment: .leading, spacing: Design.Space.wide) {
+            HStack(spacing: Design.Space.roomy) {
                 HeroMark(size: 44)
-                Text(state.line.kicker)
-                    .font(.custom(Design.Text.face, size: 13)).tracking(3)
-                    .foregroundStyle(accent)
+                SectionLabel(state.line.kicker, tint: accent)
             }
             Text(state.line.title)
-                .font(.system(size: 34, weight: .semibold))
+                .font(.system(size: 32, weight: .semibold))
                 .foregroundStyle(.white)
             Text(state.line.body)
-                .font(.system(size: 15))
-                .foregroundStyle(.white.opacity(0.68))
-                .lineSpacing(3)
+                .font(Design.Typography.body())
+                .foregroundStyle(Design.Ink.secondary)
+                .lineSpacing(Design.Typography.bodyLeading)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 10) {
+            HStack(spacing: Design.Space.roomy) {
                 ForEach(keys, id: \.0) { key, label in
-                    VStack(spacing: 8) {
+                    VStack(spacing: Design.Space.normal) {
                         Text(key)
                             .font(.custom(Design.Text.face, size: 15))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 12).frame(height: 36)
-                            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.1)))
-                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.22), lineWidth: 1))
-                        Text(label).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
+                            .foregroundStyle(Design.Ink.primary)
+                            .padding(.horizontal, Design.Space.roomy).frame(height: 36)
+                            .raised(Design.Radius.control, strong: true, stroke: Design.Stroke.control)
+                        Text(label).font(Design.Typography.caption()).foregroundStyle(Design.Ink.tertiary)
                     }
                 }
             }
 
-            HStack(spacing: 10) {
-                Button(action: onAddAgent) {
-                    Text("Add an agent")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Design.Retro.onAccent)
-                        .padding(.horizontal, 18).frame(height: 38)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(accent))
-                        .contentShape(Rectangle())
+            HStack(spacing: Design.Space.normal) {
+                ActionChip(title: "Finish", prominent: true, action: actions.finish)
+                    .accessibilityIdentifier("visor.takeover.finish")
+                if state.chosen == nil {
+                    ActionChip(title: "Add an agent", action: actions.addKey)
+                        .accessibilityIdentifier("visor.takeover.addAgent")
                 }
-                .buttonStyle(.visorBare)
-                .accessibilityIdentifier("visor.takeover.addAgent")
-                Button(action: onDone) {
-                    Text("I'm good")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .padding(.horizontal, 16).frame(height: 38)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.08)))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.visorBare)
-                .accessibilityIdentifier("visor.takeover.done")
             }
         }
-        .padding(30)
+        .padding(Design.Space.section + 6)
         .frame(width: 560, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Design.Retro.bg.opacity(0.96)))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(accent.opacity(0.5), lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
+            .fill(Design.Retro.bg.opacity(0.97)))
+        .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
+            .strokeBorder(accent.opacity(0.5), lineWidth: Design.Stroke.hairline))
         .shadow(color: accent.opacity(0.25), radius: 40)
-        // Below the card, never over it.
-        .position(x: size.width / 2, y: max(size.height / 2 + 40, card.maxY + 40 + 250))
-        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+        .position(x: size.width / 2, y: max(size.height / 2 + 40, card.maxY + 40 + 230))
+        .transition(.opacity.combined(with: .scale(scale: 0.97)))
         .accessibilityIdentifier("visor.takeover.finale")
     }
 
-    private var skip: some View {
-        Button(action: onSkip) {
-            Text(state.step == .finale ? "Close" : "Skip the tour")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.55))
-                .padding(.horizontal, 12).frame(height: 28)
-                .background(Capsule().fill(Color.white.opacity(0.08)))
-                .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
-                .contentShape(Capsule())
+    /// Skip, Back and the step count, out of the way at the top right.
+    private func topBar(size: CGSize) -> some View {
+        HStack(spacing: Design.Space.normal) {
+            if state.step.rawValue > TakeoverState.Step.summon.rawValue, state.step != .finale {
+                ActionChip(title: "Back", action: actions.back)
+                    .accessibilityIdentifier("visor.takeover.back")
+            }
+            if state.step != .boot, state.step != .finale {
+                Text("\(state.step.rawValue) / 6")
+                    .font(Design.Typography.mono(0.9))
+                    .foregroundStyle(Design.Ink.faint)
+            }
+            ActionChip(title: state.step == .finale ? "Close" : "Skip the tour", action: actions.skip)
+                .accessibilityIdentifier("visor.takeover.skip")
         }
-        .buttonStyle(.visorBare)
-        .accessibilityIdentifier("visor.takeover.skip")
+        .position(x: size.width - 160, y: 44)
     }
 }
 
 // MARK: - The guide
 
-/// The speech bubble: kicker in the pixel face, the instruction, a body
-/// that types itself, the step dots, and the mark bobbing at its shoulder.
+/// The speech bubble: kicker in the study's label face, the instruction,
+/// a body that types itself, the step dots, the moment's own controls,
+/// and the mark at its shoulder.
 private struct GuideBubble: View {
-    let line: TakeoverState.Line
-    let step: TakeoverState.Step
-    let started: Date
+    @ObservedObject var state: TakeoverState
+    var actions: TakeoverActions
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Text(line.kicker)
-                        .font(.custom(Design.Text.face, size: 11)).tracking(2)
-                        .foregroundStyle(Design.Retro.accent)
+            VStack(alignment: .leading, spacing: Design.Space.roomy) {
+                HStack(spacing: Design.Space.normal) {
+                    SectionLabel(state.line.kicker, tint: Design.Retro.accent)
                     Spacer(minLength: 0)
                     HStack(spacing: 4) {
-                        ForEach(1..<8, id: \.self) { i in
+                        ForEach(1..<7, id: \.self) { i in
                             RoundedRectangle(cornerRadius: 1)
-                                .fill(i <= progress ? Design.Retro.accent : Color.white.opacity(0.18))
-                                .frame(width: i == progress ? 14 : 6, height: 3)
+                                .fill(i <= state.step.rawValue ? Design.Retro.accent : Color.white.opacity(0.18))
+                                .frame(width: i == state.step.rawValue ? 14 : 6, height: 3)
                         }
                     }
+                    .accessibilityHidden(true)
                 }
-                Text(line.title)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.white)
+                Text(state.line.title)
+                    .font(Design.Typography.display())
+                    .foregroundStyle(Design.Ink.primary)
                     .fixedSize(horizontal: false, vertical: true)
-                TypewriterText(line.body, start: started, cps: 70)
-                    .font(.system(size: 13.5))
-                    .foregroundStyle(.white.opacity(0.68))
-                    .lineSpacing(3)
+                TypewriterText(state.line.body, start: state.stepStarted, cps: 80)
+                    .font(Design.Typography.body())
+                    .foregroundStyle(Design.Ink.secondary)
+                    .lineSpacing(Design.Typography.bodyLeading)
                     .fixedSize(horizontal: false, vertical: true)
+
+                controls
             }
-            .padding(.top, 20).padding(.bottom, 18).padding(.horizontal, 22)
-            .frame(width: 380, alignment: .topLeading)
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .padding(.top, Design.Space.wide).padding(.bottom, Design.Space.loose)
+            .padding(.horizontal, Design.Space.section)
+            .frame(width: 400, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
                 .fill(Design.Retro.bg.opacity(0.97)))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Design.Retro.accent.opacity(0.55), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
+                .strokeBorder(Design.Retro.accent.opacity(0.55), lineWidth: Design.Stroke.hairline))
             .shadow(color: .black.opacity(0.5), radius: 24, y: 8)
             .shadow(color: Design.Retro.accent.opacity(0.18), radius: 30)
 
@@ -358,16 +348,72 @@ private struct GuideBubble: View {
         .accessibilityIdentifier("visor.takeover.bubble")
     }
 
-    private var progress: Int {
-        switch step {
-        case .boot: return 0
-        case .clickNotch: return 1
-        case .addTask: return 2
-        case .swapToChat: return 3
-        case .ask: return 4
-        case .expandHUD, .backDown: return 5
-        case .hide: return 6
-        case .summon, .finale: return 7
+    /// The moment's own controls, from the product's chips.
+    @ViewBuilder
+    private var controls: some View {
+        switch state.step {
+        case .connect where state.chosen == nil:
+            VStack(alignment: .leading, spacing: Design.Space.normal) {
+                if state.checking {
+                    HStack(spacing: Design.Space.snug) {
+                        DotMatrixIndicator(size: 10, tint: Design.Retro.accent)
+                        Text("Looking for agents on this Mac…")
+                            .font(Design.Typography.caption()).foregroundStyle(Design.Ink.tertiary)
+                    }
+                }
+                ForEach(state.options.filter(\.ready)) { option in
+                    ActionChip(title: "Use \(option.name)", prominent: true) { actions.useAgent(option.name) }
+                        .accessibilityIdentifier("visor.takeover.use.\(option.name)")
+                }
+                HStack(spacing: Design.Space.normal) {
+                    ActionChip(title: state.hasKey ? "Change key" : "Add an OpenRouter key", action: actions.addKey)
+                        .accessibilityIdentifier("visor.takeover.addKey")
+                    ActionChip(title: "Skip for now", action: actions.skipAgent)
+                        .accessibilityIdentifier("visor.takeover.skipAgent")
+                }
+                if let notReady = state.options.first(where: { !$0.ready && !$0.detail.isEmpty }) {
+                    Text("\(notReady.name): \(notReady.detail)")
+                        .font(Design.Typography.caption()).foregroundStyle(Design.Ink.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.top, Design.Space.tight)
+        case .practice:
+            HStack(spacing: Design.Space.normal) {
+                ActionChip(title: state.practice.running ? "Running…" : "Run", prominent: !state.practice.running,
+                           action: actions.runPractice)
+                    .disabled(state.practice.running)
+                    .accessibilityIdentifier("visor.takeover.run")
+                if state.practice.running {
+                    ActionChip(title: "Stop", destructive: true, action: actions.stopPractice)
+                        .accessibilityIdentifier("visor.takeover.stop")
+                }
+            }
+            .padding(.top, Design.Space.tight)
+        case .control:
+            HStack(spacing: Design.Space.normal) {
+                if state.practice.running {
+                    ActionChip(title: "Stop", prominent: true, destructive: true, action: actions.stopPractice)
+                        .accessibilityIdentifier("visor.takeover.stop")
+                } else if state.practice.stopped {
+                    ActionChip(title: "Continue", prominent: true, action: actions.continuePractice)
+                        .accessibilityIdentifier("visor.takeover.continue")
+                }
+            }
+            .padding(.top, Design.Space.tight)
+        case .yours:
+            VStack(alignment: .leading, spacing: Design.Space.snug) {
+                ForEach(["Explain what's on my screen", "Tidy my Desktop into folders by type",
+                         "Draft a reply to my last email"], id: \.self) { text in
+                    ExampleChip(text: text) { actions.suggest(text) }
+                }
+                ActionChip(title: "I'm done", action: actions.done)
+                    .padding(.top, Design.Space.tight)
+                    .accessibilityIdentifier("visor.takeover.done")
+            }
+            .padding(.top, Design.Space.tight)
+        default:
+            EmptyView()
         }
     }
 }
@@ -440,8 +486,6 @@ struct TypewriterText: View {
             let shown = Design.Motion.reduced
                 ? text.count
                 : min(text.count, Int(context.date.timeIntervalSince(start) * cps))
-            // Layout on the full string so the bubble never resizes as
-            // letters arrive; only the visible prefix is inked.
             Text(text).opacity(0)
                 .overlay(Text(String(text.prefix(max(0, shown)))), alignment: .topLeading)
         }
@@ -489,9 +533,7 @@ private struct CRTSweep: View {
 }
 
 /// Pixels drifting into the notch, and a burst out of it when a step lands.
-///
-/// Every particle is a pure function of time and its index, so the field
-/// costs one Canvas pass per frame and never accumulates state.
+/// Every particle is a pure function of time and its index.
 private struct PixelField: View {
     let origin: CGPoint
     let size: CGSize
@@ -541,7 +583,6 @@ private struct PixelField: View {
         .allowsHitTesting(false)
     }
 
-    /// Four stable pseudo-random numbers in 0…1 for a particle.
     private func seed(_ i: Int) -> (Double, Double, Double, Double) {
         func r(_ k: Double) -> Double {
             let v = sin(Double(i) * 12.9898 + k * 78.233) * 43758.5453
@@ -551,8 +592,8 @@ private struct PixelField: View {
     }
 }
 
-/// The screen minus some rectangles, for an even-odd fill or mask. The card
-/// hole keeps the card's rounded bottom so the scrim hugs its silhouette.
+/// The screen minus some rectangles, for an even-odd fill or mask. Tall
+/// holes keep the card's rounded bottom so the scrim hugs its silhouette.
 struct Cutout: Shape {
     let holes: [CGRect]
 
@@ -614,16 +655,13 @@ struct SketchArrow: Shape {
         let control = CGPoint(x: (from.x + to.x) / 2 + nx * bow, y: (from.y + to.y) / 2 + ny * bow)
         path.move(to: from)
         path.addQuadCurve(to: to, control: control)
-        // Head, angled off the incoming tangent.
         let tx = to.x - control.x, ty = to.y - control.y
         let tl = max(1, sqrt(tx * tx + ty * ty))
         let ux = tx / tl, uy = ty / tl
         let head: CGFloat = 13
         let cs = CGFloat(Foundation.cos(0.55)), sn = CGFloat(Foundation.sin(0.55))
-        let left = CGPoint(x: to.x - head * (ux * cs - uy * sn),
-                           y: to.y - head * (uy * cs + ux * sn))
-        let right = CGPoint(x: to.x - head * (ux * cs + uy * sn),
-                            y: to.y - head * (uy * cs - ux * sn))
+        let left = CGPoint(x: to.x - head * (ux * cs - uy * sn), y: to.y - head * (uy * cs + ux * sn))
+        let right = CGPoint(x: to.x - head * (ux * cs + uy * sn), y: to.y - head * (uy * cs - ux * sn))
         path.move(to: left)
         path.addLine(to: to)
         path.addLine(to: right)
