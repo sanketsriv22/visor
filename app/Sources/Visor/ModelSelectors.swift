@@ -15,36 +15,48 @@ struct ModelSelector: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SelectorSearch(placeholder: "Search \(chat.modelOptions.count) models", query: $query) {
-                if let first = matches.first { choose(first) }
-            }
+            search
             Divider().overlay(Design.Stroke.divider)
-            if showingPinned {
-                SelectorHeading(title: "Pinned", trailing: "type to search all")
-                SelectorList(rows: rows(matches),
-                             emptyText: "Nothing pinned yet — search, then tap the star to keep a model here.",
-                             maxHeight: 300, onSelect: choose, accessory: star)
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        if matches.isEmpty {
-                            Text("No model matches “\(query)”.")
-                                .font(Design.Typography.secondary())
-                                .foregroundStyle(Design.Ink.tertiary)
-                                .padding(Design.Space.roomy)
-                        }
-                        ForEach(grouped) { group in
-                            SelectorHeading(title: group.vendor)
-                            SelectorList(rows: rows(group.ids), maxHeight: 2000,
-                                         onSelect: choose, accessory: star)
-                        }
-                    }
-                }
-                .scrollIndicators(.hidden)
-                .frame(height: min(CGFloat(matches.count) * 43 + CGFloat(grouped.count) * 30 + 12, 380))
-            }
+            if showingPinned { pinned } else { results }
         }
         .selectorSurface(width: 380)
+    }
+
+    private var search: some View {
+        SelectorSearch(placeholder: "Search \(chat.modelOptions.count) models", query: $query) {
+            if let first = matches.first { choose(first) }
+        }
+    }
+
+    private var pinned: some View {
+        VStack(spacing: 0) {
+            SelectorHeading(title: "Pinned", trailing: "type to search all")
+            SelectorList(rows: rows(matches),
+                         emptyText: "Nothing pinned yet — search, then tap the star to keep a model here.",
+                         maxHeight: 300, onSelect: choose, accessory: star)
+        }
+    }
+
+    private var results: some View {
+        let groups = grouped
+        let height: CGFloat = min(CGFloat(matches.count) * 43 + CGFloat(groups.count) * 30 + 12, 380)
+        return ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if matches.isEmpty {
+                    Text("No model matches “\(query)”.")
+                        .font(Design.Typography.secondary())
+                        .foregroundStyle(Design.Ink.tertiary)
+                        .padding(Design.Space.roomy)
+                }
+                ForEach(groups) { group in
+                    SelectorHeading(title: group.vendor)
+                    SelectorList(rows: rows(group.ids), maxHeight: 2000,
+                                 onSelect: choose, accessory: star)
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+        .frame(height: height)
     }
 
     private func rows(_ ids: [String]) -> [SelectorRow] {
@@ -70,7 +82,7 @@ struct ModelSelector: View {
     }
 
     /// Search results grouped by vendor, first-seen order kept.
-    private var grouped: [ModelGroup] {
+    private var grouped: [VendorGroup] {
         var order: [String] = []
         var map: [String: [String]] = [:]
         for id in matches {
@@ -78,8 +90,14 @@ struct ModelSelector: View {
             if map[v] == nil { order.append(v) }
             map[v, default: []].append(id)
         }
-        return order.map { ModelGroup(vendor: $0, ids: map[$0]!) }
+        return order.map { VendorGroup(vendor: $0, ids: map[$0] ?? []) }
     }
+}
+
+struct VendorGroup: Identifiable {
+    let vendor: String
+    let ids: [String]
+    var id: String { vendor }
 }
 
 /// Reasoning effort and provider speed: the two things you might change
