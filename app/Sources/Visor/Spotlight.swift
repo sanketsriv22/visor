@@ -11,6 +11,24 @@ import SwiftUI
 final class Spotlight: ObservableObject {
     static let shared = Spotlight()
     @Published private(set) var frames: [String: CGRect] = [:]
+    private var anchors: [ObjectIdentifier: () -> Void] = [:]
+    private var timer: Timer?
+
+    /// A control's position changes without any layout of its own — the
+    /// transcript scrolls under it, the card resizes around it — so while
+    /// someone is watching, every anchor re-reports twenty times a second.
+    /// `set` publishes only when a frame actually changed.
+    func track(_ on: Bool) {
+        timer?.invalidate()
+        timer = nil
+        guard on else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 1 / 20, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.anchors.values.forEach { $0() } }
+        }
+    }
+
+    fileprivate func attach(_ key: ObjectIdentifier, report: @escaping () -> Void) { anchors[key] = report }
+    fileprivate func detach(_ key: ObjectIdentifier) { anchors.removeValue(forKey: key) }
 
     func set(_ id: String, _ frame: CGRect?) {
         if let frame {
@@ -61,7 +79,13 @@ private struct SpotlightAnchor: NSViewRepresentable {
             super.viewDidMoveToWindow()
             observers.forEach { NotificationCenter.default.removeObserver($0) }
             observers.removeAll()
-            guard let window else { report(nil); return }
+            let key = ObjectIdentifier(self)
+            guard let window else {
+                Spotlight.shared.detach(key)
+                report(nil)
+                return
+            }
+            Spotlight.shared.attach(key) { [weak self] in self?.report() }
             for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
                 observers.append(NotificationCenter.default.addObserver(
                     forName: name, object: window, queue: .main) { [weak self] _ in self?.report() })
@@ -93,6 +117,8 @@ private struct SpotlightAnchor: NSViewRepresentable {
 
         deinit {
             observers.forEach { NotificationCenter.default.removeObserver($0) }
+            let key = ObjectIdentifier(self)
+            Task { @MainActor in Spotlight.shared.detach(key) }
         }
     }
 }

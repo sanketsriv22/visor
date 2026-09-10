@@ -153,7 +153,12 @@ quiet sound cues, and a pace set by speech rather than timers.
   registry keeps their frames in screen coordinates, and the reticle locks
   onto the real chip, not a guess.
 - **The sound, drawn.** The narrator meters its own audio (`VoiceMeter`)
-  and the mark's halo and a soft light under the notch breathe with it;
-  rings spread from the notch when a moment lands (`Sonar`); the reticle
-  arrives from outside and settles with a spring, a readout above it and a
-  leader line back to the caption; the finale's keys light in sequence.
+  and the mark's halo and a soft light under the notch breathe with it.
+  The reticle arrives from outside and settles with a spring, with a leader
+  line back to the caption; the registry re-reads control frames twenty
+  times a second while the tour runs, so the reticle stays on a control
+  the transcript scrolls under. Sonar rings, per-line ticks and staggered
+  keys were tried and cut: they read as noise.
+- **Reading the voice.** The caption is 17pt on a near-opaque pill, 520pt
+  wide beside the card and 320pt in the HUD's empty rail corner; a home
+  change crossfades rather than flies.

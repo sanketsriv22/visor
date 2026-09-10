@@ -684,11 +684,6 @@ struct ComposerField: NSViewRepresentable {
         // would reset the insertion point to the end.
         if view.string != text {
             view.string = text
-            view.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
-            // The field grows to fit a beat after the text lands; until it
-            // has, the text view can scroll its first line out of the clip.
-            // Pin the origin so nothing is ever cut off at the top or left.
-            scroll.contentView.scroll(to: .zero)
             context.coordinator.reportHeight(of: view)
         }
         view.needsDisplay = true

@@ -33,6 +33,8 @@ struct TranscriptView<Empty: View>: View {
     /// as reported by the sentinel. Infinite when the sentinel is off-screen.
     @State private var bottomDistance: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
+    /// How tall the content was last time, to tell growth from scrolling.
+    @State private var contentHeight: CGFloat = 0
 
     /// Within this many points of the end counts as "at the bottom": far
     /// enough that the tail of a growing reply doesn't unpin you, close
@@ -77,7 +79,8 @@ struct TranscriptView<Empty: View>: View {
                             GeometryReader { g in
                                 Color.clear.preference(
                                     key: BottomEdgeKey.self,
-                                    value: g.frame(in: .named("visor.transcript")).maxY)
+                                    value: BottomEdge(inViewport: g.frame(in: .named("visor.transcript")).maxY,
+                                                      inContent: g.frame(in: .named("visor.content")).maxY))
                             }
                             .frame(height: 1)
                             .id("bottom")
@@ -87,12 +90,22 @@ struct TranscriptView<Empty: View>: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .coordinateSpace(name: "visor.transcript")
+                    .coordinateSpace(name: "visor.content")
                     .onAppear { viewportHeight = outer.size.height }
                     .onChange(of: outer.size.height) { viewportHeight = $0 }
                 }
-                .onPreferenceChange(BottomEdgeKey.self) { maxY in
-                    bottomDistance = maxY - viewportHeight
+                .onPreferenceChange(BottomEdgeKey.self) { edge in
+                    bottomDistance = edge.inViewport - viewportHeight
+                    let grew = edge.inContent > contentHeight + 0.5
+                    contentHeight = edge.inContent
                     let near = bottomDistance <= Self.followThreshold
+                    // Content growing under a pinned reader — an approval
+                    // card, a table, a reply's next paragraph — is not the
+                    // reader scrolling away. Stay pinned and go to the end.
+                    if following, grew, !near {
+                        DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
+                        return
+                    }
                     if near != following {
                         following = near
                         chat.transcriptFollowing = near
@@ -236,12 +249,21 @@ private struct RowMarker: View {
     }
 }
 
+/// Where the end of the content is: in the viewport (how far the reader
+/// is from it) and in the content (how tall the content is).
+private struct BottomEdge: Equatable {
+    var inViewport: CGFloat
+    var inContent: CGFloat
+}
+
 private struct BottomEdgeKey: PreferenceKey {
     /// Off-screen (not instantiated by the lazy stack) reads as infinitely
     /// far away, which is the right answer: the reader is nowhere near it.
-    static var defaultValue: CGFloat = .infinity
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = min(value, nextValue())
+    static var defaultValue = BottomEdge(inViewport: .infinity, inContent: 0)
+    static func reduce(value: inout BottomEdge, nextValue: () -> BottomEdge) {
+        let next = nextValue()
+        value = BottomEdge(inViewport: min(value.inViewport, next.inViewport),
+                           inContent: max(value.inContent, next.inContent))
     }
 }
 

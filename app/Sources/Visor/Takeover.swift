@@ -69,18 +69,11 @@ final class TakeoverState: ObservableObject {
     /// overlay's top-left coordinates. Everywhere else passes through to the
     /// notch, the card and the scrim beneath.
     @Published var hitRects: [CGRect] = []
-    /// Rings of sound from the notch: one per moment that lands.
-    @Published var pulses: [Date] = []
     /// The Design Lab's stand-in for `Spotlight`: control frames in the
     /// overlay's own top-left coordinates.
     @Published var spotlightOverride: [String: CGRect]? = nil
 
     let narrator: Narrator
-
-    func pulse() {
-        pulses.append(Date())
-        pulses.removeAll { Date().timeIntervalSince($0) > 3 }
-    }
 
     init(geometry: Geometry, step: Step = .intro, narrator: Narrator? = nil, videoURL: URL? = nil) {
         self.geometry = geometry
@@ -170,6 +163,7 @@ final class TakeoverGuide {
 
         detect()
         observe()
+        Spotlight.shared.track(true)
         if controller.ui.expanded { controller.toggle() }
         state.stepStarted = Date()
 
@@ -186,7 +180,6 @@ final class TakeoverGuide {
         schedule(after: 1.3) { [weak self] in
             guard let self else { return }
             self.narrator.play(.reveal)
-            self.state.pulse()
             withAnimation(Design.Motion.animation(.spring(response: 0.9, dampingFraction: 0.78))) { self.state.risen = true }
             self.narrator.say(["intro.hi", "intro.notch"]) { [weak self] in
                 guard let self else { return }
@@ -223,6 +216,7 @@ final class TakeoverGuide {
         taskTimeout?.cancel()
         typing.forEach { $0.cancel() }
         narrator.stop()
+        Spotlight.shared.track(false)
         withAnimation(Design.Motion.animation(.easeInOut(duration: 0.7))) { state.leaving = true }
         if let scrim {
             NSAnimationContext.runAnimationGroup { ctx in
@@ -331,7 +325,6 @@ final class TakeoverGuide {
         }
         NSApp.deactivate()
         narrator.play(.success)
-        state.pulse()
         state.bursts += 1; state.lastBurst = Date()
         narrator.say([.init("agent.meet", text: "Nice to meet you, \(name).")]) { [weak self] in
             self?.advance(to: .task)
@@ -354,7 +347,6 @@ final class TakeoverGuide {
                 guard let self, self.state.step == .task else { return }
                 self.schedule(after: 0.5) { [weak self] in
                     guard let self, self.state.step == .task else { return }
-                    self.narrator.play(.beat)
                     self.sent = true
                     self.controller.chat.send()
                     if !standIn { self.armTaskTimeout() }
@@ -407,13 +399,11 @@ final class TakeoverGuide {
             if self.controller.ui.mode != .chat { self.controller.setMode(.chat) }
             self.controller.toggleHUD()
             self.narrator.play(.reveal)
-            self.state.pulse()
             self.narrator.say(["hud.expand"]) { [weak self] in
                 guard let self, self.state.step == .hud else { return }
                 self.schedule(after: 2.5) { [weak self] in
                     guard let self, self.state.step == .hud else { return }
                     if self.controller.ui.mode.isFullScreen { self.controller.toggleHUD() }
-                    self.narrator.play(.beat)
                     self.narrator.say(["hud.back"]) { [weak self] in
                         self?.schedule(after: 0.6) { [weak self] in self?.advance(to: .drive) }
                     }
@@ -433,7 +423,6 @@ final class TakeoverGuide {
         narrator.say(["drive.face"]) { [weak self] in
             guard let self, self.state.step == .drive else { return }
             self.controller.setMode(.computerUse)
-            self.narrator.play(.beat)
             self.narrator.say(["drive.tell", "drive.steps"]) { [weak self] in
                 guard let self, self.state.step == .drive else { return }
                 self.type("Turn on Night Shift in System Settings", into: { agent.draft = $0 }) { [weak self] in
@@ -473,7 +462,6 @@ final class TakeoverGuide {
             state.askStop = false
             state.driveStopped = true
         }
-        state.pulse()
         state.bursts += 1; state.lastBurst = Date()
         UserDefaults.standard.set(TakeoverState.Step.finale.rawValue, forKey: Self.progressKey)
         narrator.say([byUser ? "drive.stopped" : "drive.auto"]) { [weak self] in
@@ -541,7 +529,6 @@ final class TakeoverGuide {
         if state.step == .notch, expanded {
             if controller.ui.mode != .chat { controller.setMode(.chat) }
             narrator.play(.success)
-            state.pulse()
             state.bursts += 1; state.lastBurst = Date()
             narrator.say(["notch.card"]) { [weak self] in
                 self?.advance(to: .agent)
@@ -554,8 +541,6 @@ final class TakeoverGuide {
         state.awaitingApproval = pending
         if pending {
             taskTimeout?.cancel()
-            narrator.play(.beat)
-            state.pulse()
             state.bursts += 1; state.lastBurst = Date()
             narrator.say(["task.asking", "task.allow"]) {}
         } else if sent, !state.standIn {
@@ -580,7 +565,6 @@ final class TakeoverGuide {
                 self.taskTimeout?.cancel()
                 self.state.taskDone = true
                 self.narrator.play(.success)
-                self.state.pulse()
                 self.state.bursts += 1; self.state.lastBurst = Date()
                 self.celebrateMilestone("First task, done")
                 UserDefaults.standard.set(TakeoverState.Step.hud.rawValue, forKey: Self.progressKey)
@@ -599,7 +583,6 @@ final class TakeoverGuide {
             pending?.cancel()
             withAnimation(Design.Motion.animation(Design.Motion.standard)) { state.driveDone = true }
             narrator.play(.success)
-            state.pulse()
             state.bursts += 1; state.lastBurst = Date()
             celebrateMilestone("It drove your Mac")
             UserDefaults.standard.set(TakeoverState.Step.finale.rawValue, forKey: Self.progressKey)
@@ -632,7 +615,6 @@ final class TakeoverGuide {
             }
         }
         state.stepStarted = Date()
-        narrator.play(.beat)
         switch next {
         case .notch:  schedule(after: 0.6) { [weak self] in self?.runNotch() }
         case .agent:

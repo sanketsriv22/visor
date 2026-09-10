@@ -38,11 +38,8 @@ struct TakeoverView: View {
             let target = target(size: size)
 
             ZStack(alignment: .topLeading) {
-                Group {
-                    NotchGlow(meter: narrator.meter, origin: origin, width: notchRect.width)
-                    if !reduced { Sonar(origin: origin, pulses: state.pulses) }
-                }
-                .allowsHitTesting(false)
+                NotchGlow(meter: narrator.meter, origin: origin, width: notchRect.width)
+                    .allowsHitTesting(false)
 
                 if let target {
                     Targeting(target: target, from: captionRect(size: size), draw: draw)
@@ -76,6 +73,7 @@ struct TakeoverView: View {
                     .allowsHitTesting(false)
             }
             .animation(Design.Motion.animation(.easeInOut(duration: 0.35)), value: target?.id)
+            .animation(Design.Motion.animation(.linear(duration: 0.06)), value: target?.rect)
             .onPreferenceChange(HitRectsKey.self) { state.hitRects = $0 }
             .frame(width: size.width, height: size.height)
             .onChange(of: state.step) { _ in redraw() }
@@ -113,16 +111,20 @@ struct TakeoverView: View {
         return max(size.height * 0.5, below + 40 + 190)
     }
 
-    private let captionWidth: CGFloat = 420
-    private let captionHeight: CGFloat = 64
+    private var captionWidth: CGFloat { state.geometry.hud ? 320 : 520 }
+    private let captionHeight: CGFloat = 76
+
+    /// Which of the caption's homes is in use; changing it crossfades the
+    /// caption rather than flying it.
+    private var captionPlace: Int { state.geometry.hud ? 2 : (state.geometry.expanded ? 1 : 0) }
 
     /// The caption's home: under the notch until the card opens, then beside
-    /// the card; along the bottom while the HUD has the screen. One place
-    /// per moment, no hopping.
+    /// the card; in the HUD, the empty bottom of the left rail, clear of the
+    /// conversation. One place per moment, no hopping.
     private func captionHome(size: CGSize) -> CGPoint {
         let w = captionWidth
         if state.geometry.hud {
-            return CGPoint(x: size.width / 2 - w / 2, y: size.height * 0.66)
+            return CGPoint(x: 32, y: size.height - 150)
         }
         if state.geometry.expanded {
             return CGPoint(x: min(card.maxX + 40, size.width - w - 32), y: card.minY + notchH + 72)
@@ -234,15 +236,15 @@ struct TakeoverView: View {
                         .stroke(accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
                         .padding(9)
                 } else {
-                    BreathingMark(meter: narrator.meter, size: 36)
+                    BreathingMark(meter: narrator.meter, size: 40)
                 }
             }
-            .frame(width: 36, height: 36)
-            VStack(alignment: .leading, spacing: 4) {
+            .frame(width: 40, height: 40)
+            VStack(alignment: .leading, spacing: 5) {
                 Text(text)
-                    .font(.system(size: 15))
-                    .foregroundStyle(Design.Ink.primary)
-                    .lineSpacing(3)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineSpacing(5)
                     .fixedSize(horizontal: false, vertical: true)
                     .id(text)
                     .transition(.opacity)
@@ -259,19 +261,18 @@ struct TakeoverView: View {
         }
         .animation(Design.Motion.animation(.easeInOut(duration: 0.3)), value: text)
         .animation(Design.Motion.animation(.easeInOut(duration: 0.3)), value: narrator.detail)
-        .padding(.horizontal, Design.Space.loose)
-        .padding(.vertical, Design.Space.roomy)
+        .padding(.horizontal, Design.Space.section)
+        .padding(.vertical, Design.Space.loose)
         .frame(width: captionWidth, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: Design.Radius.panel, style: .continuous)
-            .fill(Design.Retro.bg.opacity(0.94)))
+            .fill(Design.Retro.bg.opacity(0.97)))
         .overlay(RoundedRectangle(cornerRadius: Design.Radius.panel, style: .continuous)
-            .strokeBorder(Color.white.opacity(0.10), lineWidth: Design.Stroke.hairline))
-        .shadow(color: .black.opacity(0.45), radius: 24, y: 8)
+            .strokeBorder(Color.white.opacity(0.12), lineWidth: Design.Stroke.hairline))
+        .shadow(color: .black.opacity(0.5), radius: 28, y: 10)
         .opacity(text.isEmpty ? 0 : 1)
         .position(x: home.x + captionWidth / 2, y: home.y + captionHeight / 2)
-        .animation(Design.Motion.animation(.spring(response: 0.6, dampingFraction: 0.88)), value: state.geometry.expanded)
-        .animation(Design.Motion.animation(.spring(response: 0.6, dampingFraction: 0.88)), value: state.geometry.hud)
-        .transition(.opacity)
+        .id(captionPlace)
+        .transition(.opacity.animation(Design.Motion.animation(.easeInOut(duration: 0.4))))
         .accessibilityIdentifier("visor.takeover.caption")
     }
 
@@ -292,8 +293,15 @@ struct TakeoverView: View {
                 .font(Design.Typography.body())
                 .foregroundStyle(Design.Ink.secondary)
             HStack(spacing: Design.Space.roomy) {
-                ForEach(Array(keys.enumerated()), id: \.offset) { i, pair in
-                    KeyCap(key: pair.0, label: pair.1, delay: 0.25 + Double(i) * 0.18)
+                ForEach(keys, id: \.0) { key, label in
+                    VStack(spacing: Design.Space.normal) {
+                        Text(key)
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundStyle(Design.Ink.primary)
+                            .padding(.horizontal, Design.Space.roomy).frame(height: 34)
+                            .raised(Design.Radius.control, strong: true, stroke: Design.Stroke.control)
+                        Text(label).font(Design.Typography.caption()).foregroundStyle(Design.Ink.tertiary)
+                    }
                 }
             }
             HStack {
@@ -466,31 +474,6 @@ private struct Leader: Shape {
 
 // MARK: - Sound made visible
 
-/// Rings that spread from the notch when a moment lands, and fade as they
-/// go — the sound of the tour, drawn.
-private struct Sonar: View {
-    let origin: CGPoint
-    let pulses: [Date]
-
-    var body: some View {
-        let live = pulses.filter { Date().timeIntervalSince($0) < 1.8 }
-        TimelineView(.animation(minimumInterval: 1 / 60, paused: live.isEmpty)) { context in
-            Canvas { ctx, _ in
-                for pulse in pulses {
-                    let t = context.date.timeIntervalSince(pulse)
-                    guard t >= 0, t < 1.8 else { continue }
-                    let u = t / 1.8
-                    let radius = 40 + CGFloat(u) * 520
-                    let alpha = (1 - u) * (1 - u) * 0.55
-                    let rect = CGRect(x: origin.x - radius, y: origin.y - radius * 0.62, width: radius * 2, height: radius * 1.24)
-                    ctx.stroke(Path(ellipseIn: rect), with: .color(Design.Retro.accent.opacity(alpha)),
-                               lineWidth: 1.5 - CGFloat(u))
-                }
-            }
-        }
-    }
-}
-
 /// A soft light under the notch that breathes with the voice — the sound
 /// has a place it comes from.
 private struct NotchGlow: View {
@@ -530,33 +513,6 @@ struct BreathingMark: View {
                 .scaleEffect(1 + meter.level * 0.06)
         }
         .frame(width: size, height: size)
-    }
-}
-
-/// A key on the finale's sheet, arriving a beat after the one before.
-private struct KeyCap: View {
-    let key: String
-    let label: String
-    let delay: Double
-    @State private var shown = false
-
-    var body: some View {
-        VStack(spacing: Design.Space.normal) {
-            Text(key)
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(Design.Ink.primary)
-                .padding(.horizontal, Design.Space.roomy).frame(height: 34)
-                .raised(Design.Radius.control, strong: true, stroke: shown ? Design.Stroke.control : Design.Stroke.edge)
-                .shadow(color: Design.Retro.accent.opacity(shown ? 0.35 : 0), radius: 10)
-            Text(label).font(Design.Typography.caption()).foregroundStyle(Design.Ink.tertiary)
-        }
-        .opacity(shown ? 1 : 0)
-        .offset(y: shown ? 0 : 8)
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + (Design.Motion.reduced ? 0 : delay)) {
-                withAnimation(Design.Motion.animation(.spring(response: 0.45, dampingFraction: 0.8))) { shown = true }
-            }
-        }
     }
 }
 

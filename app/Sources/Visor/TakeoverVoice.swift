@@ -337,11 +337,11 @@ final class SoundCues {
     private init() {
         engine.attach(node)
         engine.connect(node, to: engine.mainMixerNode, format: format)
-        engine.mainMixerNode.outputVolume = 0.5
+        engine.mainMixerNode.outputVolume = 0.3
         buffers[.reveal] = tone([(330, 0.0), (440, 0.18), (660, 0.36)], length: 0.7, attack: 0.15, decay: 0.5)
-        buffers[.beat] = tone([(880, 0.0)], length: 0.09, attack: 0.005, decay: 0.08)
-        buffers[.success] = tone([(523, 0.0), (784, 0.12)], length: 0.45, attack: 0.01, decay: 0.3)
-        buffers[.stop] = tone([(110, 0.0)], length: 0.3, attack: 0.005, decay: 0.28)
+        // No beat: a tick after every line read as a beep. The voice is the rhythm.
+        buffers[.success] = tone([(523, 0.0), (784, 0.12)], length: 0.45, attack: 0.02, decay: 0.3)
+        buffers[.stop] = tone([(110, 0.0)], length: 0.3, attack: 0.01, decay: 0.28)
     }
 
     func play(_ cue: Narrator.Cue) {
