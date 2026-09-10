@@ -111,7 +111,16 @@ struct TakeoverView: View {
         return max(size.height * 0.5, below + 40 + 190)
     }
 
-    private var captionWidth: CGFloat { state.geometry.hud ? 320 : 520 }
+    /// Wide enough to read at 17pt, never wider than the room beside the
+    /// card: on a 14-inch screen that room is about 440pt.
+    private var captionWidth: CGFloat {
+        if state.geometry.hud { return 320 }
+        if state.geometry.expanded {
+            let room = state.geometry.bounds.width - card.maxX - 72
+            return max(360, min(520, room))
+        }
+        return 520
+    }
     private let captionHeight: CGFloat = 76
 
     /// Which of the caption's homes is in use; changing it crossfades the
