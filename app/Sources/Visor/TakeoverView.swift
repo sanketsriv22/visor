@@ -122,7 +122,7 @@ struct TakeoverView: View {
     private func captionHome(size: CGSize) -> CGPoint {
         let w = captionWidth
         if state.geometry.hud {
-            return CGPoint(x: size.width / 2 - w / 2, y: size.height - 120)
+            return CGPoint(x: size.width / 2 - w / 2, y: size.height * 0.66)
         }
         if state.geometry.expanded {
             return CGPoint(x: min(card.maxX + 40, size.width - w - 32), y: card.minY + notchH + 72)
@@ -364,8 +364,9 @@ extension View {
 // MARK: - Targeting
 
 /// A reticle that locks onto the control to press: four corner brackets
-/// that arrive from slightly outside and settle on it, a small readout
-/// above, and a leader line back to the caption with a dot at each end.
+/// that arrive from slightly outside and settle on it, and a leader line
+/// back to the caption with a dot at each end. No readout — it would sit
+/// on the product's own text; the caption says what to press.
 private struct Targeting: View {
     let target: TakeoverView.Target
     let from: CGRect
@@ -388,13 +389,6 @@ private struct Targeting: View {
                 .opacity(locked ? 1 : 0)
                 .position(x: rect.midX, y: rect.midY)
 
-            Text(target.label)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .tracking(2)
-                .foregroundStyle(accent)
-                .position(x: rect.midX, y: rect.minY - 14)
-                .opacity(locked ? 1 : 0)
-
             Leader(from: start, to: anchor)
                 .trim(from: 0, to: draw)
                 .stroke(accent.opacity(0.7), style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
@@ -416,7 +410,7 @@ private struct Targeting: View {
         if m == dr { return CGPoint(x: rect.maxX + 10, y: rect.midY) }
         if m == dl { return CGPoint(x: rect.minX - 10, y: rect.midY) }
         if m == db { return CGPoint(x: rect.midX, y: rect.maxY + 10) }
-        return CGPoint(x: rect.midX, y: rect.minY - 24)
+        return CGPoint(x: rect.midX, y: rect.minY - 10)
     }
 
     private func leaderStart(from rect: CGRect, to: CGPoint) -> CGPoint {
