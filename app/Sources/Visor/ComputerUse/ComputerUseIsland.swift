@@ -247,6 +247,7 @@ struct ComputerUseCard: View {
         .buttonStyle(.visorBare)
         .focusable(false)
         .disabled(!agent.running && !canRun)
+        .spotlight("stop")
         .help(agent.running ? "Stop — the agent halts before its next action" : "Run — ↩")
         .accessibilityIdentifier(agent.running ? "visor.computerUse.stop" : "visor.computerUse.run")
         .animation(Design.Motion.quick, value: agent.running)

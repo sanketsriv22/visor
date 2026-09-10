@@ -1955,6 +1955,7 @@ struct ToolApprovalRow: View {
 
             HStack(spacing: Design.Space.snug) {
                 ActionChip(title: "Allow", prominent: true, action: allow)
+                    .spotlight("allow")
                     .accessibilityIdentifier("visor.approval.allow")
                 ActionChip(title: "Always allow", action: allowAlways)
                     .accessibilityIdentifier("visor.approval.always")

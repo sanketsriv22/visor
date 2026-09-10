@@ -2,22 +2,25 @@ import AppKit
 import AVFoundation
 import SwiftUI
 
-/// The introduction's overlay, kept deliberately quiet: the welcome video,
-/// or the mark rising out of the notch; one caption that follows the
-/// voice; a single centred card for the one form and the goodbye; a
-/// hand-drawn ring around the real thing to press; a thin line of
-/// progress along the bottom. The dark sheet behind the product is a
-/// separate window beneath the notch's (see `TakeoverGuide`), so this view
-/// draws nothing over the card and lets clicks through wherever it draws
-/// nothing at all.
+/// The introduction's overlay: the welcome video, or the mark rising out
+/// of the notch; one caption that follows the voice, its mark breathing
+/// with the sound; rings of that sound spreading from the notch when a
+/// moment lands; a reticle that locks onto the real control to press,
+/// with a leader line back to the caption; a single centred card for the
+/// one form and the goodbye; a thin line of progress along the bottom.
+/// The dark sheet behind the product is a separate window beneath the
+/// notch's (see `TakeoverGuide`), so this view draws nothing over the card
+/// and lets clicks through wherever it draws nothing at all.
 struct TakeoverView: View {
     @ObservedObject var state: TakeoverState
     @ObservedObject private var narrator: Narrator
+    @ObservedObject private var spotlight = Spotlight.shared
     var actions: TakeoverActions
 
     @State private var appeared = false
     @State private var draw: CGFloat = 0
     @State private var videoProgress: Double = 0
+    @State private var lockedID: String? = nil
 
     init(state: TakeoverState, actions: TakeoverActions) {
         self.state = state
@@ -32,10 +35,21 @@ struct TakeoverView: View {
         GeometryReader { proxy in
             let size = proxy.size
             let origin = CGPoint(x: notchRect.midX, y: notchRect.maxY)
+            let target = target(size: size)
 
             ZStack(alignment: .topLeading) {
-                annotations(size: size)
-                    .allowsHitTesting(false)
+                Group {
+                    NotchGlow(meter: narrator.meter, origin: origin, width: notchRect.width)
+                    if !reduced { Sonar(origin: origin, pulses: state.pulses) }
+                }
+                .allowsHitTesting(false)
+
+                if let target {
+                    Targeting(target: target, from: captionRect(size: size), draw: draw)
+                        .id(target.id)
+                        .transition(.opacity)
+                        .allowsHitTesting(false)
+                }
 
                 if state.step == .intro {
                     intro(size: size, origin: origin)
@@ -61,14 +75,11 @@ struct TakeoverView: View {
                 progressBar(size: size)
                     .allowsHitTesting(false)
             }
+            .animation(Design.Motion.animation(.easeInOut(duration: 0.35)), value: target?.id)
             .onPreferenceChange(HitRectsKey.self) { state.hitRects = $0 }
             .frame(width: size.width, height: size.height)
-            .onChange(of: state.step) { _ in
-                draw = 0
-                withAnimation(Design.Motion.animation(.easeOut(duration: 0.85))) { draw = 1 }
-            }
-            .onChange(of: state.askStop) { _ in redraw() }
-            .onChange(of: state.awaitingApproval) { _ in redraw() }
+            .onChange(of: state.step) { _ in redraw() }
+            .onChange(of: target?.id) { _ in redraw() }
             .onAppear {
                 withAnimation(Design.Motion.animation(.easeInOut(duration: reduced ? 0.3 : 1.1))) { appeared = true }
                 withAnimation(Design.Motion.animation(.easeOut(duration: 0.85))) { draw = 1 }
@@ -85,6 +96,7 @@ struct TakeoverView: View {
 
     // MARK: Coordinates
 
+    /// Screen rect (origin bottom-left) → this view's (origin top-left).
     private func view(_ r: CGRect) -> CGRect {
         let b = state.geometry.bounds
         return CGRect(x: r.minX - b.minX, y: b.maxY - r.maxY, width: r.width, height: r.height)
@@ -101,61 +113,54 @@ struct TakeoverView: View {
         return max(size.height * 0.5, below + 40 + 190)
     }
 
+    private let captionWidth: CGFloat = 420
+    private let captionHeight: CGFloat = 64
+
     /// The caption's home: under the notch until the card opens, then beside
-    /// the card, clear of the top bar. One place per moment, no hopping.
+    /// the card; along the bottom while the HUD has the screen. One place
+    /// per moment, no hopping.
     private func captionHome(size: CGSize) -> CGPoint {
-        let w: CGFloat = captionWidth
+        let w = captionWidth
+        if state.geometry.hud {
+            return CGPoint(x: size.width / 2 - w / 2, y: size.height - 120)
+        }
         if state.geometry.expanded {
             return CGPoint(x: min(card.maxX + 40, size.width - w - 32), y: card.minY + notchH + 72)
         }
         return CGPoint(x: size.width / 2 - w / 2, y: notchRect.maxY + 130)
     }
 
-    private let captionWidth: CGFloat = 420
+    private func captionRect(size: CGSize) -> CGRect {
+        CGRect(origin: captionHome(size: size), size: CGSize(width: captionWidth, height: captionHeight))
+    }
 
-    // MARK: Annotations
+    // MARK: Targets
 
-    private struct Mark { var ring: CGRect; var arrowTo: CGPoint }
+    /// A real control the tour wants pressed, where it actually is.
+    struct Target: Equatable {
+        var id: String
+        var rect: CGRect
+        var label: String
+    }
 
-    private func mark(size: CGSize) -> Mark? {
-        let c = card
+    /// The control's frame, from the registry of real controls (or the
+    /// lab's stand-in), in this view's coordinates.
+    private func frame(of id: String) -> CGRect? {
+        if let override = state.spotlightOverride { return override[id] }
+        return spotlight.frames[id].map(view)
+    }
+
+    private func target(size: CGSize) -> Target? {
         switch state.step {
         case .notch where !state.geometry.expanded:
-            let ring = notchRect.insetBy(dx: -22, dy: -14)
-            return Mark(ring: ring, arrowTo: CGPoint(x: ring.midX, y: ring.maxY + 6))
+            return Target(id: "notch", rect: notchRect.insetBy(dx: -14, dy: -6), label: "THE NOTCH")
         case .task where state.awaitingApproval:
-            // The approval row's Allow chip, at the foot of the transcript.
-            let allow = CGRect(x: c.minX + 22, y: c.maxY - 168, width: 92, height: 34)
-            return Mark(ring: allow, arrowTo: CGPoint(x: allow.maxX + 6, y: allow.midY))
+            return frame(of: "allow").map { Target(id: "allow", rect: $0, label: "ALLOW") }
         case .drive where state.askStop:
-            let stop = CGRect(x: c.maxX - 62, y: c.minY + notchH + 42, width: 44, height: 44)
-            return Mark(ring: stop, arrowTo: CGPoint(x: stop.maxX + 6, y: stop.midY))
+            return frame(of: "stop").map { Target(id: "stop", rect: $0, label: "STOP") }
         default:
             return nil
         }
-    }
-
-    @ViewBuilder
-    private func annotations(size: CGSize) -> some View {
-        if let m = mark(size: size) {
-            SketchRing(rect: m.ring, seed: state.step.rawValue)
-                .trim(from: 0, to: draw)
-                .stroke(accent, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
-                .shadow(color: accent.opacity(0.5), radius: 8)
-            let home = captionHome(size: size)
-            let from = arrowStart(from: CGRect(origin: home, size: CGSize(width: captionWidth, height: 64)), to: m.arrowTo)
-            SketchArrow(from: from, to: m.arrowTo, seed: state.step.rawValue)
-                .trim(from: 0, to: draw)
-                .stroke(accent, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
-                .shadow(color: accent.opacity(0.4), radius: 6)
-        }
-    }
-
-    private func arrowStart(from rect: CGRect, to: CGPoint) -> CGPoint {
-        if to.y < rect.minY { return CGPoint(x: rect.midX, y: rect.minY - 8) }
-        if to.x < rect.minX { return CGPoint(x: rect.minX - 8, y: rect.midY) }
-        if to.x > rect.maxX { return CGPoint(x: rect.maxX + 8, y: rect.midY) }
-        return CGPoint(x: rect.midX, y: rect.maxY + 8)
     }
 
     // MARK: Intro
@@ -187,7 +192,7 @@ struct TakeoverView: View {
         } else {
             let risen = CGPoint(x: origin.x, y: origin.y + 190)
             ZStack {
-                HeroMark(size: 220)
+                BreathingMark(meter: narrator.meter, size: 220)
                     .scaleEffect(state.risen ? 1 : 0.06)
                     .opacity(state.risen ? 1 : 0)
                     .position(state.risen ? risen : origin)
@@ -214,8 +219,9 @@ struct TakeoverView: View {
 
     // MARK: Caption
 
-    /// The voice, written down: the mark and the line it is saying. When
-    /// something lands, the mark becomes a check for a moment.
+    /// The voice, written down: the mark, breathing with the sound, and the
+    /// line it is saying. When something lands, the mark becomes a check
+    /// for a moment.
     private func caption(size: CGSize) -> some View {
         let home = captionHome(size: size)
         let text = state.milestone ?? narrator.line
@@ -228,7 +234,7 @@ struct TakeoverView: View {
                         .stroke(accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
                         .padding(9)
                 } else {
-                    HeroMark(size: 36)
+                    BreathingMark(meter: narrator.meter, size: 36)
                 }
             }
             .frame(width: 36, height: 36)
@@ -262,8 +268,9 @@ struct TakeoverView: View {
             .strokeBorder(Color.white.opacity(0.10), lineWidth: Design.Stroke.hairline))
         .shadow(color: .black.opacity(0.45), radius: 24, y: 8)
         .opacity(text.isEmpty ? 0 : 1)
-        .position(x: home.x + captionWidth / 2, y: home.y + 32)
+        .position(x: home.x + captionWidth / 2, y: home.y + captionHeight / 2)
         .animation(Design.Motion.animation(.spring(response: 0.6, dampingFraction: 0.88)), value: state.geometry.expanded)
+        .animation(Design.Motion.animation(.spring(response: 0.6, dampingFraction: 0.88)), value: state.geometry.hud)
         .transition(.opacity)
         .accessibilityIdentifier("visor.takeover.caption")
     }
@@ -285,15 +292,8 @@ struct TakeoverView: View {
                 .font(Design.Typography.body())
                 .foregroundStyle(Design.Ink.secondary)
             HStack(spacing: Design.Space.roomy) {
-                ForEach(keys, id: \.0) { key, label in
-                    VStack(spacing: Design.Space.normal) {
-                        Text(key)
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundStyle(Design.Ink.primary)
-                            .padding(.horizontal, Design.Space.roomy).frame(height: 34)
-                            .raised(Design.Radius.control, strong: true, stroke: Design.Stroke.control)
-                        Text(label).font(Design.Typography.caption()).foregroundStyle(Design.Ink.tertiary)
-                    }
+                ForEach(Array(keys.enumerated()), id: \.offset) { i, pair in
+                    KeyCap(key: pair.0, label: pair.1, delay: 0.25 + Double(i) * 0.18)
                 }
             }
             HStack {
@@ -358,6 +358,211 @@ extension View {
         background(GeometryReader { g in
             Color.clear.preference(key: HitRectsKey.self, value: [g.frame(in: .global)])
         })
+    }
+}
+
+// MARK: - Targeting
+
+/// A reticle that locks onto the control to press: four corner brackets
+/// that arrive from slightly outside and settle on it, a small readout
+/// above, and a leader line back to the caption with a dot at each end.
+private struct Targeting: View {
+    let target: TakeoverView.Target
+    let from: CGRect
+    let draw: CGFloat
+    @State private var locked = false
+
+    private var accent: Color { Design.Retro.accent }
+
+    var body: some View {
+        let rect = target.rect.insetBy(dx: -8, dy: -6)
+        let anchor = nearestEdgePoint(of: rect, to: from)
+        let start = leaderStart(from: from, to: anchor)
+        ZStack(alignment: .topLeading) {
+            // Drawn in its own frame so the lock-on scales about its centre.
+            Brackets(rect: CGRect(origin: .zero, size: rect.size), arm: min(14, rect.width / 3))
+                .stroke(accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .shadow(color: accent.opacity(0.6), radius: 6)
+                .frame(width: rect.width, height: rect.height)
+                .scaleEffect(locked ? 1 : 1.35)
+                .opacity(locked ? 1 : 0)
+                .position(x: rect.midX, y: rect.midY)
+
+            Text(target.label)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .tracking(2)
+                .foregroundStyle(accent)
+                .position(x: rect.midX, y: rect.minY - 14)
+                .opacity(locked ? 1 : 0)
+
+            Leader(from: start, to: anchor)
+                .trim(from: 0, to: draw)
+                .stroke(accent.opacity(0.7), style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
+            Circle().fill(accent).frame(width: 5, height: 5).position(start).opacity(draw > 0.05 ? 1 : 0)
+            Circle().fill(accent).frame(width: 5, height: 5).position(anchor).opacity(draw > 0.95 ? 1 : 0)
+        }
+        .onAppear {
+            withAnimation(Design.Motion.animation(.spring(response: 0.5, dampingFraction: 0.7))) { locked = true }
+        }
+    }
+
+    private func nearestEdgePoint(of rect: CGRect, to other: CGRect) -> CGPoint {
+        let c = CGPoint(x: other.midX, y: other.midY)
+        let x = min(max(c.x, rect.minX), rect.maxX)
+        let y = min(max(c.y, rect.minY), rect.maxY)
+        // Snap to the nearest side, a little outside it.
+        let dl = abs(x - rect.minX), dr = abs(x - rect.maxX), dt = abs(y - rect.minY), db = abs(y - rect.maxY)
+        let m = min(dl, dr, dt, db)
+        if m == dr { return CGPoint(x: rect.maxX + 10, y: rect.midY) }
+        if m == dl { return CGPoint(x: rect.minX - 10, y: rect.midY) }
+        if m == db { return CGPoint(x: rect.midX, y: rect.maxY + 10) }
+        return CGPoint(x: rect.midX, y: rect.minY - 24)
+    }
+
+    private func leaderStart(from rect: CGRect, to: CGPoint) -> CGPoint {
+        if to.y < rect.minY { return CGPoint(x: rect.midX, y: rect.minY - 8) }
+        if to.x < rect.minX { return CGPoint(x: rect.minX - 8, y: rect.midY) }
+        if to.x > rect.maxX { return CGPoint(x: rect.maxX + 8, y: rect.midY) }
+        return CGPoint(x: rect.midX, y: rect.maxY + 8)
+    }
+}
+
+/// Four corner brackets around a rect.
+private struct Brackets: Shape {
+    let rect: CGRect
+    let arm: CGFloat
+
+    func path(in _: CGRect) -> Path {
+        var p = Path()
+        let r = rect
+        // top-left
+        p.move(to: CGPoint(x: r.minX, y: r.minY + arm)); p.addLine(to: CGPoint(x: r.minX, y: r.minY)); p.addLine(to: CGPoint(x: r.minX + arm, y: r.minY))
+        // top-right
+        p.move(to: CGPoint(x: r.maxX - arm, y: r.minY)); p.addLine(to: CGPoint(x: r.maxX, y: r.minY)); p.addLine(to: CGPoint(x: r.maxX, y: r.minY + arm))
+        // bottom-right
+        p.move(to: CGPoint(x: r.maxX, y: r.maxY - arm)); p.addLine(to: CGPoint(x: r.maxX, y: r.maxY)); p.addLine(to: CGPoint(x: r.maxX - arm, y: r.maxY))
+        // bottom-left
+        p.move(to: CGPoint(x: r.minX + arm, y: r.maxY)); p.addLine(to: CGPoint(x: r.minX, y: r.maxY)); p.addLine(to: CGPoint(x: r.minX, y: r.maxY - arm))
+        return p
+    }
+}
+
+/// A leader line with one bend: straight out from the caption, then to
+/// the target — the way a diagram labels a part.
+private struct Leader: Shape {
+    let from: CGPoint
+    let to: CGPoint
+
+    func path(in _: CGRect) -> Path {
+        var p = Path()
+        p.move(to: from)
+        let dx = to.x - from.x, dy = to.y - from.y
+        if abs(dx) > abs(dy) {
+            let bend = CGPoint(x: to.x - (dx > 0 ? 1 : -1) * min(40, abs(dx) / 2), y: from.y)
+            p.addLine(to: bend)
+            p.addLine(to: to)
+        } else {
+            let bend = CGPoint(x: from.x, y: to.y - (dy > 0 ? 1 : -1) * min(40, abs(dy) / 2))
+            p.addLine(to: bend)
+            p.addLine(to: to)
+        }
+        return p
+    }
+}
+
+// MARK: - Sound made visible
+
+/// Rings that spread from the notch when a moment lands, and fade as they
+/// go — the sound of the tour, drawn.
+private struct Sonar: View {
+    let origin: CGPoint
+    let pulses: [Date]
+
+    var body: some View {
+        let live = pulses.filter { Date().timeIntervalSince($0) < 1.8 }
+        TimelineView(.animation(minimumInterval: 1 / 60, paused: live.isEmpty)) { context in
+            Canvas { ctx, _ in
+                for pulse in pulses {
+                    let t = context.date.timeIntervalSince(pulse)
+                    guard t >= 0, t < 1.8 else { continue }
+                    let u = t / 1.8
+                    let radius = 40 + CGFloat(u) * 520
+                    let alpha = (1 - u) * (1 - u) * 0.55
+                    let rect = CGRect(x: origin.x - radius, y: origin.y - radius * 0.62, width: radius * 2, height: radius * 1.24)
+                    ctx.stroke(Path(ellipseIn: rect), with: .color(Design.Retro.accent.opacity(alpha)),
+                               lineWidth: 1.5 - CGFloat(u))
+                }
+            }
+        }
+    }
+}
+
+/// A soft light under the notch that breathes with the voice — the sound
+/// has a place it comes from.
+private struct NotchGlow: View {
+    @ObservedObject var meter: VoiceMeter
+    let origin: CGPoint
+    let width: CGFloat
+
+    var body: some View {
+        Ellipse()
+            .fill(RadialGradient(colors: [Design.Retro.accent.opacity(0.32), Design.Retro.accent.opacity(0)],
+                                 center: .center, startRadius: 0, endRadius: width * 0.9))
+            .frame(width: width * 2.4, height: width * 0.9)
+            .position(x: origin.x, y: origin.y - 4)
+            .opacity(0.15 + Double(meter.level) * 0.85)
+            .scaleEffect(0.85 + meter.level * 0.35, anchor: .top)
+            .blendMode(.screen)
+    }
+}
+
+/// The mark with a halo that swells with the voice.
+struct BreathingMark: View {
+    @ObservedObject var meter: VoiceMeter
+    var size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(RadialGradient(colors: [Design.Retro.accent.opacity(0.55), Design.Retro.accent.opacity(0)],
+                                     center: .center, startRadius: size * 0.2, endRadius: size * 0.9))
+                .frame(width: size * 1.8, height: size * 1.8)
+                .scaleEffect(0.6 + meter.level * 0.6)
+                .opacity(0.25 + Double(meter.level) * 0.75)
+            Circle()
+                .strokeBorder(Design.Retro.accent.opacity(0.35 + Double(meter.level) * 0.5), lineWidth: 1)
+                .frame(width: size * (1.15 + meter.level * 0.5), height: size * (1.15 + meter.level * 0.5))
+            HeroMark(size: size)
+                .scaleEffect(1 + meter.level * 0.06)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+/// A key on the finale's sheet, arriving a beat after the one before.
+private struct KeyCap: View {
+    let key: String
+    let label: String
+    let delay: Double
+    @State private var shown = false
+
+    var body: some View {
+        VStack(spacing: Design.Space.normal) {
+            Text(key)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(Design.Ink.primary)
+                .padding(.horizontal, Design.Space.roomy).frame(height: 34)
+                .raised(Design.Radius.control, strong: true, stroke: shown ? Design.Stroke.control : Design.Stroke.edge)
+                .shadow(color: Design.Retro.accent.opacity(shown ? 0.35 : 0), radius: 10)
+            Text(label).font(Design.Typography.caption()).foregroundStyle(Design.Ink.tertiary)
+        }
+        .opacity(shown ? 1 : 0)
+        .offset(y: shown ? 0 : 8)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + (Design.Motion.reduced ? 0 : delay)) {
+                withAnimation(Design.Motion.animation(.spring(response: 0.45, dampingFraction: 0.8))) { shown = true }
+            }
+        }
     }
 }
 
@@ -583,8 +788,6 @@ enum HeroSheet {
     }
 }
 
-// MARK: - Strokes
-
 private struct CheckMark: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
@@ -592,61 +795,5 @@ private struct CheckMark: Shape {
         p.addLine(to: CGPoint(x: rect.minX + rect.width * 0.38, y: rect.maxY - rect.height * 0.05))
         p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.12))
         return p
-    }
-}
-
-/// A ring that looks drawn by hand: an ellipse whose radius wobbles a
-/// little along the way, overshooting where it closes.
-struct SketchRing: Shape {
-    let rect: CGRect
-    var seed: Int
-
-    func path(in _: CGRect) -> Path {
-        var path = Path()
-        let steps = 64
-        let cx = rect.midX, cy = rect.midY
-        let rx = rect.width / 2, ry = rect.height / 2
-        for i in 0...steps {
-            let a = -0.4 + (Double(i) / Double(steps)) * (.pi * 2 + 0.55)
-            let w = wobble(i) * 2.6
-            let ca = CGFloat(Foundation.cos(a)), sa = CGFloat(Foundation.sin(a))
-            let p = CGPoint(x: cx + ca * (rx + w), y: cy + sa * (ry + w * 0.8))
-            if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
-        }
-        return path
-    }
-
-    private func wobble(_ i: Int) -> CGFloat {
-        let v = sin(Double(i) * 3.7 + Double(seed) * 11.3) * 43758.5453
-        return CGFloat(v - floor(v)) * 2 - 1
-    }
-}
-
-/// A slightly bowed arrow with a two-stroke head.
-struct SketchArrow: Shape {
-    let from: CGPoint
-    let to: CGPoint
-    var seed: Int
-
-    func path(in _: CGRect) -> Path {
-        var path = Path()
-        let dx = to.x - from.x, dy = to.y - from.y
-        let length = max(1, sqrt(dx * dx + dy * dy))
-        let nx = -dy / length, ny = dx / length
-        let bow = (seed % 2 == 0 ? 1 : -1) * length * 0.14
-        let control = CGPoint(x: (from.x + to.x) / 2 + nx * bow, y: (from.y + to.y) / 2 + ny * bow)
-        path.move(to: from)
-        path.addQuadCurve(to: to, control: control)
-        let tx = to.x - control.x, ty = to.y - control.y
-        let tl = max(1, sqrt(tx * tx + ty * ty))
-        let ux = tx / tl, uy = ty / tl
-        let head: CGFloat = 13
-        let cs = CGFloat(Foundation.cos(0.55)), sn = CGFloat(Foundation.sin(0.55))
-        let left = CGPoint(x: to.x - head * (ux * cs - uy * sn), y: to.y - head * (uy * cs + ux * sn))
-        let right = CGPoint(x: to.x - head * (ux * cs + uy * sn), y: to.y - head * (uy * cs - ux * sn))
-        path.move(to: left)
-        path.addLine(to: to)
-        path.addLine(to: right)
-        return path
     }
 }

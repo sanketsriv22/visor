@@ -252,16 +252,23 @@ final class ChatController: ObservableObject {
         if conversation.agentName.isEmpty { conversation.agentName = agent?.name ?? "Visor" }
         conversation.messages.append(question)
         if conversation.title.isEmpty { conversation.title = Self.title(from: text) }
+        isStreaming = true
         // The stand-in asks first, like a real agent with a tool would: the
         // approval card is the real control, and the introduction teaches
-        // it by having it happen.
-        let call = ToolCall(id: "intro_1", name: "run_shell",
-                            arguments: #"{"command":"ls -S ~/Desktop | head -3"}"#)
-        conversation.messages.append(ChatMessage(role: .assistant, content: "", model: "visor/intro",
-                                                 toolCalls: [call]))
-        pendingApproval = PendingApproval(calls: [call], needing: [call], model: "visor/intro",
-                                          system: nil, effort: nil, fast: false, round: 1)
-        store.save(conversation)
+        // it by having it happen. A beat after the question lands — so the
+        // transcript sees your turn arrive and pins itself to the end, as it
+        // does for a real send — the request comes in.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+            guard let self, self.isStreaming else { return }
+            let call = ToolCall(id: "intro_1", name: "run_shell",
+                                arguments: #"{"command":"ls -S ~/Desktop | head -3"}"#)
+            self.conversation.messages.append(ChatMessage(role: .assistant, content: "", model: "visor/intro",
+                                                          toolCalls: [call]))
+            self.isStreaming = false
+            self.pendingApproval = PendingApproval(calls: [call], needing: [call], model: "visor/intro",
+                                                   system: nil, effort: nil, fast: false, round: 1)
+            self.store.save(self.conversation)
+        }
     }
 
     /// The scripted continuation after the stand-in's approval was answered.

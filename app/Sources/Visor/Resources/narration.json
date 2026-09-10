@@ -23,5 +23,8 @@
   "drive.done": "Done. A real run asks for Accessibility first, then does exactly that.",
   "finale.that": "That's Visor.",
   "finale.back": "Control, command, K brings me back. Anywhere, any time.",
-  "finale.go": "Go make something."
+  "finale.go": "Go make something.",
+  "hud.bigger": "When you want the whole picture, there's the HUD.",
+  "hud.expand": "Control, command, M. The same conversation, full screen, with your agents, chats, tasks and memory around it.",
+  "hud.back": "And back. Same key."
 }

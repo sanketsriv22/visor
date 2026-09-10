@@ -102,6 +102,40 @@ enum Narration {
     }
 }
 
+/// How loud the voice is right now, 0…1, thirty times a second — so the
+/// mark and the notch can breathe with it. Its own object, so only the
+/// glow redraws at that rate.
+@MainActor
+final class VoiceMeter: ObservableObject {
+    @Published private(set) var level: CGFloat = 0
+    private var timer: Timer?
+    private var source: (() -> CGFloat)?
+    private var target: CGFloat = 0
+
+    func follow(_ source: @escaping () -> CGFloat) {
+        self.source = source
+        guard timer == nil else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 1 / 30, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.tick() }
+        }
+    }
+
+    func release() {
+        source = nil
+    }
+
+    private func tick() {
+        target = source?() ?? 0
+        // Quick up, slow down: speech attacks fast and trails off.
+        level += (target - level) * (target > level ? 0.55 : 0.18)
+        if source == nil, level < 0.01 {
+            level = 0
+            timer?.invalidate()
+            timer = nil
+        }
+    }
+}
+
 /// The voice of the introduction. Says lines in order, one at a time, and
 /// calls back when they have all been heard — the tour's clock. Bundled
 /// clips play as audio; a system voice speaks the text; muted, each line
@@ -130,6 +164,7 @@ final class Narrator: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, A
     var voice: Narration.Voice {
         didSet { if !silent { UserDefaults.standard.set(voice.id, forKey: Self.voiceKey) } }
     }
+    let meter = VoiceMeter()
 
     private let synth = AVSpeechSynthesizer()
     private var player: AVAudioPlayer?
@@ -196,6 +231,7 @@ final class Narrator: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, A
         player?.stop()
         player = nil
         speaking = false
+        meter.release()
         if !queue.isEmpty || completion != nil { wait(0.5) }
     }
 
@@ -230,8 +266,15 @@ final class Narrator: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, A
            let player = try? AVAudioPlayer(contentsOf: url) {
             player.delegate = self
             player.volume = 1
+            player.isMeteringEnabled = true
             self.player = player
             player.play()
+            meter.follow { [weak player] in
+                guard let player, player.isPlaying else { return 0 }
+                player.updateMeters()
+                let db = player.averagePower(forChannel: 0)
+                return max(0, min(1, (CGFloat(db) + 42) / 38))
+            }
             return
         }
         let utterance = AVSpeechUtterance(string: item.text)
@@ -241,12 +284,20 @@ final class Narrator: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, A
         utterance.postUtteranceDelay = 0.35
         current = utterance
         synth.speak(utterance)
+        // No meter on the system synthesiser: a plausible cadence instead.
+        let started = Date()
+        meter.follow { [weak self] in
+            guard let self, self.speaking else { return 0 }
+            let t = Date().timeIntervalSince(started)
+            return CGFloat(0.35 + 0.3 * sin(t * 8.3) * sin(t * 2.1) + 0.15 * sin(t * 13.7))
+        }
     }
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor in
             guard player === self.player else { return }
             self.player = nil
+            self.meter.release()
             self.wait(0.35)
         }
     }
@@ -255,6 +306,7 @@ final class Narrator: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, A
         Task { @MainActor in
             guard utterance === self.current else { return }
             self.current = nil
+            self.meter.release()
             self.next()
         }
     }

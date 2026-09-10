@@ -48,7 +48,7 @@ Font can be pinned the same way UserDefaults arguments always work:
 | `hud`, `hud-streaming` | The HUD with pinned rails |
 | `menu-panel` † | The menu-bar dropdown |
 | `settings-appearance` † | Settings → Appearance |
-| `takeover-intro`, `-notch`, `-open`, `-agent`, `-agent-key`, `-task`, `-approval`, `-trouble`, `-milestone`, `-drive`, `-stopped`, `-finale` | The introduction at each moment, over a dimmed screen as the app layers it (`-open` is for `--frames`) |
+| `takeover-intro`, `-notch`, `-open`, `-agent`, `-agent-key`, `-task`, `-approval`, `-trouble`, `-milestone`, `-hud`, `-drive`, `-stopped`, `-finale` | The introduction at each moment, over a dimmed screen as the app layers it (`-open` is for `--frames`) |
 | `selector-models`, `selector-options`, `selector-agents` | The selector family's content |
 | `computer-use-running`, `computer-use-done` | Computer use mid-task and finished |
 | `composer-parts` | The composer's controls in isolation, one variant per row |

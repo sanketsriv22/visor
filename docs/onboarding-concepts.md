@@ -145,5 +145,15 @@ quiet sound cues, and a pace set by speech rather than timers.
   and sound each have a switch at the top right, remembered.
 - **No flash.** The scrim fades up over 1.1 s before anything else moves;
   the CRT sweep, scanlines and pixel field are gone.
-- **Steps.** `intro → notch → agent → task → drive → finale`, two to
-  three minutes with the voice on.
+- **Steps.** `intro → notch → agent → task → hud → drive → finale`, about
+  three minutes with the voice on. The HUD beat opens the HUD on ⌃⌘M,
+  holds it while the voice describes it, and folds it back.
+- **Where things really are.** Controls the tour points at opt in with
+  `.spotlight("allow")` / `.spotlight("stop")` (`Spotlight.swift`); the
+  registry keeps their frames in screen coordinates, and the reticle locks
+  onto the real chip, not a guess.
+- **The sound, drawn.** The narrator meters its own audio (`VoiceMeter`)
+  and the mark's halo and a soft light under the notch breathe with it;
+  rings spread from the notch when a moment lands (`Sonar`); the reticle
+  arrives from outside and settles with a spring, a readout above it and a
+  leader line back to the caption; the finale's keys light in sequence.

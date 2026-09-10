@@ -12,9 +12,9 @@ extension Notification.Name {
 /// app and built by hand in the Design Lab, so the same view renders both.
 @MainActor
 final class TakeoverState: ObservableObject {
-    /// Six moments, each paced by what the voice is saying.
+    /// Seven moments, each paced by what the voice is saying.
     enum Step: Int, CaseIterable {
-        case intro, notch, agent, task, drive, finale
+        case intro, notch, agent, task, hud, drive, finale
     }
 
     struct Geometry {
@@ -69,8 +69,18 @@ final class TakeoverState: ObservableObject {
     /// overlay's top-left coordinates. Everywhere else passes through to the
     /// notch, the card and the scrim beneath.
     @Published var hitRects: [CGRect] = []
+    /// Rings of sound from the notch: one per moment that lands.
+    @Published var pulses: [Date] = []
+    /// The Design Lab's stand-in for `Spotlight`: control frames in the
+    /// overlay's own top-left coordinates.
+    @Published var spotlightOverride: [String: CGRect]? = nil
 
     let narrator: Narrator
+
+    func pulse() {
+        pulses.append(Date())
+        pulses.removeAll { Date().timeIntervalSince($0) > 3 }
+    }
 
     init(geometry: Geometry, step: Step = .intro, narrator: Narrator? = nil, videoURL: URL? = nil) {
         self.geometry = geometry
@@ -176,6 +186,7 @@ final class TakeoverGuide {
         schedule(after: 1.3) { [weak self] in
             guard let self else { return }
             self.narrator.play(.reveal)
+            self.state.pulse()
             withAnimation(Design.Motion.animation(.spring(response: 0.9, dampingFraction: 0.78))) { self.state.risen = true }
             self.narrator.say(["intro.hi", "intro.notch"]) { [weak self] in
                 guard let self else { return }
@@ -221,7 +232,7 @@ final class TakeoverGuide {
         }
         controller.chat.demoNextSend = false
         if ComputerUseAgent.shared.demonstrating { ComputerUseAgent.shared.stopDemo() }
-        if controller.ui.mode == .computerUse { controller.setMode(.chat) }
+        if controller.ui.mode == .computerUse || controller.ui.mode.isFullScreen { controller.setMode(.chat) }
         UserDefaults.standard.set(TakeoverState.Step.finale.rawValue, forKey: Self.progressKey)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             guard let self else { return }
@@ -320,6 +331,7 @@ final class TakeoverGuide {
         }
         NSApp.deactivate()
         narrator.play(.success)
+        state.pulse()
         state.bursts += 1; state.lastBurst = Date()
         narrator.say([.init("agent.meet", text: "Nice to meet you, \(name).")]) { [weak self] in
             self?.advance(to: .task)
@@ -384,6 +396,32 @@ final class TakeoverGuide {
         narrator.detail = reason
     }
 
+    // MARK: HUD
+
+    /// The whole picture: the HUD opens on the same key, stays long enough
+    /// to be seen, and folds back.
+    private func runHUD() {
+        narrator.say(["hud.bigger"]) { [weak self] in
+            guard let self, self.state.step == .hud else { return }
+            if !self.controller.ui.expanded { self.controller.toggle() }
+            if self.controller.ui.mode != .chat { self.controller.setMode(.chat) }
+            self.controller.toggleHUD()
+            self.narrator.play(.reveal)
+            self.state.pulse()
+            self.narrator.say(["hud.expand"]) { [weak self] in
+                guard let self, self.state.step == .hud else { return }
+                self.schedule(after: 2.5) { [weak self] in
+                    guard let self, self.state.step == .hud else { return }
+                    if self.controller.ui.mode.isFullScreen { self.controller.toggleHUD() }
+                    self.narrator.play(.beat)
+                    self.narrator.say(["hud.back"]) { [weak self] in
+                        self?.schedule(after: 0.6) { [weak self] in self?.advance(to: .drive) }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: Drive
 
     private func runDrive() {
@@ -435,6 +473,7 @@ final class TakeoverGuide {
             state.askStop = false
             state.driveStopped = true
         }
+        state.pulse()
         state.bursts += 1; state.lastBurst = Date()
         UserDefaults.standard.set(TakeoverState.Step.finale.rawValue, forKey: Self.progressKey)
         narrator.say([byUser ? "drive.stopped" : "drive.auto"]) { [weak self] in
@@ -502,6 +541,7 @@ final class TakeoverGuide {
         if state.step == .notch, expanded {
             if controller.ui.mode != .chat { controller.setMode(.chat) }
             narrator.play(.success)
+            state.pulse()
             state.bursts += 1; state.lastBurst = Date()
             narrator.say(["notch.card"]) { [weak self] in
                 self?.advance(to: .agent)
@@ -515,6 +555,7 @@ final class TakeoverGuide {
         if pending {
             taskTimeout?.cancel()
             narrator.play(.beat)
+            state.pulse()
             state.bursts += 1; state.lastBurst = Date()
             narrator.say(["task.asking", "task.allow"]) {}
         } else if sent, !state.standIn {
@@ -539,11 +580,12 @@ final class TakeoverGuide {
                 self.taskTimeout?.cancel()
                 self.state.taskDone = true
                 self.narrator.play(.success)
+                self.state.pulse()
                 self.state.bursts += 1; self.state.lastBurst = Date()
                 self.celebrateMilestone("First task, done")
-                UserDefaults.standard.set(TakeoverState.Step.drive.rawValue, forKey: Self.progressKey)
+                UserDefaults.standard.set(TakeoverState.Step.hud.rawValue, forKey: Self.progressKey)
                 self.narrator.say(["task.answer"]) { [weak self] in
-                    self?.schedule(after: 1.2) { [weak self] in self?.advance(to: .drive) }
+                    self?.schedule(after: 1.2) { [weak self] in self?.advance(to: .hud) }
                 }
             } else if !self.state.standIn {
                 self.fallBackToStandIn(self.controller.chat.error ?? "It didn't answer.")
@@ -557,6 +599,7 @@ final class TakeoverGuide {
             pending?.cancel()
             withAnimation(Design.Motion.animation(Design.Motion.standard)) { state.driveDone = true }
             narrator.play(.success)
+            state.pulse()
             state.bursts += 1; state.lastBurst = Date()
             celebrateMilestone("It drove your Mac")
             UserDefaults.standard.set(TakeoverState.Step.finale.rawValue, forKey: Self.progressKey)
@@ -599,7 +642,12 @@ final class TakeoverGuide {
         case .task:
             UserDefaults.standard.set(next.rawValue, forKey: Self.progressKey)
             sent = false
+            // A clean transcript: the first task is the first thing in it.
+            controller.chat.newChat()
             schedule(after: 0.5) { [weak self] in self?.runTask() }
+        case .hud:
+            UserDefaults.standard.set(next.rawValue, forKey: Self.progressKey)
+            schedule(after: 0.5) { [weak self] in self?.runHUD() }
         case .drive:
             UserDefaults.standard.set(next.rawValue, forKey: Self.progressKey)
             schedule(after: 0.5) { [weak self] in self?.runDrive() }

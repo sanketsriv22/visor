@@ -222,7 +222,8 @@ enum DesignLab {
             Scenario(name: "takeover-approval", size: hud, themed: false,
                      note: "The approval row is up; the ring is on Allow") { f in
                 AnyView(f.takeover(.task, chat: f.chat(.approval), expanded: true, mode: .chat) { s in
-                    s.progress = 0.6; s.created = true; s.awaitingApproval = true
+                    s.progress = 0.5; s.created = true; s.awaitingApproval = true
+                    s.spotlightOverride = ["allow": CGRect(x: 517, y: 246, width: 60, height: 26)]
                     s.narrator.show("It's asking before it touches your Mac. That's always your call. Press Allow.")
                 })
             },
@@ -239,6 +240,19 @@ enum DesignLab {
                     s.progress = 0.6; s.created = true; s.taskDone = true; s.milestone = "First task, done"
                 })
             },
+            Scenario(name: "takeover-hud", size: hud, themed: false,
+                     note: "The HUD beat: the whole picture, the caption along the bottom") { f in
+                AnyView(f.takeover(.hud, chat: f.chat(.complete), expanded: true, mode: .hud) { s in
+                    s.progress = 0.67; s.geometry.hud = true
+                    s.narrator.show("Control, command, M. The same conversation, full screen, with your agents, chats, tasks and memory around it.")
+                })
+            },
+            Scenario(name: "composer-typed", size: stage, themed: false,
+                     note: "The composer while the tour types — is the first letter whole?") { f in
+                let chat = f.chat(.empty)
+                chat.draft = "What's the biggest file on my Desktop?"
+                return AnyView(f.compact(.chat, chat: chat))
+            },
             Scenario(name: "takeover-drive", size: hud, themed: false,
                      note: "Computer Use, Visor's own face, mid-demonstration; Stop asked for") { f in
                 ComputerUseAgent.shared.previewState(
@@ -246,7 +260,8 @@ enum DesignLab {
                     log: ["Opened System Settings", "Read the sidebar: 24 items", "Scrolled to Displays", "Clicked “Displays”"])
                 ComputerUseAgent.shared.draft = "Turn on Night Shift in System Settings"
                 return AnyView(f.takeover(.drive, chat: f.chat(.complete), expanded: true, mode: .computerUse) { s in
-                    s.progress = 0.8; s.askStop = true
+                    s.progress = 0.83; s.askStop = true
+                    s.spotlightOverride = ["stop": CGRect(x: 960, y: 79, width: 32, height: 32)]
                     s.narrator.show("You can stop it any time. Try it — press Stop.")
                 })
             },
@@ -662,9 +677,14 @@ enum DesignLab {
                 // growing over the dimmed screen.
                 Rectangle().fill(Color.black.opacity(step == .intro ? 0.88 : 0.74))
                     .frame(width: bounds.width, height: bounds.height)
-                StickyRootView(store: notes, ui: ui, ai: ai, chat: chat,
-                               onToggle: {}, onMode: { ui.mode = $0 })
-                    .frame(width: bounds.width, height: bounds.height, alignment: .top)
+                if mode.isFullScreen {
+                    HUDRootView(chat: chat, store: notes, ui: ui, onExit: {}, onClose: {})
+                        .frame(width: bounds.width, height: bounds.height)
+                } else {
+                    StickyRootView(store: notes, ui: ui, ai: ai, chat: chat,
+                                   onToggle: {}, onMode: { ui.mode = $0 })
+                        .frame(width: bounds.width, height: bounds.height, alignment: .top)
+                }
                 TakeoverView(state: state, actions: TakeoverActions())
             }
             .environment(\.colorScheme, .dark)
