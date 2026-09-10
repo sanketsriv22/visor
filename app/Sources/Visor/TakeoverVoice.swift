@@ -288,8 +288,11 @@ final class Narrator: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, A
         let started = Date()
         meter.follow { [weak self] in
             guard let self, self.speaking else { return 0 }
-            let t = Date().timeIntervalSince(started)
-            return CGFloat(0.35 + 0.3 * sin(t * 8.3) * sin(t * 2.1) + 0.15 * sin(t * 13.7))
+            let t: Double = Date().timeIntervalSince(started)
+            let slow: Double = sin(t * 8.3) * sin(t * 2.1)
+            let fast: Double = sin(t * 13.7)
+            let v: Double = 0.35 + 0.3 * slow + 0.15 * fast
+            return CGFloat(v)
         }
     }
 
