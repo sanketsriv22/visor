@@ -139,8 +139,11 @@ final class ScrimView: NSView {
 
     /// Light `rect` (screen coordinates), or the whole screen evenly.
     /// `inside`/`outside` are how dark it is under the light and away from it.
-    func focus(_ rect: CGRect?, inside: CGFloat = 0.34, outside: CGFloat = 0.72, duration: TimeInterval = 0.8) {
-        let inside = max(inside, 0.34)
+    /// The floor under the light is never lighter than 58% black: white type
+    /// over a blurred white window needs at least that to read.
+    func focus(_ rect: CGRect?, inside: CGFloat = 0.58, outside: CGFloat = 0.82, duration: TimeInterval = 0.8) {
+        let inside = max(inside, 0.58)
+        let outside = max(outside, inside + 0.15)
         let w = max(1, bounds.width), h = max(1, bounds.height)
         let colors: [CGColor]
         let start: CGPoint, end: CGPoint
@@ -223,7 +226,7 @@ final class TakeoverGuide {
         self.scrimView = sheet
         // The intro's light: the middle of the screen, where the mark forms.
         let centre = CGRect(x: frame.midX - 260, y: frame.midY - 200, width: 520, height: 520)
-        sheet.focus(centre, inside: 0.5, outside: 0.82, duration: 0)
+        sheet.focus(centre, inside: 0.7, outside: 0.9, duration: 0)
 
         let panel = Self.makePanel(frame)
         let host = TakeoverHostingView(rootView: TakeoverView(
@@ -267,7 +270,7 @@ final class TakeoverGuide {
                     guard let self else { return }
                     // "…in the notch." — and it goes there.
                     self.state.risen = false
-                    self.scrimView?.focus(self.state.geometry.notch.insetBy(dx: -60, dy: -40), inside: 0.14, outside: 0.72, duration: 1.0)
+                    self.scrimView?.focus(self.state.geometry.notch.insetBy(dx: -60, dy: -40), inside: 0.58, outside: 0.86, duration: 1.0)
                     self.schedule(after: 1.2) { [weak self] in self?.advance(to: .notch) }
                 }
             }
@@ -617,24 +620,24 @@ final class TakeoverGuide {
         let g = state.geometry
         let frames = Spotlight.shared.frames
         var rect: CGRect? = nil
-        var inside: CGFloat = 0.34, outside: CGFloat = 0.72
+        var inside: CGFloat = 0.58, outside: CGFloat = 0.82
         switch state.step {
         case .intro:
             rect = CGRect(x: screen.midX - 260, y: screen.midY - 200, width: 520, height: 520)
-            inside = 0.5; outside = 0.82
+            inside = 0.7; outside = 0.9
         case .notch:
             rect = g.expanded ? g.card.insetBy(dx: -30, dy: -30) : g.notch.insetBy(dx: -60, dy: -40)
         case .agent:
             rect = state.created ? g.card.insetBy(dx: -30, dy: -30) : nil
-            outside = state.created ? 0.66 : 0.6
+            outside = 0.82
         case .task:
             rect = state.awaitingApproval ? frames["allow"]?.insetBy(dx: -50, dy: -36) ?? g.card : g.card.insetBy(dx: -30, dy: -30)
         case .hud:
-            rect = nil; outside = 0.35
+            rect = nil; outside = 0.6
         case .drive:
             rect = state.askStop ? frames["stop"]?.insetBy(dx: -46, dy: -46) ?? g.card : g.card.insetBy(dx: -30, dy: -30)
         case .finale:
-            rect = nil; outside = 0.6
+            rect = nil; outside = 0.8
         }
         if state.focus != rect { state.focus = rect }
         scrimView.focus(rect, inside: inside, outside: outside)

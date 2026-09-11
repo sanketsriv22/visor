@@ -220,10 +220,12 @@ struct TakeoverView: View {
                         .font(.system(size: 54, weight: .semibold, design: .default))
                         .tracking(-0.5)
                         .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.6), radius: 18, y: 4)
                     Text(narrator.line)
                         .font(.system(size: 19))
-                        .foregroundStyle(Design.Ink.secondary)
+                        .foregroundStyle(.white.opacity(0.85))
                         .multilineTextAlignment(.center)
+                        .shadow(color: .black.opacity(0.6), radius: 12, y: 2)
                         .id(narrator.line)
                         .transition(.opacity)
                 }
