@@ -268,7 +268,7 @@ enum MarkScene {
         let ring = 14
         var verts: [SCNVector3] = [], norms: [SCNVector3] = [], uvs: [CGPoint] = []
         var indices: [Int32] = []
-        let count = closed ? segments : segments + 1
+        let count = segments + 1
         // Parallel-transport a frame along the curve so the tube doesn't
         // twist. Around a closed circuit the frame comes back rotated by
         // some angle; unwind that evenly along the way so the last ring
@@ -327,9 +327,8 @@ enum MarkScene {
                 uvs.append(CGPoint(x: CGFloat(t) / (2 * .pi) * 3, y: CGFloat(j) / CGFloat(ring)))
             }
         }
-        let rings = closed ? segments : segments
-        for i in 0..<rings {
-            let i1 = closed ? (i + 1) % segments : i + 1
+        for i in 0..<segments {
+            let i1 = i + 1
             for j in 0..<ring {
                 let j1 = (j + 1) % ring
                 let a0 = Int32(i * ring + j), a1 = Int32(i * ring + j1)
