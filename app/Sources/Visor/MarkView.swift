@@ -181,7 +181,7 @@ enum MarkScene {
 
         // A studio: an environment the metal reflects, a key, a rim, a kick.
         scene.lightingEnvironment.contents = studio()
-        scene.lightingEnvironment.intensity = 1.4
+        scene.lightingEnvironment.intensity = 2.2
         func light(_ name: String, _ pos: SCNVector3, _ color: NSColor, _ intensity: CGFloat) {
             let l = SCNLight(); l.type = .omni; l.color = color; l.intensity = intensity
             let n = SCNNode(); n.light = l; n.position = pos; n.name = name
@@ -204,8 +204,12 @@ enum MarkScene {
         let m = SCNMaterial()
         m.lightingModel = .physicallyBased
         m.metalness.contents = 1.0
-        m.roughness.contents = 0.26
+        m.roughness.contents = 0.3
         m.diffuse.contents = gradient()
+        // A little of its own colour, so the dark side of the tube still
+        // reads as the palette and not as black wire.
+        m.emission.contents = gradient()
+        m.emission.intensity = 0.16
         m.diffuse.wrapS = .repeat
         m.diffuse.wrapT = .repeat
         m.isDoubleSided = false
@@ -243,8 +247,8 @@ enum MarkScene {
         let w = 512, h = 256
         let img = NSImage(size: NSSize(width: w, height: h))
         img.lockFocus()
-        NSGradient(colors: [NSColor(white: 0.02, alpha: 1), NSColor(white: 0.10, alpha: 1), NSColor(calibratedRed: 0.62, green: 0.60, blue: 0.75, alpha: 1)],
-                   atLocations: [0, 0.5, 1], colorSpace: .deviceRGB)!
+        NSGradient(colors: [NSColor(white: 0.03, alpha: 1), NSColor(white: 0.18, alpha: 1), NSColor(calibratedRed: 0.85, green: 0.82, blue: 0.95, alpha: 1)],
+                   atLocations: [0, 0.45, 1], colorSpace: .deviceRGB)!
             .draw(in: NSRect(x: 0, y: 0, width: w, height: h), angle: 90)
         for (x, wd, a) in [(60, 120, 0.9), (300, 90, 0.7)] {
             let box = NSBezierPath(roundedRect: NSRect(x: x, y: 150, width: wd, height: 60), xRadius: 20, yRadius: 20)
@@ -265,25 +269,54 @@ enum MarkScene {
         var verts: [SCNVector3] = [], norms: [SCNVector3] = [], uvs: [CGPoint] = []
         var indices: [Int32] = []
         let count = closed ? segments : segments + 1
+        // Parallel-transport a frame along the curve so the tube doesn't
+        // twist. Around a closed circuit the frame comes back rotated by
+        // some angle; unwind that evenly along the way so the last ring
+        // meets the first without a seam.
+        var tangents: [SCNVector3] = [], normals: [SCNVector3] = []
         var prevNormal = SCNVector3(0, 0, 1)
-        for i in 0..<count {
-            let t = a + (b - a) * Double(i) / Double(segments)
-            let p = point(t)
-            let d = 0.001
-            let p1 = point(t + d)
+        func frame(_ t: Double) -> (SCNVector3, SCNVector3) {
+            let p = point(t), p1 = point(t + 0.001)
             var tangent = SCNVector3(p1.x - p.x, p1.y - p.y, p1.z - p.z)
             let tl = sqrt(tangent.x * tangent.x + tangent.y * tangent.y + tangent.z * tangent.z)
             tangent = SCNVector3(tangent.x / tl, tangent.y / tl, tangent.z / tl)
-            // Parallel-transport the frame so the tube doesn't twist.
             var normal = prevNormal
             let dot = normal.x * tangent.x + normal.y * tangent.y + normal.z * tangent.z
             normal = SCNVector3(normal.x - tangent.x * dot, normal.y - tangent.y * dot, normal.z - tangent.z * dot)
             let nl = sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z)
             normal = SCNVector3(normal.x / nl, normal.y / nl, normal.z / nl)
             prevNormal = normal
-            let binormal = SCNVector3(tangent.y * normal.z - tangent.z * normal.y,
+            return (tangent, normal)
+        }
+        for i in 0..<count {
+            let (tg, nm) = frame(a + (b - a) * Double(i) / Double(segments))
+            tangents.append(tg); normals.append(nm)
+        }
+        var unwind: Double = 0
+        if closed {
+            // One more step brings the frame back to the start; compare.
+            let (tg, nm) = frame(a + (b - a))
+            let n0 = normals[0]
+            let bin = SCNVector3(tg.y * n0.z - tg.z * n0.y, tg.z * n0.x - tg.x * n0.z, tg.x * n0.y - tg.y * n0.x)
+            let c = Double(nm.x * n0.x + nm.y * n0.y + nm.z * n0.z)
+            let sn = Double(nm.x * bin.x + nm.y * bin.y + nm.z * bin.z)
+            unwind = atan2(sn, c)
+        }
+        for i in 0..<count {
+            let t = a + (b - a) * Double(i) / Double(segments)
+            let p = point(t)
+            let tangent = tangents[i]
+            var normal = normals[i]
+            var binormal = SCNVector3(tangent.y * normal.z - tangent.z * normal.y,
                                       tangent.z * normal.x - tangent.x * normal.z,
                                       tangent.x * normal.y - tangent.y * normal.x)
+            if unwind != 0 {
+                let phi = -unwind * Double(i) / Double(segments)
+                let cp = CGFloat(cos(phi)), sp = CGFloat(sin(phi))
+                let n2 = SCNVector3(normal.x * cp + binormal.x * sp, normal.y * cp + binormal.y * sp, normal.z * cp + binormal.z * sp)
+                let b2 = SCNVector3(binormal.x * cp - normal.x * sp, binormal.y * cp - normal.y * sp, binormal.z * cp - normal.z * sp)
+                normal = n2; binormal = b2
+            }
             for j in 0..<ring {
                 let ang = 2 * Double.pi * Double(j) / Double(ring)
                 let nx = normal.x * CGFloat(cos(ang)) + binormal.x * CGFloat(sin(ang))
