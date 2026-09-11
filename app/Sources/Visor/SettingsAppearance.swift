@@ -124,6 +124,7 @@ struct AppearancePane: View {
                     .font(Design.Text.caption)
                     .foregroundStyle(theme.text)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
