@@ -184,6 +184,22 @@ enum DesignLab {
                     if let img = MarkScene.snapshot(size: 1024) { Image(nsImage: img).resizable() }
                 }.frame(width: 512, height: 512).background(Color(white: 0.06)))
             },
+            Scenario(name: "mark-forming", size: CGSize(width: 1536, height: 512), themed: false,
+                     note: "The knot drawing itself: a quarter, half, three quarters") { _ in
+                AnyView(HStack(spacing: 0) {
+                    ForEach([0.25, 0.5, 0.75], id: \.self) { g in
+                        if let img = MarkScene.snapshot(size: 1024, grow: g, at: 0) { Image(nsImage: img).resizable().frame(width: 512, height: 512) }
+                    }
+                }.background(Color(white: 0.06)))
+            },
+            Scenario(name: "mark-turn", size: CGSize(width: 2048, height: 512), themed: false,
+                     note: "The turn at 0, 2, 4 and 6 seconds") { _ in
+                AnyView(HStack(spacing: 0) {
+                    ForEach([0.0, 2.0, 4.0, 6.0], id: \.self) { t in
+                        if let img = MarkScene.snapshot(size: 1024, at: t) { Image(nsImage: img).resizable().frame(width: 512, height: 512) }
+                    }
+                }.background(Color(white: 0.06)))
+            },
             Scenario(name: "takeover-intro", size: hud, themed: false,
                      note: "The welcome without a video: the mark risen from the notch, saying hello") { f in
                 AnyView(f.takeover(.intro, chat: f.chat(.empty), expanded: false) { s in

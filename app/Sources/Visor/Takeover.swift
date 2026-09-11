@@ -114,6 +114,9 @@ final class ScrimView: NSView {
         blur.material = .hudWindow
         blur.blendingMode = .behindWindow
         blur.state = .active
+        // The blur takes the system appearance; in light mode over a light
+        // wallpaper it went pale under white type. It is always dark here.
+        blur.appearance = NSAppearance(named: .darkAqua)
         addSubview(blur)
         dim.type = .radial
         dim.frame = bounds
@@ -136,7 +139,8 @@ final class ScrimView: NSView {
 
     /// Light `rect` (screen coordinates), or the whole screen evenly.
     /// `inside`/`outside` are how dark it is under the light and away from it.
-    func focus(_ rect: CGRect?, inside: CGFloat = 0.14, outside: CGFloat = 0.66, duration: TimeInterval = 0.8) {
+    func focus(_ rect: CGRect?, inside: CGFloat = 0.34, outside: CGFloat = 0.72, duration: TimeInterval = 0.8) {
+        let inside = max(inside, 0.34)
         let w = max(1, bounds.width), h = max(1, bounds.height)
         let colors: [CGColor]
         let start: CGPoint, end: CGPoint
@@ -219,7 +223,7 @@ final class TakeoverGuide {
         self.scrimView = sheet
         // The intro's light: the middle of the screen, where the mark forms.
         let centre = CGRect(x: frame.midX - 260, y: frame.midY - 200, width: 520, height: 520)
-        sheet.focus(centre, inside: 0.3, outside: 0.78, duration: 0)
+        sheet.focus(centre, inside: 0.5, outside: 0.82, duration: 0)
 
         let panel = Self.makePanel(frame)
         let host = TakeoverHostingView(rootView: TakeoverView(
@@ -613,11 +617,11 @@ final class TakeoverGuide {
         let g = state.geometry
         let frames = Spotlight.shared.frames
         var rect: CGRect? = nil
-        var inside: CGFloat = 0.14, outside: CGFloat = 0.66
+        var inside: CGFloat = 0.34, outside: CGFloat = 0.72
         switch state.step {
         case .intro:
             rect = CGRect(x: screen.midX - 260, y: screen.midY - 200, width: 520, height: 520)
-            inside = 0.3; outside = 0.78
+            inside = 0.5; outside = 0.82
         case .notch:
             rect = g.expanded ? g.card.insetBy(dx: -30, dy: -30) : g.notch.insetBy(dx: -60, dy: -40)
         case .agent:
