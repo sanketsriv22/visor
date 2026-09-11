@@ -233,10 +233,10 @@ struct SettingsButtonStyle: ButtonStyle {
     var kind: Kind = .regular
 
     func makeBody(configuration: Configuration) -> some View {
-        Body(configuration: configuration, kind: kind)
+        Pressable(configuration: configuration, kind: kind)
     }
 
-    private struct Body: View {
+    private struct Pressable: View {
         let configuration: Configuration
         let kind: Kind
         @State private var hover = false
