@@ -285,7 +285,7 @@ struct TakeoverView: View {
         .padding(.vertical, Design.Space.loose)
         .frame(width: captionWidth, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: Design.Radius.panel, style: .continuous)
-            .fill(Design.Retro.bg.opacity(0.97)))
+            .fill(MarkColor.plate.opacity(0.97)))
         .overlay(RoundedRectangle(cornerRadius: Design.Radius.panel, style: .continuous)
             .strokeBorder(Color.white.opacity(0.12), lineWidth: Design.Stroke.hairline))
         .shadow(color: .black.opacity(0.5), radius: 28, y: 10)
@@ -352,7 +352,7 @@ struct TakeoverView: View {
         }
         .padding(.horizontal, Design.Space.roomy)
         .frame(height: 40)
-        .background(Capsule().fill(Design.Retro.bg.opacity(0.7)))
+        .background(Capsule().fill(MarkColor.plate.opacity(0.7)))
         .reportHit()
         .position(x: size.width - 110, y: 48)
         .opacity(appeared ? 1 : 0)
@@ -513,11 +513,14 @@ private struct NotchGlow: View {
     }
 }
 
-/// The mark's own colour: it is rendered purple whatever the theme, so
-/// its glow is too — on Mono the theme accent is white, and a white halo
-/// read as a circle drawn around it.
+/// The tour's own colours. It is a dark overlay whatever the theme — on
+/// Paper the theme's background is light grey, and the tour's plates took
+/// it, putting white type on grey. Its plates and the mark's glow are
+/// fixed here.
 enum MarkColor {
     static let glow = Color(red: 0.58, green: 0.40, blue: 0.94)
+    /// The plate behind captions, the card and the chrome.
+    static let plate = Color(red: 0.07, green: 0.07, blue: 0.09)
 }
 
 /// The mark with a halo that swells with the voice.
@@ -554,7 +557,7 @@ private struct TourCard<Content: View>: View {
             .padding(Design.Space.section + 4)
             .frame(width: width, alignment: .topLeading)
             .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-                .fill(Design.Retro.bg.opacity(0.97)))
+                .fill(MarkColor.plate.opacity(0.97)))
             .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.12), lineWidth: Design.Stroke.hairline))
             .shadow(color: .black.opacity(0.55), radius: 36, y: 14)
