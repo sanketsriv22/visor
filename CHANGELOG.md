@@ -16,7 +16,8 @@ the menu-bar dropdown, and published as the release notes for each version.
 - Live conversation: a waveform beside the agent, in the card and the HUD, opens a GPT-Live voice session with the selected agent as its backend — you talk, the agent answers on its own model, the voice says it. Approvals can be answered by voice. Voice and barge-in in Settings → Voice.
 - Keys report whether they work and what's left: OpenRouter's balance, this key's usage and limit, and OpenAI's acceptance, under each key in Agents, Voice and Secrets, with a Check button.
 - Every dropdown in Settings is a visible control now: the choice on a panel with a chevron.
-- Live conversation is the chat: your words stream into your turn as you speak, the reply streams as the agent's; the composer becomes a waveform in voice mode.
+- Live conversation is the chat: your words stream into your turn as you speak, the reply streams as the agent's; the composer folds to one row with a waveform in voice mode, and the switch is beside the mic. Session events are logged to ~/Library/Logs/Visor/live.log.
+- HUD text size is capped at 1.25×; the transcript no longer unpins when content grows under a pinned reader.
 - A Design Lab (`Visor --design-lab`) renders every surface with isolated fixtures, including frame sequences.
 
 ## 1.0-beta.36 — 2026-09-02

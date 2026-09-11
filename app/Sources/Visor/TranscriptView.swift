@@ -33,8 +33,10 @@ struct TranscriptView<Empty: View>: View {
     /// as reported by the sentinel. Infinite when the sentinel is off-screen.
     @State private var bottomDistance: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
-    /// How tall the content was last time, to tell growth from scrolling.
+    /// How tall the content was last time, and how far it was scrolled, to
+    /// tell growth from scrolling.
     @State private var contentHeight: CGFloat = 0
+    @State private var contentOffset: CGFloat = 0
 
     /// Within this many points of the end counts as "at the bottom": far
     /// enough that the tail of a growing reply doesn't unpin you, close
@@ -96,16 +98,18 @@ struct TranscriptView<Empty: View>: View {
                 }
                 .onPreferenceChange(BottomEdgeKey.self) { edge in
                     bottomDistance = edge.inViewport - viewportHeight
+                    // The content's scroll position: growth moves the end in
+                    // both spaces alike and leaves this alone; a scroll moves
+                    // it. So growth under a pinned reader — an approval card,
+                    // a table, a reply's next paragraph — never unpins, and a
+                    // real scroll up always does.
+                    let offset = edge.inContent - edge.inViewport
                     let grew = edge.inContent > contentHeight + 0.5
+                    let scrolled = abs(offset - contentOffset) > 0.5
                     contentHeight = edge.inContent
+                    contentOffset = offset
+                    if grew, !scrolled { return }
                     let near = bottomDistance <= Self.followThreshold
-                    // Content growing under a pinned reader — an approval
-                    // card, a table, a reply's next paragraph — is not the
-                    // reader scrolling away. Stay pinned and go to the end.
-                    if following, grew, !near {
-                        DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
-                        return
-                    }
                     if near != following {
                         following = near
                         chat.transcriptFollowing = near

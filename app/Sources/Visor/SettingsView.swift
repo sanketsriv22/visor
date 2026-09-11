@@ -1723,7 +1723,7 @@ private struct HUDPane: View {
                 Text("All the way down is fully clear.")
                     .font(Design.Text.caption).foregroundStyle(.secondary)
                 Divider().opacity(0.4)
-                SettingsSlider(title: "Text size", value: $scale, range: 0.85...1.8) {
+                SettingsSlider(title: "Text size", value: $scale, range: 0.85...1.25) {
                     String(format: "%.2f×", $0)
                 }
                 Text("Scales everything in the HUD together, so the layout keeps its proportions.")

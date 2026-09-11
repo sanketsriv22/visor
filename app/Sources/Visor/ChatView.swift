@@ -101,7 +101,6 @@ struct ChatCard: View {
         HStack(spacing: Design.Space.normal) {
             AgentIdentity(chat: chat)
             Spacer(minLength: 0)
-            LiveToggle(chat: chat)
         }
         .padding(.horizontal, 14)
         .padding(.top, 4)
@@ -970,7 +969,7 @@ struct HUDView: View {
                 .padding(.bottom, Design.Space.wide)
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
             }
-            .environment(\.hudScale, scale)
+            .environment(\.hudScale, min(max(scale, 0.85), 1.25))
         }
         // One curve for everything. Long and well damped, because it covers a
         // screen of travel and anything snappier reads as a snap.
@@ -1009,7 +1008,6 @@ struct HUDView: View {
                     .foregroundStyle(Design.Ink.tertiary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                LiveToggle(chat: chat, size: Design.Metric.regular)
                 IconButton(symbol: "arrow.down.right.and.arrow.up.left",
                            help: "Back to the notch — Esc, or \(ShortcutSettings.hint(.hud))",
                            action: onExit)

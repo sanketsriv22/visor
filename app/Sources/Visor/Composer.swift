@@ -29,7 +29,10 @@ struct Composer: View {
     var body: some View {
         Group {
             if live.state.isOn {
-                LiveWaveform(chat: chat, height: metrics.button * 1.4, button: metrics.button)
+                // Voice mode: the composer folds to one row — the waveform
+                // where the text was, the same round controls on the right.
+                LiveWaveform(chat: chat, button: metrics.button, gap: metrics.gap)
+                    .frame(height: metrics.button)
                     .transition(.opacity)
             } else {
                 VStack(alignment: .leading, spacing: metrics.rowGap) {
@@ -39,8 +42,8 @@ struct Composer: View {
                 .transition(.opacity)
             }
         }
-        .animation(.easeOut(duration: 0.2), value: live.state.isOn)
-        .padding(.top, metrics.paddingTop)
+        .animation(Design.Motion.animation(.spring(response: 0.35, dampingFraction: 0.85)), value: live.state.isOn)
+        .padding(.top, live.state.isOn ? metrics.paddingBottom : metrics.paddingTop)
         .padding(.bottom, metrics.paddingBottom)
         .padding(.horizontal, metrics.paddingSide)
         .background(RoundedRectangle(cornerRadius: metrics.radius, style: .continuous)
@@ -118,6 +121,8 @@ struct Composer: View {
                 .padding(.trailing, 4)
                 .transition(.opacity)
             }
+            DuplexButton(chat: chat, size: metrics.button)
+                .accessibilityIdentifier("visor.composer.duplex")
             DictationControl(voice: chat.voice, onToggle: chat.toggleDictation,
                              size: metrics.button, circular: true)
                 .accessibilityIdentifier("visor.composer.dictate")
@@ -208,7 +213,7 @@ struct Composer: View {
                 paddingTop = 12; paddingBottom = 8; paddingSide = 8
                 radius = Design.Radius.composer; fill = 0.09
             case .hud:
-                fontSize = 16; lineSpacing = 8; lineInset = 1
+                fontSize = 15; lineSpacing = 7; lineInset = 1
                 minHeight = 24; maxHeight = 168
                 textInset = 8; rowGap = 8; gap = 8
                 button = 36; chipFont = 14

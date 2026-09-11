@@ -181,6 +181,7 @@ final class LiveSession: NSObject, ObservableObject {
     private func send(_ event: [String: Any]) {
         guard let socket, let data = try? JSONSerialization.data(withJSONObject: event),
               let text = String(data: data, encoding: .utf8) else { return }
+        if (event["type"] as? String) != "session.input_audio.append" { note("→ \(text.prefix(600))") }
         socket.send(.string(text)) { [weak self] error in
             if let error { Task { @MainActor in self?.fail("Connection: \(error.localizedDescription)") } }
         }
@@ -207,60 +208,128 @@ final class LiveSession: NSObject, ObservableObject {
         }
     }
 
+    /// Every event but audio, to ~/Library/Logs/Visor/live.log — the only
+    /// way to see what the session actually sends.
+    private static let log: FileHandle? = {
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Visor")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("live.log")
+        if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: nil) }
+        let h = try? FileHandle(forWritingTo: url)
+        h?.seekToEndOfFile()
+        return h
+    }()
+
+    private func note(_ line: String) {
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        Self.log?.write("\(stamp) \(line)\n".data(using: .utf8)!)
+    }
+
     private func handle(_ event: [String: Any]) {
         guard let type = event["type"] as? String else { return }
+        if !type.hasSuffix("audio.delta") {
+            var copy = event
+            copy["delta"] = (event["delta"] as? String).map { String($0.prefix(80)) }
+            if let data = try? JSONSerialization.data(withJSONObject: copy), let text = String(data: data, encoding: .utf8) {
+                note("← \(text.prefix(600))")
+            }
+        }
+        // Names are matched by their parts: the Live API's event catalogue
+        // was published the day this was written, and the transcript and
+        // delegation events have moved between drafts.
+        let isInputTranscript = type.contains("input_transcript") || type.contains("input_audio_transcription")
+        let isOutputTranscript = type.contains("output_transcript") || type.contains("output_audio_transcript")
+        let isDelta = type.hasSuffix(".delta")
+        let isDone = type.hasSuffix(".done") || type.hasSuffix(".completed")
+        if isOutputTranscript, isDone, let full = (event["transcript"] as? String) ?? (event["text"] as? String), !full.isEmpty {
+            outputTranscript(full: full)
+            return
+        }
+        if isOutputTranscript, isDelta, let delta = event["delta"] as? String {
+            outputTranscript(delta: delta)
+            return
+        }
+        if isInputTranscript, isDone, let full = (event["transcript"] as? String) ?? (event["text"] as? String), !full.isEmpty {
+            inputTranscript(full: full)
+            return
+        }
+        if isInputTranscript, isDelta, let delta = event["delta"] as? String {
+            inputTranscript(delta: delta)
+            return
+        }
+        if type.contains("delegation"), type.hasSuffix(".created") || type.hasSuffix(".requested") {
+            let delegation = event["delegation"] as? [String: Any]
+            let id = delegation?["id"] as? String ?? event["delegation_id"] as? String ?? event["id"] as? String
+            delegate(id: id)
+            return
+        }
         switch type {
-        case "session.started":
+        case "session.started", "session.created":
             state = .listening
         case "session.output_audio.delta":
             if let b64 = event["delta"] as? String, let data = Data(base64Encoded: b64) { play(data) }
-        case "session.input_transcript.delta":
-            if let delta = event["delta"] as? String, let chat {
-                if state == .speaking, bargeIn { interrupt() }
-                // The first words after an answer start a new turn.
-                if userTurnClosed {
-                    if let id = voiceMessageID { chat.liveUpdate(id: id, content: saying, final: true) }
-                    heard = ""; saying = ""
-                    voiceMessageID = nil
-                    userTurnID = nil
-                    userTurnClosed = false
-                    turnDelegated = false
-                }
-                heard += delta
-                // Your words, as they're heard, are your turn in the chat.
-                if let id = userTurnID {
-                    chat.liveUpdate(id: id, content: heard)
-                } else {
-                    userTurnID = chat.liveAppend(role: .user, content: heard)
-                }
-                state = .listening
-            }
-        case "session.output_transcript.delta":
-            if let delta = event["delta"] as? String {
-                // The voice is answering: your turn is done. If the voice
-                // is answering by itself, its words are the agent's turn.
-                closeUserTurn()
-                saying += delta
-                if !turnDelegated, let chat {
-                    if let id = voiceMessageID {
-                        chat.liveUpdate(id: id, content: saying)
-                    } else {
-                        voiceMessageID = chat.liveAppend(role: .assistant, content: saying)
-                    }
-                }
-            }
-        case "session.delegation.created":
-            let delegation = event["delegation"] as? [String: Any]
-            let id = delegation?["id"] as? String ?? event["delegation_id"] as? String
-            delegate(id: id)
         case "session.closed":
             if state.isOn { state = .off; teardown() }
         case "error":
             let err = event["error"] as? [String: Any]
             let message = err?["message"] as? String ?? event["message"] as? String ?? "Live session error"
+            note("error: \(message)")
             fail(message)
         default:
             break
+        }
+    }
+
+    private func inputTranscript(full: String) {
+        // A whole turn at once: replace what deltas built, if any.
+        let delta = full.hasPrefix(heard) ? String(full.dropFirst(heard.count)) : full
+        if !full.hasPrefix(heard) { heard = "" }
+        inputTranscript(delta: delta)
+    }
+
+    private func inputTranscript(delta: String) {
+        guard let chat else { return }
+        do {
+            if state == .speaking, bargeIn { interrupt() }
+            // The first words after an answer start a new turn.
+            if userTurnClosed {
+                if let id = voiceMessageID { chat.liveUpdate(id: id, content: saying, final: true) }
+                heard = ""; saying = ""
+                voiceMessageID = nil
+                userTurnID = nil
+                userTurnClosed = false
+                turnDelegated = false
+            }
+            heard += delta
+            // Your words, as they're heard, are your turn in the chat.
+            if let id = userTurnID {
+                chat.liveUpdate(id: id, content: heard)
+            } else {
+                userTurnID = chat.liveAppend(role: .user, content: heard)
+            }
+            state = .listening
+        }
+    }
+
+    private func outputTranscript(full: String) {
+        let delta = full.hasPrefix(saying) ? String(full.dropFirst(saying.count)) : full
+        if !full.hasPrefix(saying) { saying = "" }
+        outputTranscript(delta: delta)
+        if let id = voiceMessageID { chat?.liveUpdate(id: id, content: saying, final: true) }
+    }
+
+    /// The voice is answering: your turn is done. Delegated, the agent's
+    /// reply is already the chat's answer; otherwise the voice's own words
+    /// stream in as the agent's turn.
+    private func outputTranscript(delta: String) {
+        closeUserTurn()
+        saying += delta
+        if !turnDelegated, let chat {
+            if let id = voiceMessageID {
+                chat.liveUpdate(id: id, content: saying)
+            } else {
+                voiceMessageID = chat.liveAppend(role: .assistant, content: saying)
+            }
         }
     }
 
@@ -281,6 +350,7 @@ final class LiveSession: NSObject, ObservableObject {
 
     private func delegate(id: String?) {
         guard let chat else { return }
+        note("delegation \(id ?? "?") for: \(heard.prefix(120))")
         let text = heard.trimmingCharacters(in: .whitespacesAndNewlines)
         pendingDelegation = id
         turnText = ""; spokenUpTo = 0
@@ -552,44 +622,45 @@ struct LiveToggle: View {
     }
 }
 
-/// The composer in voice mode: a waveform across its whole width — your
-/// voice while you speak, the agent's on the accent while it answers —
-/// with the state in a word, a mic to mute, and the way out.
+/// The composer in voice mode: one row. A smooth waveform where the text
+/// was — mirrored about the centre line, on the ink while you talk and on
+/// the accent while the agent answers, fading toward the past — with the
+/// state in a word, and the same round controls the composer always has:
+/// the mic (lit; click to mute) and the way out.
 struct LiveWaveform: View {
     @ObservedObject var chat: ChatController
-    var height: CGFloat
     var button: CGFloat
+    var gap: CGFloat
     @ObservedObject private var live = LiveSession.shared
 
     var body: some View {
-        HStack(spacing: Design.Space.roomy) {
+        HStack(spacing: gap) {
             Text(word)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(live.state == .speaking ? Design.Retro.accent : Design.Ink.tertiary)
-                .frame(width: 72, alignment: .leading)
+                .frame(width: 68, alignment: .leading)
                 .lineLimit(1)
-            GeometryReader { g in
-                let n = live.levels.count
-                let gap: CGFloat = 2
-                let w = max(1.5, (g.size.width - gap * CGFloat(n - 1)) / CGFloat(n))
-                HStack(alignment: .center, spacing: gap) {
-                    ForEach(Array(live.levels.enumerated()), id: \.offset) { i, level in
-                        let recency = CGFloat(i + 1) / CGFloat(n)
-                        Capsule()
-                            .fill(tint.opacity(0.35 + 0.65 * recency))
-                            .frame(width: w, height: max(3, level * g.size.height))
-                    }
-                }
-                .frame(width: g.size.width, height: g.size.height, alignment: .center)
-            }
-            .frame(height: height)
+                .padding(.leading, 6)
+            WaveLine(levels: live.levels, tint: tint)
+                .frame(maxWidth: .infinity)
+                .frame(height: button)
             LiveMicButton(size: button)
                 .accessibilityIdentifier("visor.composer.liveMic")
-            IconButton(symbol: "xmark", size: button, help: "End the live conversation") { live.stop() }
-                .accessibilityIdentifier("visor.composer.liveEnd")
+            Button { live.stop() } label: {
+                ZStack {
+                    Circle().fill(Color.white.opacity(0.1))
+                    Image(systemName: "xmark")
+                        .font(.system(size: button * 0.38, weight: .semibold))
+                        .foregroundStyle(Design.Ink.secondary)
+                }
+                .frame(width: button, height: button)
+                .contentShape(Circle())
+            }
+            .buttonStyle(.visorBare)
+            .focusable(false)
+            .help("End the live conversation")
+            .accessibilityIdentifier("visor.composer.liveEnd")
         }
-        .frame(height: max(height, button))
-        .animation(.linear(duration: 1 / 30), value: live.levels)
         .accessibilityIdentifier("visor.composer.live")
     }
 
@@ -610,6 +681,83 @@ struct LiveWaveform: View {
         case .failed: return "Failed"
         case .off: return ""
         }
+    }
+}
+
+/// A level history as one line: a smooth curve through the samples,
+/// mirrored about the middle, filled faintly and stroked, brighter toward
+/// now. A hairline at rest, so silence still reads as a live line.
+private struct WaveLine: View {
+    let levels: [CGFloat]
+    let tint: Color
+
+    var body: some View {
+        Canvas { ctx, size in
+            let n = levels.count
+            guard n > 1 else { return }
+            let midY = size.height / 2
+            let amp = size.height * 0.46
+            let step = size.width / CGFloat(n - 1)
+            func point(_ i: Int, _ sign: CGFloat) -> CGPoint {
+                let v = max(0.03, levels[i])
+                return CGPoint(x: CGFloat(i) * step, y: midY - sign * v * amp)
+            }
+            var top = Path(), bottom = Path()
+            top.move(to: point(0, 1)); bottom.move(to: point(0, -1))
+            for i in 1..<n {
+                let p0 = point(i - 1, 1), p1 = point(i, 1)
+                let c = CGPoint(x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2)
+                top.addQuadCurve(to: c, control: CGPoint(x: p0.x + step * 0.25, y: p0.y))
+                top.addQuadCurve(to: p1, control: CGPoint(x: p1.x - step * 0.25, y: p1.y))
+                let q0 = point(i - 1, -1), q1 = point(i, -1)
+                let d = CGPoint(x: (q0.x + q1.x) / 2, y: (q0.y + q1.y) / 2)
+                bottom.addQuadCurve(to: d, control: CGPoint(x: q0.x + step * 0.25, y: q0.y))
+                bottom.addQuadCurve(to: q1, control: CGPoint(x: q1.x - step * 0.25, y: q1.y))
+            }
+            var fill = top
+            fill.addLine(to: point(n - 1, -1))
+            fill.addPath(Path { p in
+                var pts = (0..<n).reversed().map { point($0, -1) }
+                p.move(to: pts.removeFirst())
+                for q in pts { p.addLine(to: q) }
+            })
+            fill.closeSubpath()
+            let shade = GraphicsContext.Shading.linearGradient(
+                Gradient(colors: [tint.opacity(0.0), tint.opacity(0.22)]),
+                startPoint: CGPoint(x: 0, y: midY), endPoint: CGPoint(x: size.width, y: midY))
+            ctx.fill(fill, with: shade)
+            let stroke = GraphicsContext.Shading.linearGradient(
+                Gradient(colors: [tint.opacity(0.15), tint.opacity(0.95)]),
+                startPoint: CGPoint(x: 0, y: midY), endPoint: CGPoint(x: size.width, y: midY))
+            ctx.stroke(top, with: stroke, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            ctx.stroke(bottom, with: stroke, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+        }
+        .animation(.linear(duration: 1 / 30), value: levels)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The composer's switch into voice mode: the same round control as the
+/// mic beside it. A waveform glyph; lit on the accent while on.
+struct DuplexButton: View {
+    @ObservedObject var chat: ChatController
+    var size: CGFloat
+    @ObservedObject private var live = LiveSession.shared
+
+    var body: some View {
+        Button { live.toggle(chat: chat) } label: {
+            ZStack {
+                Circle().fill(live.state.isOn ? Design.Retro.accent : Color.white.opacity(0.1))
+                Image(systemName: "waveform")
+                    .font(.system(size: size * 0.42, weight: .semibold))
+                    .foregroundStyle(live.state.isOn ? Design.Retro.onAccent : Design.Ink.secondary)
+            }
+            .frame(width: size, height: size)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.visorBare)
+        .focusable(false)
+        .help("Talk with \(chat.agent?.name ?? "the agent") — live, both ways")
     }
 }
 
