@@ -837,6 +837,34 @@ final class ChatController: ObservableObject {
     /// abandoning a real agent that then failed.
     func dropPending() { pendingApproval = nil }
 
+    /// Live conversation: a turn of the voice conversation mirrored into
+    /// the transcript, so what was said out loud reads back as the chat it
+    /// was. Assistant turns carry `live/voice` as their model.
+    @discardableResult
+    func liveAppend(role: ChatMessage.Role, content: String) -> UUID {
+        let message = ChatMessage(role: role, content: content,
+                                  model: role == .assistant ? "live/voice" : nil)
+        if conversation.agentName.isEmpty { conversation.agentName = agent?.name ?? "Visor" }
+        if conversation.title.isEmpty, role == .user { conversation.title = Self.title(from: content) }
+        conversation.messages.append(message)
+        store.save(conversation)
+        return message.id
+    }
+
+    /// The voice's mirrored user turn, withdrawn because the same words are
+    /// about to be sent to the agent for real.
+    func liveDropLastUserTurn() {
+        if let i = conversation.messages.lastIndex(where: { $0.role == .user }) {
+            conversation.messages.remove(at: i)
+        }
+    }
+
+    func liveUpdate(id: UUID, content: String, final: Bool = false) {
+        guard let i = conversation.messages.firstIndex(where: { $0.id == id }) else { return }
+        conversation.messages[i].content = content
+        if final { store.save(conversation) }
+    }
+
     func approvePending(always: Bool) {
         guard let pending = pendingApproval else { return }
         pendingApproval = nil

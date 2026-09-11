@@ -68,6 +68,13 @@ final class LiveSession: NSObject, ObservableObject {
     private var turnText = ""
     private var spokenUpTo = 0
     private var lastAppendAt = Date.distantPast
+    /// This turn went to the agent (its reply is the transcript's answer);
+    /// otherwise the voice answered itself and its words are mirrored in.
+    private var turnDelegated = false
+    /// The voice's own answer, as it streams into the transcript.
+    private var voiceMessageID: UUID?
+    /// What the user said this turn has been written into the transcript.
+    private var userTurnWritten = false
 
     private override init() { super.init() }
 
@@ -142,8 +149,10 @@ final class LiveSession: NSObject, ObservableObject {
         session = nil
         stopAudio()
         sinks.removeAll()
+        if let id = voiceMessageID { chat?.liveUpdate(id: id, content: saying, final: true) }
         pendingDelegation = nil
         turnText = ""; spokenUpTo = 0
+        turnDelegated = false; voiceMessageID = nil; userTurnWritten = false
         heard = ""; saying = ""
         inputLevel = 0; outputLevel = 0
     }
@@ -157,7 +166,7 @@ final class LiveSession: NSObject, ObservableObject {
         Relay faithfully and completely — keep its numbers, names, file names, commands and conclusions exact; don't add advice of your own. \
         If the backend asks the user for permission or a decision, ask them plainly and wait. \
         If the backend is still working, say so briefly rather than guessing. \
-        Small talk and greetings you may answer yourself, in one short sentence. Be warm, brief and natural.
+        Delegate everything, greetings included — the user is talking to \(name), not to you. Be warm, brief and natural.
         """
     }
 
@@ -202,14 +211,31 @@ final class LiveSession: NSObject, ObservableObject {
         case "session.input_transcript.delta":
             if let delta = event["delta"] as? String {
                 if state == .speaking, bargeIn { interrupt() }
+                // The first words after an answer start a new turn.
+                if userTurnWritten || voiceMessageID != nil {
+                    if let id = voiceMessageID { chat?.liveUpdate(id: id, content: saying, final: true) }
+                    heard = ""; saying = ""
+                    voiceMessageID = nil
+                    userTurnWritten = false
+                    turnDelegated = false
+                }
                 heard += delta
-                if heard.count > 400 { heard = String(heard.suffix(400)) }
                 state = .listening
             }
         case "session.output_transcript.delta":
             if let delta = event["delta"] as? String {
-                if saying.count > 400 { saying = "" }
+                // The voice is answering. Whatever was heard is your turn
+                // in the transcript, delegated or not; if the voice is
+                // answering by itself, its words are the agent's turn.
+                writeUserTurn()
                 saying += delta
+                if !turnDelegated, let chat {
+                    if let id = voiceMessageID {
+                        chat.liveUpdate(id: id, content: saying)
+                    } else {
+                        voiceMessageID = chat.liveAppend(role: .assistant, content: saying)
+                    }
+                }
             }
         case "session.delegation.created":
             let delegation = event["delegation"] as? [String: Any]
@@ -232,13 +258,26 @@ final class LiveSession: NSObject, ObservableObject {
     /// request is what we've heard since the last turn; it goes to the
     /// selected agent as a real message, and the reply streams back as
     /// commentary while it's written.
+    /// What you said, into the transcript — once per turn, before any
+    /// answer to it appears.
+    private func writeUserTurn() {
+        guard !userTurnWritten, let chat else { return }
+        let text = heard.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        chat.liveAppend(role: .user, content: text)
+        userTurnWritten = true
+    }
+
     private func delegate(id: String?) {
         guard let chat else { return }
         let text = heard.trimmingCharacters(in: .whitespacesAndNewlines)
-        heard = ""
         pendingDelegation = id
         turnText = ""; spokenUpTo = 0
+        turnDelegated = true
         state = .thinking
+        // If the voice already answered part of this turn itself, that answer
+        // stays; the agent's reply follows it.
+        if let id = voiceMessageID { chat.liveUpdate(id: id, content: saying, final: true); voiceMessageID = nil }
 
         // A pending approval answered by voice: "yes" allows, "no" declines.
         if chat.pendingApproval != nil {
@@ -260,6 +299,12 @@ final class LiveSession: NSObject, ObservableObject {
             commentary("There's no agent selected yet. Pick one in Visor first.")
             return
         }
+        if userTurnWritten {
+            // Already in the transcript from the voice's first words; send
+            // the same text without a second copy of your turn.
+            chat.liveDropLastUserTurn()
+        }
+        userTurnWritten = true
         chat.draft = text
         chat.send()
         if let error = chat.error, !error.isEmpty {

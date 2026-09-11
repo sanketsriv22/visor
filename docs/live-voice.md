@@ -23,6 +23,11 @@ you ◀──audio── GPT-Live ◀──commentary── Visor ◀──reply
   the reply streams. Each finished paragraph is handed back with
   `session.commentary.append` on the open delegation so the voice starts
   talking before the agent is done; the rest follows when the reply ends.
+- Every turn is in the transcript. What you said is written as your turn
+  the moment an answer to it begins (`liveAppend`), whether the voice
+  delegated or not; when the voice answers by itself, its words stream in
+  as the agent's turn (`live/voice`), and a delegated turn's answer is the
+  agent's real reply. The chat reads back as the conversation it was.
 - A tool approval turns into a question ("it wants to run …, allow it?");
   the next thing you say is matched against yes/no words and answered
   through the same `approvePending`/`denyPending` the chips use.
