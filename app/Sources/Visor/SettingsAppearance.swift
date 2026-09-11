@@ -21,7 +21,9 @@ struct AppearancePane: View {
                 subtitle: "One look for the whole app — Settings, the menu-bar dropdown, and the HUD. Try it in the preview, then Apply.")
 
             SettingsCard(label: "Theme") {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 148), spacing: 10)], spacing: 10) {
+                // One even row: every theme the same width, the name inside
+                // the swatch, the chosen one outlined. Tabs, in effect.
+                HStack(spacing: 8) {
                     ForEach(VisorTheme.allCases) { swatch($0) }
                 }
             }
@@ -111,29 +113,28 @@ struct AppearancePane: View {
     private func swatch(_ theme: VisorTheme) -> some View {
         let selected = draftTheme == theme
         return Button { draftTheme = theme } label: {
-            VStack(alignment: .leading, spacing: 7) {
-                ZStack(alignment: .bottomLeading) {
-                    RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous)
-                        .fill(theme.bg)
-                        .frame(height: 48)
-                    HStack(spacing: 5) {
-                        Circle().fill(theme.accent).frame(width: 9, height: 9)
-                        RoundedRectangle(cornerRadius: 1).fill(theme.text).frame(width: 34, height: 4)
-                        RoundedRectangle(cornerRadius: 1).fill(theme.text.opacity(0.5)).frame(width: 20, height: 4)
-                    }
-                    .padding(9)
-                }
-                .overlay(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous)
-                    .stroke(selected ? Design.Retro.accent : Design.Retro.line,
-                            lineWidth: selected ? 2 : 1))
+            VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 5) {
-                    RetroIcon(selected ? Glyph.check : "▸", size: 9,
-                              color: selected ? Design.Retro.accent : Design.Retro.faint)
-                    Text(theme.name).font(Design.Text.caption).foregroundStyle(Design.Retro.text)
+                    Circle().fill(theme.accent).frame(width: 9, height: 9)
+                    RoundedRectangle(cornerRadius: 1).fill(theme.text).frame(width: 30, height: 4)
+                    RoundedRectangle(cornerRadius: 1).fill(theme.text.opacity(0.5)).frame(width: 16, height: 4)
+                    Spacer(minLength: 0)
                 }
+                Text(theme.name)
+                    .font(Design.Text.caption)
+                    .foregroundStyle(theme.text)
+                    .lineLimit(1)
             }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous).fill(theme.bg))
+            .overlay(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous)
+                .strokeBorder(selected ? Design.Retro.accent : Design.Retro.line, lineWidth: selected ? 2 : 1))
+            .contentShape(RoundedRectangle(cornerRadius: Design.Retro.radius, style: .continuous))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(theme.name)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
