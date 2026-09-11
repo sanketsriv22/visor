@@ -1036,6 +1036,35 @@ private final class AccessibilityTrust: ObservableObject {
 /// which is about what agents remember rather than what you dictated. Neither
 /// is where you'd look. Voice is its own feature with its own key, its own
 /// permission, its own shortcut and its own history, so it gets its own tab.
+/// Talking to an agent out loud: the voice GPT-Live answers in, and whether
+/// starting to talk cuts it off.
+private struct LiveVoiceSettings: View {
+    @ObservedObject private var live = LiveSession.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Press the waveform beside an agent, in the card or the HUD, and talk. GPT-Live listens and speaks at the same time; every request goes to the agent you've selected, on its own model, and the voice says what it answers. Uses the voice key below. $0.05 a minute on OpenAI, billed by the second, plus the agent's own usage.")
+                .font(Design.Text.caption)
+                .foregroundStyle(Design.Retro.dim)
+                .fixedSize(horizontal: false, vertical: true)
+            SettingsRow(title: "Voice", caption: "How the agent sounds. Marin and Cedar are the newest.") {
+                Picker("", selection: $live.voice) {
+                    ForEach(LiveSession.voices, id: \.self) { Text($0.capitalized).tag($0) }
+                }
+                .labelsHidden()
+                .frame(width: 140)
+            }
+            SettingsRow(title: "Talking over it cuts it off", caption: "Off, the voice finishes its sentence first.") {
+                Toggle("", isOn: $live.bargeIn).labelsHidden().toggleStyle(.switch)
+            }
+            if !LiveSession.hasKey {
+                Text("Needs the OpenAI voice key below.")
+                    .font(Design.Text.caption).foregroundStyle(Design.Retro.accent)
+            }
+        }
+    }
+}
+
 /// Which voice speaks the introduction: one of the bundled neural voices,
 /// or any voice installed on the Mac. Each row can be heard before it's
 /// chosen.
@@ -1128,6 +1157,7 @@ private struct VoicePane: View {
                 title: "Voice",
                 subtitle: "Dictate anywhere on your Mac. The words land at the caret in whatever you're typing in, and every transcript is kept here.")
 
+            SettingsCard(label: "Live conversation") { LiveVoiceSettings() }
             SettingsCard(label: "Visor's voice") { NarratorVoicePicker() }
             SettingsCard(label: "Transcription") { voiceKey }
             SettingsCard(label: "Transcription model") { transcriptionModelField }

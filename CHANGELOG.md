@@ -13,6 +13,7 @@ the menu-bar dropdown, and published as the release notes for each version.
 - Computer use: the task in the composer's surface; current action, numbered steps and Stop.
 - System font by default; Departure Mono stays for glyphs and the wordmark.
 - The introduction is a narrated screen takeover on the real product. A voice paces every moment; the only things asked of you are an agent's name and connection, one Allow, and one Stop. It plays a bundled welcome video (`Resources/intro.mp4`) when one is present. Five bundled neural voices (Settings → Voice picks one, or any voice on the Mac); the mark breathes with the voice, rings spread from the notch, and a reticle locks onto the real control to press. The HUD has its own beat. Quiet sound cues, mute switches, a thin line of progress; no cards but the one form and the goodbye. Replayable from the menu-bar panel and Settings.
+- Live conversation: a waveform beside the agent, in the card and the HUD, opens a GPT-Live voice session with the selected agent as its backend — you talk, the agent answers on its own model, the voice says it. Approvals can be answered by voice. Voice and barge-in in Settings → Voice.
 - A Design Lab (`Visor --design-lab`) renders every surface with isolated fixtures, including frame sequences.
 
 ## 1.0-beta.36 — 2026-09-02
