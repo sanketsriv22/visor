@@ -492,7 +492,7 @@ private struct NotchGlow: View {
 
     var body: some View {
         Ellipse()
-            .fill(RadialGradient(colors: [Design.Retro.accent.opacity(0.32), Design.Retro.accent.opacity(0)],
+            .fill(RadialGradient(colors: [MarkColor.glow.opacity(0.32), MarkColor.glow.opacity(0)],
                                  center: .center, startRadius: 0, endRadius: width * 0.9))
             .frame(width: width * 2.4, height: width * 0.9)
             .position(x: origin.x, y: origin.y - 4)
@@ -500,6 +500,13 @@ private struct NotchGlow: View {
             .scaleEffect(0.85 + meter.level * 0.35, anchor: .top)
             .blendMode(.screen)
     }
+}
+
+/// The mark's own colour: it is rendered purple whatever the theme, so
+/// its glow is too — on Mono the theme accent is white, and a white halo
+/// read as a circle drawn around it.
+enum MarkColor {
+    static let glow = Color(red: 0.58, green: 0.40, blue: 0.94)
 }
 
 /// The mark with a halo that swells with the voice.
@@ -510,11 +517,11 @@ struct BreathingMark: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(RadialGradient(colors: [Design.Retro.accent.opacity(0.55), Design.Retro.accent.opacity(0)],
-                                     center: .center, startRadius: size * 0.2, endRadius: size * 0.9))
+                .fill(RadialGradient(colors: [MarkColor.glow.opacity(0.45), MarkColor.glow.opacity(0)],
+                                     center: .center, startRadius: size * 0.15, endRadius: size * 0.9))
                 .frame(width: size * 1.8, height: size * 1.8)
                 .scaleEffect(0.6 + meter.level * 0.6)
-                .opacity(0.25 + Double(meter.level) * 0.75)
+                .opacity(0.2 + Double(meter.level) * 0.8)
             HeroMark(size: size)
                 .scaleEffect(1 + meter.level * 0.06)
         }
@@ -715,7 +722,7 @@ struct HeroMark: View {
                 }
             }
             .offset(y: bob)
-            .shadow(color: Design.Retro.accent.opacity(0.3), radius: size * 0.12)
+            .shadow(color: MarkColor.glow.opacity(0.3), radius: size * 0.12)
         }
         .frame(width: size, height: size)
     }
