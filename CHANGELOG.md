@@ -18,7 +18,7 @@ the menu-bar dropdown, and published as the release notes for each version.
 - Every dropdown in Settings is a visible control now: the choice on a panel with a chevron.
 - Live conversation is the chat: your words stream into your turn as you speak, the reply streams as the agent's; the composer folds to one row with a waveform in voice mode, and the switch is beside the mic. Session events are logged to ~/Library/Logs/Visor/live.log.
 - HUD text size is capped at 1.25×; the transcript no longer unpins when content grows under a pinned reader.
-- The mark is re-rendered to the icon's proportions: a thin tube in an iridescent metal that shifts through the palette with the light, spinning in its own plane with a slow tilt. When the introduction begins, three strands fly in and twist into the knot.
+- The mark is live: the icon's trefoil built and rendered in SceneKit as iridescent metal, any size, sixty frames a second. The introduction forms it from three strands in the middle of the screen and sends it into the notch. The screen behind the tour is blurred and lit where the moment is.
 - A Design Lab (`Visor --design-lab`) renders every surface with isolated fixtures, including frame sequences.
 
 ## 1.0-beta.36 — 2026-09-02

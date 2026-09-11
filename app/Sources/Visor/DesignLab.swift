@@ -178,6 +178,12 @@ enum DesignLab {
                     .background(Design.Retro.bg)
                     .environment(\.colorScheme, VisorTheme.current.isDark ? .dark : .light))
             },
+            Scenario(name: "mark", size: CGSize(width: 512, height: 512), themed: false,
+                     note: "The live mark at rest, rendered by SceneKit") { _ in
+                AnyView(Group {
+                    if let img = MarkScene.snapshot(size: 1024) { Image(nsImage: img).resizable() }
+                }.frame(width: 512, height: 512).background(Color(white: 0.06)))
+            },
             Scenario(name: "takeover-intro", size: hud, themed: false,
                      note: "The welcome without a video: the mark risen from the notch, saying hello") { f in
                 AnyView(f.takeover(.intro, chat: f.chat(.empty), expanded: false) { s in

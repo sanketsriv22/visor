@@ -91,21 +91,92 @@ final class TakeoverState: ObservableObject {
         }
     }
 
-    /// How dark the Mac goes behind the tour.
-    var scrimAlpha: CGFloat {
-        if leaving { return 0 }
-        return step == .intro ? 0.88 : 0.74
+    /// Where the light is: the one thing on screen the moment is about, in
+    /// screen coordinates. Nil lights the whole screen evenly.
+    @Published var focus: CGRect? = nil
+}
+
+/// The sheet behind the tour: the Mac blurred, dimmed, and lit where it
+/// matters. One radial gradient over the blur — dark everywhere except a
+/// soft ellipse around the focus that glides between moments, so the eye
+/// goes where the voice is pointing without being told.
+final class ScrimView: NSView {
+    private let blur = NSVisualEffectView()
+    private let dim = CAGradientLayer()
+    private var screenFrame: CGRect = .zero
+
+    init(frame: NSRect, screen: CGRect) {
+        screenFrame = screen
+        super.init(frame: frame)
+        wantsLayer = true
+        blur.frame = bounds
+        blur.autoresizingMask = [.width, .height]
+        blur.material = .hudWindow
+        blur.blendingMode = .behindWindow
+        blur.state = .active
+        addSubview(blur)
+        dim.type = .radial
+        dim.frame = bounds
+        dim.colors = [NSColor.black.withAlphaComponent(0.72).cgColor, NSColor.black.withAlphaComponent(0.72).cgColor,
+                      NSColor.black.withAlphaComponent(0.72).cgColor]
+        dim.locations = [0, 0.6, 1]
+        dim.startPoint = CGPoint(x: 0.5, y: 0.5)
+        dim.endPoint = CGPoint(x: 0.5, y: 0.5)
+        layer?.addSublayer(dim)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        dim.frame = bounds
+        CATransaction.commit()
+    }
+
+    /// Light `rect` (screen coordinates), or the whole screen evenly.
+    /// `inside`/`outside` are how dark it is under the light and away from it.
+    func focus(_ rect: CGRect?, inside: CGFloat = 0.14, outside: CGFloat = 0.66, duration: TimeInterval = 0.8) {
+        let w = max(1, bounds.width), h = max(1, bounds.height)
+        let colors: [CGColor]
+        let start: CGPoint, end: CGPoint
+        if let rect {
+            let local = CGRect(x: rect.minX - screenFrame.minX, y: rect.minY - screenFrame.minY,
+                               width: rect.width, height: rect.height)
+            let rx = max(local.width * 0.9, 120), ry = max(local.height * 0.9, 90)
+            start = CGPoint(x: local.midX / w, y: local.midY / h)
+            end = CGPoint(x: (local.midX + rx) / w, y: (local.midY + ry) / h)
+            colors = [NSColor.black.withAlphaComponent(inside).cgColor,
+                      NSColor.black.withAlphaComponent((inside + outside) / 2).cgColor,
+                      NSColor.black.withAlphaComponent(outside).cgColor]
+        } else {
+            start = CGPoint(x: 0.5, y: 0.5); end = CGPoint(x: 0.5, y: 0.5)
+            colors = [NSColor.black.withAlphaComponent(outside).cgColor,
+                      NSColor.black.withAlphaComponent(outside).cgColor,
+                      NSColor.black.withAlphaComponent(outside).cgColor]
+        }
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(Design.Motion.reduced ? 0 : duration)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(controlPoints: 0.3, 0, 0.2, 1))
+        for (key, value) in [("colors", colors as Any), ("startPoint", NSValue(point: start)), ("endPoint", NSValue(point: end))] {
+            let anim = CABasicAnimation(keyPath: key)
+            anim.fromValue = dim.presentation()?.value(forKeyPath: key) ?? dim.value(forKeyPath: key)
+            anim.toValue = value
+            dim.add(anim, forKey: key)
+            dim.setValue(value, forKeyPath: key)
+        }
+        CATransaction.commit()
     }
 }
 
 /// The introduction: Visor wakes up, and a voice walks you through it.
 ///
-/// Two windows. A scrim — a plain dark sheet — sits directly *beneath* the
-/// notch's window at the same level, so the card, the switcher and the HUD
-/// draw over it exactly as themselves, and nothing is cut out of anything:
-/// no hole to keep in step, no edge to peek. An overlay above the notch
-/// carries the caption, the strokes, the one card and the chrome, and
-/// passes clicks through wherever it draws nothing.
+/// Two windows. A scrim — the Mac blurred and dimmed, lit where the moment
+/// is — sits directly *beneath* the notch's window at the same level, so
+/// the card, the switcher and the HUD draw over it exactly as themselves,
+/// and nothing is cut out of anything. An overlay above the notch carries
+/// the caption, the strokes, the one card and the chrome, and passes
+/// clicks through wherever it draws nothing.
 @MainActor
 final class TakeoverGuide {
     let state: TakeoverState
@@ -116,6 +187,7 @@ final class TakeoverGuide {
     static let progressKey = "visor.intro.progress"
 
     private var scrim: NSPanel?
+    private var scrimView: ScrimView?
     private var panel: NSPanel?
     private var sinks = Set<AnyCancellable>()
     private var pending: DispatchWorkItem?
@@ -138,14 +210,16 @@ final class TakeoverGuide {
         let frame = controller.takeoverFrame() ?? .zero
 
         let scrim = Self.makePanel(frame)
-        let sheet = NSView(frame: NSRect(origin: .zero, size: frame.size))
-        sheet.wantsLayer = true
-        sheet.layer?.backgroundColor = NSColor.black.cgColor
+        let sheet = ScrimView(frame: NSRect(origin: .zero, size: frame.size), screen: frame)
         scrim.contentView = sheet
         scrim.alphaValue = 0
         scrim.orderFrontRegardless()
         controller.order(scrim, belowNotch: true)
         self.scrim = scrim
+        self.scrimView = sheet
+        // The intro's light: the middle of the screen, where the mark forms.
+        let centre = CGRect(x: frame.midX - 260, y: frame.midY - 200, width: 520, height: 520)
+        sheet.focus(centre, inside: 0.3, outside: 0.78, duration: 0)
 
         let panel = Self.makePanel(frame)
         let host = TakeoverHostingView(rootView: TakeoverView(
@@ -171,7 +245,7 @@ final class TakeoverGuide {
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = Design.Motion.reduced ? 0.3 : 1.2
             ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            scrim.animator().alphaValue = state.scrimAlpha
+            scrim.animator().alphaValue = 1
         }
 
         if state.videoURL != nil { return }
@@ -180,11 +254,18 @@ final class TakeoverGuide {
         schedule(after: 1.3) { [weak self] in
             guard let self else { return }
             self.narrator.play(.reveal)
-            withAnimation(Design.Motion.animation(.spring(response: 0.9, dampingFraction: 0.78))) { self.state.risen = true }
-            self.narrator.say(["intro.hi", "intro.notch"]) { [weak self] in
+            self.state.risen = true
+            // The strands take two and a half seconds to become the knot;
+            // the voice comes in as they settle.
+            self.schedule(after: 1.8) { [weak self] in
                 guard let self else { return }
-                withAnimation(Design.Motion.animation(Design.Motion.hud)) { self.state.risen = false }
-                self.schedule(after: 0.9) { [weak self] in self?.advance(to: .notch) }
+                self.narrator.say(["intro.hi", "intro.notch"]) { [weak self] in
+                    guard let self else { return }
+                    // "…in the notch." — and it goes there.
+                    self.state.risen = false
+                    self.scrimView?.focus(self.state.geometry.notch.insetBy(dx: -60, dy: -40), inside: 0.14, outside: 0.72, duration: 1.0)
+                    self.schedule(after: 1.2) { [weak self] in self?.advance(to: .notch) }
+                }
             }
         }
     }
@@ -224,6 +305,7 @@ final class TakeoverGuide {
                 scrim.animator().alphaValue = 0
             }
         }
+        scrimView = nil
         controller.chat.demoNextSend = false
         if ComputerUseAgent.shared.demonstrating { ComputerUseAgent.shared.stopDemo() }
         if controller.ui.mode == .computerUse || controller.ui.mode.isFullScreen { controller.setMode(.chat) }
@@ -503,6 +585,14 @@ final class TakeoverGuide {
             .sink { [weak self] on in self?.demoChanged(on) }.store(in: &sinks)
         CLIAccounts.shared.objectWillChange.receive(on: DispatchQueue.main)
             .sink { [weak self] _ in DispatchQueue.main.async { self?.refreshDetection() } }.store(in: &sinks)
+        Spotlight.shared.$frames.removeDuplicates().receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshFocus() }.store(in: &sinks)
+        state.$awaitingApproval.removeDuplicates().receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshFocus() }.store(in: &sinks)
+        state.$askStop.removeDuplicates().receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshFocus() }.store(in: &sinks)
+        state.$created.removeDuplicates().receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshFocus() }.store(in: &sinks)
         // Whenever the notch's window comes forward (a click in the card makes
         // it key), the overlay goes back above it and the scrim back beneath.
         NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)
@@ -516,16 +606,46 @@ final class TakeoverGuide {
         panel.orderFrontRegardless()
     }
 
+    /// Where the light goes for this moment: the notch, the card, the one
+    /// control to press. Called whenever any of those changes.
+    private func refreshFocus() {
+        guard let scrimView, let screen = controller.takeoverFrame() else { return }
+        let g = state.geometry
+        let frames = Spotlight.shared.frames
+        var rect: CGRect? = nil
+        var inside: CGFloat = 0.14, outside: CGFloat = 0.66
+        switch state.step {
+        case .intro:
+            rect = CGRect(x: screen.midX - 260, y: screen.midY - 200, width: 520, height: 520)
+            inside = 0.3; outside = 0.78
+        case .notch:
+            rect = g.expanded ? g.card.insetBy(dx: -30, dy: -30) : g.notch.insetBy(dx: -60, dy: -40)
+        case .agent:
+            rect = state.created ? g.card.insetBy(dx: -30, dy: -30) : nil
+            outside = state.created ? 0.66 : 0.6
+        case .task:
+            rect = state.awaitingApproval ? frames["allow"]?.insetBy(dx: -50, dy: -36) ?? g.card : g.card.insetBy(dx: -30, dy: -30)
+        case .hud:
+            rect = nil; outside = 0.35
+        case .drive:
+            rect = state.askStop ? frames["stop"]?.insetBy(dx: -46, dy: -46) ?? g.card : g.card.insetBy(dx: -30, dy: -30)
+        case .finale:
+            rect = nil; outside = 0.6
+        }
+        if state.focus != rect { state.focus = rect }
+        scrimView.focus(rect, inside: inside, outside: outside)
+    }
+
     private func refreshGeometry() {
         state.geometry = controller.takeoverGeometry() ?? state.geometry
-        DispatchQueue.main.async { [weak self] in self?.reorder() }
+        DispatchQueue.main.async { [weak self] in self?.reorder(); self?.refreshFocus() }
     }
 
     private func expandedChanged(_ expanded: Bool) {
         var geo = controller.takeoverGeometry() ?? state.geometry
         geo.expanded = expanded
         state.geometry = geo
-        DispatchQueue.main.async { [weak self] in self?.reorder() }
+        DispatchQueue.main.async { [weak self] in self?.reorder(); self?.refreshFocus() }
         if state.step == .notch, expanded {
             if controller.ui.mode != .chat { controller.setMode(.chat) }
             narrator.play(.success)
@@ -608,13 +728,8 @@ final class TakeoverGuide {
             state.step = next
             state.progress = Double(next.rawValue) / Double(TakeoverState.Step.finale.rawValue)
         }
-        if let scrim {
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.6
-                scrim.animator().alphaValue = state.scrimAlpha
-            }
-        }
         state.stepStarted = Date()
+        refreshFocus()
         switch next {
         case .notch:  schedule(after: 0.6) { [weak self] in self?.runNotch() }
         case .agent:

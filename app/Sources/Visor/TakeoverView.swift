@@ -203,13 +203,17 @@ struct TakeoverView: View {
             .opacity(appeared ? 1 : 0)
             .accessibilityIdentifier("visor.takeover.video")
         } else {
-            let risen = CGPoint(x: origin.x, y: origin.y + 190)
+            // The mark forms large in the middle of the screen — three strands
+            // flying in — and, once the voice has said where it lives, shrinks
+            // and travels up into the notch. Visor is the thing in the notch.
+            let centre = CGPoint(x: size.width / 2, y: size.height * 0.40)
+            let gone = formedAt != nil && !state.risen
             ZStack {
-                // The three strands fly in and twist into the knot where it
-                // will live; the halo comes up under it as they arrive.
-                BreathingMark(meter: narrator.meter, size: 240, formedAt: state.risen ? formedAt : nil)
-                    .opacity(state.risen ? 1 : 0)
-                    .position(risen)
+                BreathingMark(meter: narrator.meter, size: 320, formedAt: formedAt)
+                    .scaleEffect(gone ? 0.04 : 1)
+                    .opacity(formedAt == nil ? 0 : (gone ? 0 : 1))
+                    .position(gone ? origin : centre)
+                    .animation(Design.Motion.animation(.spring(response: 0.95, dampingFraction: 0.86)), value: gone)
                     .onChange(of: state.risen) { on in if on, formedAt == nil { formedAt = Date() } }
                 VStack(spacing: Design.Space.wide) {
                     Text("Visor")
@@ -224,8 +228,9 @@ struct TakeoverView: View {
                         .transition(.opacity)
                 }
                 .animation(Design.Motion.animation(.easeInOut(duration: 0.35)), value: narrator.line)
-                .position(x: size.width / 2, y: risen.y + 200)
+                .position(x: size.width / 2, y: centre.y + 250)
                 .opacity(state.risen ? 1 : 0)
+                .animation(Design.Motion.animation(.easeInOut(duration: 0.5)), value: state.risen)
             }
             .allowsHitTesting(false)
             .accessibilityIdentifier("visor.takeover.intro")
@@ -702,79 +707,6 @@ struct VideoIntro: NSViewRepresentable {
             playerLayer.backgroundColor = NSColor.black.cgColor
         }
         required init?(coder: NSCoder) { fatalError() }
-    }
-}
-
-// MARK: - The mark
-
-/// The mark: the Blender-rendered trefoil turning once every six seconds,
-/// or the flat BeamMark if the sheet isn't bundled. Given `formedAt`, it
-/// first plays the formation — three strands flying in and twisting into
-/// the knot — from that instant, and the turn takes over where it ends.
-/// Bobs gently so it reads as alive, not pasted.
-struct HeroMark: View {
-    var size: CGFloat
-    var formedAt: Date? = nil
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / HeroSheet.formFps, paused: Design.Motion.reduced)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            let bob = Design.Motion.reduced ? 0 : sin(t * 1.2) * size * 0.03
-            Group {
-                if let formedAt, let form = HeroSheet.form,
-                   context.date.timeIntervalSince(formedAt) < HeroSheet.formDuration, !Design.Motion.reduced {
-                    let i = Int(context.date.timeIntervalSince(formedAt) * HeroSheet.formFps)
-                    HeroSheet.frame(form, index: min(HeroSheet.formCount - 1, max(0, i)), size: size,
-                                    columns: HeroSheet.formColumns, count: HeroSheet.formCount)
-                } else if let sheet = HeroSheet.image {
-                    let since = formedAt.map { max(0, context.date.timeIntervalSince($0) - HeroSheet.formDuration) } ?? t
-                    HeroSheet.frame(sheet, index: Int(since * HeroSheet.fps) % HeroSheet.count, size: size)
-                } else {
-                    BeamMark()
-                        .frame(width: size * 0.7, height: size * 0.62)
-                        .foregroundStyle(Design.Retro.accent)
-                }
-            }
-            .offset(y: bob)
-            .shadow(color: MarkColor.glow.opacity(0.3), radius: size * 0.12)
-        }
-        .frame(width: size, height: size)
-    }
-}
-
-/// The turntable sprite sheet: 90 frames of the trefoil in a 10×9 grid —
-/// one turn with a slow nod, rendered in Blender (see docs/design-lab.md)
-/// and played at 15 frames a second, so a turn takes six seconds. Loaded once.
-enum HeroSheet {
-    static let count = 90
-    static let columns = 10
-    static let fps: Double = 15
-    static let cell: CGFloat = 256
-    /// The formation: 60 frames in a 10×6 grid, two and a half seconds.
-    static let formCount = 60
-    static let formColumns = 10
-    static let formFps: Double = 24
-    static var formDuration: TimeInterval { Double(formCount) / formFps }
-
-    static let image: NSImage? = load("hero-sheet.png")
-    static let form: NSImage? = load("hero-form.png")
-
-    private static func load(_ name: String) -> NSImage? {
-        guard let url = Bundle.main.resourceURL?.appendingPathComponent(name) else { return nil }
-        return NSImage(contentsOf: url)
-    }
-
-    static func frame(_ sheet: NSImage, index: Int, size: CGFloat,
-                      columns: Int = HeroSheet.columns, count: Int = HeroSheet.count) -> some View {
-        let scale = size / cell
-        let col = CGFloat(index % columns), row = CGFloat(index / columns)
-        let rows = (count + columns - 1) / columns
-        return Image(nsImage: sheet)
-            .resizable()
-            .frame(width: cell * CGFloat(columns) * scale, height: cell * CGFloat(rows) * scale)
-            .offset(x: -col * cell * scale, y: -row * cell * scale)
-            .frame(width: size, height: size, alignment: .topLeading)
-            .clipped()
     }
 }
 

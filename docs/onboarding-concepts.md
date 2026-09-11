@@ -162,3 +162,21 @@ quiet sound cues, and a pace set by speech rather than timers.
 - **Reading the voice.** The caption is 17pt on a near-opaque pill, 520pt
   wide beside the card and 320pt in the HUD's empty rail corner; a home
   change crossfades rather than flies.
+
+## The mark and the light (2026-09-11)
+
+- **The mark is live.** `MarkView.swift` builds the trefoil tube in code
+  (parametric curve, parallel-transported rings) and renders it with
+  SceneKit: metal, a gradient along the tube, a view-angle shift in a
+  shader modifier, a studio environment for reflections, bloom. Any size,
+  60 fps, no sprite sheet — the sheets' seams and the strands cut off at
+  cell edges were the "square around the logo". Formation and turn are
+  SceneKit actions; `MarkScene.snapshot` gives the lab a still.
+- **The intro uses the screen.** The knot forms large at the centre, the
+  voice says where it lives, and it shrinks and travels into the notch —
+  the mental model in one motion.
+- **The scrim is blur and light.** `ScrimView`: the Mac behind the tour is
+  blurred (`NSVisualEffectView`, `.hudWindow`, behind-window) and dimmed
+  by one radial gradient whose soft, lit ellipse glides to the moment's
+  focus — the notch, the card, the Allow chip, the Stop button
+  (`TakeoverGuide.refreshFocus`). The eye follows the light.
