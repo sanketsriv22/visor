@@ -515,9 +515,6 @@ struct BreathingMark: View {
                 .frame(width: size * 1.8, height: size * 1.8)
                 .scaleEffect(0.6 + meter.level * 0.6)
                 .opacity(0.25 + Double(meter.level) * 0.75)
-            Circle()
-                .strokeBorder(Design.Retro.accent.opacity(0.35 + Double(meter.level) * 0.5), lineWidth: 1)
-                .frame(width: size * (1.15 + meter.level * 0.5), height: size * (1.15 + meter.level * 0.5))
             HeroMark(size: size)
                 .scaleEffect(1 + meter.level * 0.06)
         }
@@ -698,18 +695,19 @@ struct VideoIntro: NSViewRepresentable {
 
 // MARK: - The mark
 
-/// The mark: the Blender-rendered trefoil turning, or the flat BeamMark if
-/// the sheet isn't bundled. Bobs gently so it reads as alive, not pasted.
+/// The mark: the Blender-rendered trefoil turning once every six seconds,
+/// or the flat BeamMark if the sheet isn't bundled. Bobs gently so it
+/// reads as alive, not pasted.
 struct HeroMark: View {
     var size: CGFloat
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 24, paused: Design.Motion.reduced)) { context in
+        TimelineView(.animation(minimumInterval: 1 / HeroSheet.fps, paused: Design.Motion.reduced)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
-            let bob = Design.Motion.reduced ? 0 : sin(t * 1.6) * size * 0.04
+            let bob = Design.Motion.reduced ? 0 : sin(t * 1.2) * size * 0.03
             Group {
                 if let sheet = HeroSheet.image {
-                    HeroSheet.frame(sheet, index: Int(t * 24) % HeroSheet.count, size: size)
+                    HeroSheet.frame(sheet, index: Int(t * HeroSheet.fps) % HeroSheet.count, size: size)
                 } else {
                     BeamMark()
                         .frame(width: size * 0.7, height: size * 0.62)
@@ -717,18 +715,20 @@ struct HeroMark: View {
                 }
             }
             .offset(y: bob)
-            .shadow(color: Design.Retro.accent.opacity(0.4), radius: size * 0.14)
+            .shadow(color: Design.Retro.accent.opacity(0.3), radius: size * 0.12)
         }
         .frame(width: size, height: size)
     }
 }
 
-/// The turntable sprite sheet: 36 frames of the trefoil in a 6×6 grid,
-/// rendered in Blender (see docs/design-lab.md). Loaded once.
+/// The turntable sprite sheet: 90 frames of the trefoil in a 10×9 grid —
+/// one turn with a slow nod, rendered in Blender (see docs/design-lab.md)
+/// and played at 15 frames a second, so a turn takes six seconds. Loaded once.
 enum HeroSheet {
-    static let count = 36
-    static let columns = 6
-    static let cell: CGFloat = 320
+    static let count = 90
+    static let columns = 10
+    static let fps: Double = 15
+    static let cell: CGFloat = 256
     static let image: NSImage? = {
         guard let url = Bundle.main.resourceURL?.appendingPathComponent("hero-sheet.png"),
               let image = NSImage(contentsOf: url) else { return nil }

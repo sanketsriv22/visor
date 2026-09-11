@@ -84,7 +84,7 @@ field and the turning mark) are captured at whatever frame they were on.
 
 ## The hero mark
 
-`Resources/hero-sheet.png` is a 6×6 sprite sheet (36 frames, 320px each)
+`Resources/hero-sheet.png` is a 10×9 sprite sheet (90 frames, 256px each; one turn with a slow nod, played at 15 fps so a turn takes six seconds)
 of the trefoil turning, rendered in Blender through its MCP: a bevelled
 trefoil curve, a purple principled body mixed with an emissive rim by
 Fresnel, a key and a rim light, an orthographic front camera, Cycles at 40
