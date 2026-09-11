@@ -82,15 +82,19 @@ struct MarkView: NSViewRepresentable {
             formedAt = date
             rig.removeAction(forKey: "turn")
             knot.isHidden = false
-            material.setValue(0.0, forKey: "grow")
+            knot.geometry = MarkScene.knot(grow: 0, material: material)
             let total: Double = 2.6
-            let draw = SCNAction.customAction(duration: total) { _, elapsed in
+            var lastStep = -1
+            let draw = SCNAction.customAction(duration: total) { node, elapsed in
                 let u = Double(elapsed) / total
                 // The strands draw over the first two seconds with an ease
-                // that starts quick and lands soft; a little over 1 covers
-                // the meeting points completely.
+                // that starts quick and lands soft.
                 let g = MarkScene.smooth(min(1, u / 0.78))
-                material.setValue(NSNumber(value: Float(g * 1.04)), forKey: "grow")
+                let step = Int(g * 240)
+                if step != lastStep {
+                    lastStep = step
+                    node.geometry = MarkScene.knot(grow: g, material: material)
+                }
             }
             let start = SCNVector3(MarkScene.rad(-34), MarkScene.rad(40), MarkScene.rad(-30))
             let end = MarkScene.pose(at: 0)
@@ -103,7 +107,7 @@ struct MarkView: NSViewRepresentable {
             knot.runAction(draw)
             rig.runAction(.sequence([settle, .run { [weak self] _ in
                 DispatchQueue.main.async {
-                    material.setValue(NSNumber(value: Float(1.1)), forKey: "grow")
+                    knot.geometry = MarkScene.knot(grow: 1, material: material)
                     self?.startTurn()
                 }
             }]), forKey: "turn")
@@ -121,7 +125,38 @@ enum MarkScene {
     /// round the cone, twenty for the turn.
     static func pose(at t: Double) -> SCNVector3 {
         let wobble = 2 * Double.pi * t / 8
-        return SCNVector3(rad(30 * sin(wobble) + 6), rad(30 * cos(wobble)), CGFloat(2 * .pi * t / 20))
+        return SCNVector3(rad(22 * sin(wobble) + 8), rad(22 * cos(wobble)), CGFloat(2 * .pi * t / 20))
+    }
+
+    static let segments = 240
+    static let ring = 14
+    /// The tube's vertices, normals and texture coordinates, built once.
+    static let sources: [SCNGeometrySource] = tubeSources(segments: segments)
+
+    /// The knot, drawn `grow` of the way: 0 is nothing, 1 the whole tube.
+    /// Three strands grow from three seeds — the thirds' boundaries —
+    /// both ways along the curve until they meet in the middle of each
+    /// third. Only the index buffer changes, so this is cheap enough to
+    /// call every frame.
+    static func knot(grow: Double, material: SCNMaterial) -> SCNGeometry {
+        var indices: [Int32] = []
+        for i in 0..<segments {
+            let p = (Double(i) + 0.5) / Double(segments) * 3
+            let within = p - floor(p)
+            let fromSeed = min(within, 1 - within) * 2
+            guard fromSeed <= grow else { continue }
+            let i1 = i + 1
+            for j in 0..<ring {
+                let j1 = (j + 1) % ring
+                let a0 = Int32(i * ring + j), a1 = Int32(i * ring + j1)
+                let b0 = Int32(i1 * ring + j), b1 = Int32(i1 * ring + j1)
+                indices += [a0, b0, a1, a1, b0, b1]
+            }
+        }
+        if indices.isEmpty { indices = [0, 1, 2] }
+        let g = SCNGeometry(sources: sources, elements: [SCNGeometryElement(indices: indices, primitiveType: .triangles)])
+        g.materials = [material]
+        return g
     }
     static let scale: CGFloat = 0.62
     static let tube: CGFloat = 0.115
@@ -148,8 +183,8 @@ enum MarkScene {
         rig.eulerAngles = restPose
         scene.rootNode.addChildNode(rig)
 
-        let knot = SCNNode(geometry: tube(from: 0, to: 2 * .pi, segments: 240, closed: true))
-        knot.name = "knot"; knot.geometry?.materials = [material]
+        let knot = SCNNode(geometry: Self.knot(grow: 1, material: material))
+        knot.name = "knot"
         rig.addChildNode(knot)
 
         // A studio: an environment the metal reflects, a key, a rim, a kick.
@@ -237,10 +272,10 @@ enum MarkScene {
     /// twelve vertices, texture u along the length so the gradient runs
     /// along the tube. Optionally centred on `origin` so the node's pivot is
     /// its own centroid.
-    static func tube(from a: Double, to b: Double, segments: Int, closed: Bool) -> SCNGeometry {
-        let ring = 14
+    static func tubeSources(segments: Int) -> [SCNGeometrySource] {
+        let a = 0.0, b = 2 * Double.pi, closed = true
+        let ring = Self.ring
         var verts: [SCNVector3] = [], norms: [SCNVector3] = [], uvs: [CGPoint] = []
-        var indices: [Int32] = []
         let count = segments + 1
         // Parallel-transport a frame along the curve so the tube doesn't
         // twist. Around a closed circuit the frame comes back rotated by
@@ -300,29 +335,20 @@ enum MarkScene {
                 uvs.append(CGPoint(x: CGFloat(t) / (2 * .pi), y: CGFloat(j) / CGFloat(ring)))
             }
         }
-        for i in 0..<segments {
-            let i1 = i + 1
-            for j in 0..<ring {
-                let j1 = (j + 1) % ring
-                let a0 = Int32(i * ring + j), a1 = Int32(i * ring + j1)
-                let b0 = Int32(i1 * ring + j), b1 = Int32(i1 * ring + j1)
-                indices += [a0, b0, a1, a1, b0, b1]
-            }
-        }
-        let sources = [SCNGeometrySource(vertices: verts), SCNGeometrySource(normals: norms),
-                       SCNGeometrySource(textureCoordinates: uvs)]
-        let elements = [SCNGeometryElement(indices: indices, primitiveType: .triangles)]
-        return SCNGeometry(sources: sources, elements: elements)
+        return [SCNGeometrySource(vertices: verts), SCNGeometrySource(normals: norms),
+                SCNGeometrySource(textureCoordinates: uvs)]
     }
 
     /// A still of the knot at its rest pose, for the Design Lab.
     @MainActor
-    static func snapshot(size: CGFloat, grow: Double = 1.1, at t: Double = 0) -> NSImage? {
+    static func snapshot(size: CGFloat, grow: Double = 1, at t: Double = 0) -> NSImage? {
         let renderer = SCNRenderer(device: MTLCreateSystemDefaultDevice(), options: nil)
         let scene = make()
         scene.rootNode.childNode(withName: "rig", recursively: false)?.eulerAngles = pose(at: t)
-        scene.rootNode.childNode(withName: "knot", recursively: true)?.geometry?.firstMaterial?
-            .setValue(NSNumber(value: Float(grow)), forKey: "grow")
+        if let knot = scene.rootNode.childNode(withName: "knot", recursively: true),
+           let material = knot.geometry?.firstMaterial {
+            knot.geometry = Self.knot(grow: grow, material: material)
+        }
         renderer.scene = scene
         renderer.pointOfView = renderer.scene?.rootNode.childNodes.first { $0.camera != nil }
         return renderer.snapshot(atTime: 0, with: CGSize(width: size, height: size), antialiasingMode: .multisampling4X)
