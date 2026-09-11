@@ -177,3 +177,48 @@ struct InfoNote: View {
         }
     }
 }
+
+
+/// A dropdown that looks like one: the current choice on the panel colour
+/// with a chevron, the menu underneath. The system menu picker draws its
+/// indicator in a colour the dark settings hide, so every dropdown in
+/// Settings is this.
+struct SettingsMenu<Value: Hashable>: View {
+    @Binding var selection: Value
+    let options: [(Value, String)]
+    var width: CGFloat = 200
+
+    var body: some View {
+        Menu {
+            ForEach(options, id: \.0) { value, title in
+                Button {
+                    selection = value
+                } label: {
+                    if value == selection {
+                        Label(title, systemImage: "checkmark")
+                    } else {
+                        Text(title)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(options.first { $0.0 == selection }?.1 ?? "")
+                    .font(Design.Text.f(12))
+                    .foregroundStyle(Design.Retro.text)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                RetroIcon(Glyph.chevron, size: 9, color: Design.Retro.accent)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
+                .fill(Design.Retro.panel))
+            .overlay(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
+                .stroke(Design.Retro.line, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: width, alignment: .leading)
+    }
+}

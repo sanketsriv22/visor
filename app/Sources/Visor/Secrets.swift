@@ -204,12 +204,18 @@ private struct SecretRow: View {
                     .buttonStyle(.plain)
                 }
             }
+            if meta.account == OpenRouterClient.sharedKeyAccount {
+                KeyStatusRow(kind: .openRouter).padding(.leading, 25)
+            } else if meta.account == VoiceInput.keyAccount {
+                KeyStatusRow(kind: .openAI).padding(.leading, 25)
+            }
             if editing {
                 HStack(spacing: 8) {
                     SecureField(store.isSet(meta) ? "•••••• — type to replace" : "paste key", text: $draft)
                         .textFieldStyle(.roundedBorder)
                     Button("Save") {
                         store.setValue(draft, for: meta.account); draft = ""; editing = false
+                        KeyHealth.shared.checkAll(force: true)
                     }
                     .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
                     if store.isSet(meta) {
@@ -233,10 +239,8 @@ private struct AddSecretForm: View {
         SettingsCard(label: "New key") {
             field("Label") { TextField("e.g. Supabase, AWS", text: $label).textFieldStyle(.roundedBorder) }
             field("For") {
-                Picker("", selection: $category) {
-                    ForEach(SecretCategory.allCases) { Text($0.name).tag($0) }
-                }
-                .labelsHidden().frame(width: 170)
+                SettingsMenu(selection: $category,
+                             options: SecretCategory.allCases.map { ($0, $0.name) }, width: 170)
                 Spacer(minLength: 0)
             }
             field("Key") { SecureField("paste key", text: $value).textFieldStyle(.roundedBorder) }

@@ -35,6 +35,8 @@ final class LiveSession: NSObject, ObservableObject {
     /// What you're saying, as it's heard; what the voice is saying back.
     @Published private(set) var heard = ""
     @Published private(set) var saying = ""
+    /// The recent past of the active level, oldest first — the waveform.
+    @Published private(set) var levels: [CGFloat] = Array(repeating: 0, count: 64)
     @Published var muted = false {
         didSet { if muted { inputLevel = 0 } }
     }
@@ -73,8 +75,10 @@ final class LiveSession: NSObject, ObservableObject {
     private var turnDelegated = false
     /// The voice's own answer, as it streams into the transcript.
     private var voiceMessageID: UUID?
-    /// What the user said this turn has been written into the transcript.
-    private var userTurnWritten = false
+    /// Your turn, as it streams into the transcript while you speak.
+    private var userTurnID: UUID?
+    /// Your turn has been handed to the agent (or answered by the voice).
+    private var userTurnClosed = false
 
     private override init() { super.init() }
 
@@ -152,7 +156,9 @@ final class LiveSession: NSObject, ObservableObject {
         if let id = voiceMessageID { chat?.liveUpdate(id: id, content: saying, final: true) }
         pendingDelegation = nil
         turnText = ""; spokenUpTo = 0
-        turnDelegated = false; voiceMessageID = nil; userTurnWritten = false
+        if let id = userTurnID { chat?.liveUpdate(id: id, content: heard.trimmingCharacters(in: .whitespacesAndNewlines), final: true) }
+        turnDelegated = false; voiceMessageID = nil; userTurnID = nil; userTurnClosed = false
+        levels = Array(repeating: 0, count: 64)
         heard = ""; saying = ""
         inputLevel = 0; outputLevel = 0
     }
@@ -209,28 +215,31 @@ final class LiveSession: NSObject, ObservableObject {
         case "session.output_audio.delta":
             if let b64 = event["delta"] as? String, let data = Data(base64Encoded: b64) { play(data) }
         case "session.input_transcript.delta":
-            if let delta = event["delta"] as? String {
+            if let delta = event["delta"] as? String, let chat {
                 if state == .speaking, bargeIn { interrupt() }
                 // The first words after an answer start a new turn.
-                if userTurnWritten || voiceMessageID != nil {
-                    if let id = voiceMessageID { chat?.liveUpdate(id: id, content: saying, final: true) }
+                if userTurnClosed {
+                    if let id = voiceMessageID { chat.liveUpdate(id: id, content: saying, final: true) }
                     heard = ""; saying = ""
                     voiceMessageID = nil
-                    userTurnWritten = false
+                    userTurnID = nil
+                    userTurnClosed = false
                     turnDelegated = false
                 }
                 heard += delta
-                // Your words, as they're heard, in the composer — it's your
-                // turn being written.
-                chat?.draft = heard
+                // Your words, as they're heard, are your turn in the chat.
+                if let id = userTurnID {
+                    chat.liveUpdate(id: id, content: heard)
+                } else {
+                    userTurnID = chat.liveAppend(role: .user, content: heard)
+                }
                 state = .listening
             }
         case "session.output_transcript.delta":
             if let delta = event["delta"] as? String {
-                // The voice is answering. Whatever was heard is your turn
-                // in the transcript, delegated or not; if the voice is
-                // answering by itself, its words are the agent's turn.
-                writeUserTurn()
+                // The voice is answering: your turn is done. If the voice
+                // is answering by itself, its words are the agent's turn.
+                closeUserTurn()
                 saying += delta
                 if !turnDelegated, let chat {
                     if let id = voiceMessageID {
@@ -261,15 +270,13 @@ final class LiveSession: NSObject, ObservableObject {
     /// request is what we've heard since the last turn; it goes to the
     /// selected agent as a real message, and the reply streams back as
     /// commentary while it's written.
-    /// What you said, into the transcript — once per turn, before any
-    /// answer to it appears.
-    private func writeUserTurn() {
-        guard !userTurnWritten, let chat else { return }
-        let text = heard.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        chat.liveAppend(role: .user, content: text)
-        chat.draft = ""
-        userTurnWritten = true
+    /// Your turn is finished being written: trimmed and saved.
+    private func closeUserTurn() {
+        guard !userTurnClosed, let chat else { return }
+        if let id = userTurnID {
+            chat.liveUpdate(id: id, content: heard.trimmingCharacters(in: .whitespacesAndNewlines), final: true)
+        }
+        userTurnClosed = true
     }
 
     private func delegate(id: String?) {
@@ -279,6 +286,7 @@ final class LiveSession: NSObject, ObservableObject {
         turnText = ""; spokenUpTo = 0
         turnDelegated = true
         state = .thinking
+        closeUserTurn()
         // If the voice already answered part of this turn itself, that answer
         // stays; the agent's reply follows it.
         if let id = voiceMessageID { chat.liveUpdate(id: id, content: saying, final: true); voiceMessageID = nil }
@@ -303,14 +311,12 @@ final class LiveSession: NSObject, ObservableObject {
             commentary("There's no agent selected yet. Pick one in Visor first.")
             return
         }
-        if userTurnWritten {
-            // Already in the transcript from the voice's first words; send
-            // the same text without a second copy of your turn.
-            chat.liveDropLastUserTurn()
+        if let id = userTurnID {
+            chat.sendSpoken(id: id)
+        } else {
+            chat.draft = text
+            chat.send()
         }
-        userTurnWritten = true
-        chat.draft = text
-        chat.send()
         if let error = chat.error, !error.isEmpty {
             commentary("The agent couldn't take that: \(error)")
         }
@@ -506,6 +512,8 @@ final class LiveSession: NSObject, ObservableObject {
         inputPeak *= 0.6
         outputLevel += (min(1, outputPeak * 2.5) - outputLevel) * 0.5
         outputPeak *= 0.6
+        levels.removeFirst()
+        levels.append(state == .speaking ? outputLevel : inputLevel)
         if state == .speaking, Date() > outputTail {
             state = pendingDelegation == nil ? .listening : .thinking
         }
@@ -541,6 +549,67 @@ struct LiveToggle: View {
             live.toggle(chat: chat)
         }
         .accessibilityIdentifier("visor.live.toggle")
+    }
+}
+
+/// The composer in voice mode: a waveform across its whole width — your
+/// voice while you speak, the agent's on the accent while it answers —
+/// with the state in a word, a mic to mute, and the way out.
+struct LiveWaveform: View {
+    @ObservedObject var chat: ChatController
+    var height: CGFloat
+    var button: CGFloat
+    @ObservedObject private var live = LiveSession.shared
+
+    var body: some View {
+        HStack(spacing: Design.Space.roomy) {
+            Text(word)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(live.state == .speaking ? Design.Retro.accent : Design.Ink.tertiary)
+                .frame(width: 72, alignment: .leading)
+                .lineLimit(1)
+            GeometryReader { g in
+                let n = live.levels.count
+                let gap: CGFloat = 2
+                let w = max(1.5, (g.size.width - gap * CGFloat(n - 1)) / CGFloat(n))
+                HStack(alignment: .center, spacing: gap) {
+                    ForEach(Array(live.levels.enumerated()), id: \.offset) { i, level in
+                        let recency = CGFloat(i + 1) / CGFloat(n)
+                        Capsule()
+                            .fill(tint.opacity(0.35 + 0.65 * recency))
+                            .frame(width: w, height: max(3, level * g.size.height))
+                    }
+                }
+                .frame(width: g.size.width, height: g.size.height, alignment: .center)
+            }
+            .frame(height: height)
+            LiveMicButton(size: button)
+                .accessibilityIdentifier("visor.composer.liveMic")
+            IconButton(symbol: "xmark", size: button, help: "End the live conversation") { live.stop() }
+                .accessibilityIdentifier("visor.composer.liveEnd")
+        }
+        .frame(height: max(height, button))
+        .animation(.linear(duration: 1 / 30), value: live.levels)
+        .accessibilityIdentifier("visor.composer.live")
+    }
+
+    private var tint: Color {
+        switch live.state {
+        case .speaking: return Design.Retro.accent
+        case .thinking: return Design.Ink.tertiary
+        default: return live.muted ? Design.Ink.faint : Design.Ink.primary
+        }
+    }
+
+    private var word: String {
+        switch live.state {
+        case .connecting: return "Connecting"
+        case .listening: return live.muted ? "Muted" : "Listening"
+        case .thinking: return "Working"
+        case .speaking: return "Speaking"
+        case .failed: return "Failed"
+        case .off: return ""
+        }
     }
 }
 

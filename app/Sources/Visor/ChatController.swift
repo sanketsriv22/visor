@@ -581,8 +581,17 @@ final class ChatController: ObservableObject {
 
     // MARK: - Sending
 
-    func send() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    func send() { send(text: draft, existing: nil) }
+
+    /// Live conversation: the question is already in the transcript as a
+    /// spoken turn (written as it was heard); send it without a second copy.
+    func sendSpoken(id: UUID) {
+        guard let turn = conversation.messages.first(where: { $0.id == id }) else { return }
+        send(text: turn.content, existing: id)
+    }
+
+    private func send(text raw: String, existing: UUID?) {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isStreaming else { return }
         if demoNextSend {
             demoNextSend = false
@@ -604,13 +613,25 @@ final class ChatController: ObservableObject {
         }
 
         error = nil
-        draft = ""
+        if existing == nil { draft = "" }
 
         let model = agent.model ?? Self.defaultModel
-        let question = ChatMessage(role: .user, content: text)
+        let question: ChatMessage
+        if let existing, let i = conversation.messages.firstIndex(where: { $0.id == existing }) {
+            // The spoken turn stays where it is, trimmed, and becomes the
+            // last thing before the reply.
+            conversation.messages[i].content = text
+            question = conversation.messages[i]
+            if i != conversation.messages.indices.last {
+                conversation.messages.remove(at: i)
+                conversation.messages.append(question)
+            }
+        } else {
+            question = ChatMessage(role: .user, content: text)
+            conversation.messages.append(question)
+        }
         conversation.agentName = agent.name
         conversation.model = model
-        conversation.messages.append(question)
         if conversation.title.isEmpty { conversation.title = Self.title(from: text) }
 
         // The empty assistant turn is what the view streams into.

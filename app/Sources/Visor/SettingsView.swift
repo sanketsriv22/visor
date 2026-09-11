@@ -235,6 +235,7 @@ private struct AgentsPane: View {
                 }
                 .buttonStyle(.borderless).font(Design.Text.caption)
             }
+            KeyStatusRow(kind: .openRouter)
             if !OpenRouterClient.hasKey || editingKey {
                 HStack {
                     SecureField("paste your API key", text: $keyDraft)
@@ -245,7 +246,7 @@ private struct AgentsPane: View {
                         keyDraft = ""
                         editingKey = false
                         focus.provider = nil
-                        Task { await catalog.reload() }
+                        Task { await catalog.reload(); await KeyHealth.shared.checkOpenRouter() }
                     }
                     .disabled(keyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
@@ -1048,11 +1049,8 @@ private struct LiveVoiceSettings: View {
                 .foregroundStyle(Design.Retro.dim)
                 .fixedSize(horizontal: false, vertical: true)
             SettingsRow(title: "Voice", caption: "How the agent sounds. Marin and Cedar are the newest.") {
-                Picker("", selection: $live.voice) {
-                    ForEach(LiveSession.voices, id: \.self) { Text($0.capitalized).tag($0) }
-                }
-                .labelsHidden()
-                .frame(width: 140)
+                SettingsMenu(selection: $live.voice,
+                             options: LiveSession.voices.map { ($0, $0.capitalized) }, width: 150)
             }
             SettingsRow(title: "Talking over it cuts it off", caption: "Off, the voice finishes its sentence first.") {
                 Toggle("", isOn: $live.bargeIn).labelsHidden().toggleStyle(.switch)
@@ -1187,9 +1185,11 @@ private struct VoicePane: View {
                     Keychain.set(voiceDraft.trimmingCharacters(in: .whitespacesAndNewlines),
                                  account: VoiceInput.keyAccount)
                     voiceDraft = ""
+                    Task { await KeyHealth.shared.checkOpenAI() }
                 }
                 .disabled(voiceDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+            KeyStatusRow(kind: .openAI)
             Toggle(isOn: Binding(
                 get: { VoiceInput.cleanupEnabled },
                 set: { VoiceInput.cleanupEnabled = $0; cleanupOn = $0 })) {
@@ -1263,15 +1263,8 @@ private struct VoicePane: View {
 
             HStack(spacing: 8) {
                 Text("Hold to talk").font(Design.Text.caption).foregroundStyle(.secondary)
-                Picker("", selection: Binding(
-                    get: { pushToTalk.trigger },
-                    set: { pushToTalk.setTrigger($0) })) {
-                        ForEach(PushToTalk.Trigger.allCases) { option in
-                            Text(option.title).tag(option)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 130)
+                SettingsMenu(selection: Binding(get: { pushToTalk.trigger }, set: { pushToTalk.setTrigger($0) }),
+                             options: PushToTalk.Trigger.allCases.map { ($0, $0.title) }, width: 160)
                 if pushToTalk.trigger != .off && !pushToTalk.isTrusted {
                     Button("Grant access…") { pushToTalk.requestTrust() }
                         .font(Design.Text.caption)
@@ -1459,21 +1452,15 @@ private struct VoicePane: View {
                 Text("While listening")
                     .font(Design.Text.f(12))
                     .frame(width: 110, alignment: .leading)
-                Picker("", selection: $visuals.during) {
-                    ForEach(NotchVisuals.During.allCases) { Text($0.title).tag($0) }
-                }
-                .labelsHidden()
-                .frame(maxWidth: 300)
+                SettingsMenu(selection: $visuals.during,
+                             options: NotchVisuals.During.allCases.map { ($0, $0.title) }, width: 220)
             }
             HStack(spacing: Design.Space.roomy) {
                 Text("While transcribing")
                     .font(Design.Text.f(12))
                     .frame(width: 110, alignment: .leading)
-                Picker("", selection: $visuals.after) {
-                    ForEach(NotchVisuals.After.allCases) { Text($0.title).tag($0) }
-                }
-                .labelsHidden()
-                .frame(maxWidth: 300)
+                SettingsMenu(selection: $visuals.after,
+                             options: NotchVisuals.After.allCases.map { ($0, $0.title) }, width: 220)
             }
             if visuals.during == .voicePong {
                 Text("Your paddle is on the left and moves while you speak, turning round "
