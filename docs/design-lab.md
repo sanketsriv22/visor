@@ -84,7 +84,7 @@ field and the turning mark) are captured at whatever frame they were on.
 
 ## The hero mark
 
-`Resources/hero-sheet.png` is a 10×9 sprite sheet (90 frames, 256px each; one turn with a slow nod, played at 15 fps so a turn takes six seconds)
+`Resources/hero-sheet.png` is a 10×9 sprite sheet (90 frames, 256px each; the knot spinning in its own plane with a slow tilt, played at 15 fps so a turn takes six seconds) and `hero-form.png` a 10×6 sheet (60 frames at 24 fps: three strands fly in and twist into the knot, played once when the introduction's mark appears)
 of the trefoil turning, rendered in Blender through its MCP: a bevelled
 trefoil curve, a purple principled body mixed with an emissive rim by
 Fresnel, a key and a rim light, an orthographic front camera, Cycles at 40

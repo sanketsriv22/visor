@@ -21,6 +21,8 @@ struct TakeoverView: View {
     @State private var draw: CGFloat = 0
     @State private var videoProgress: Double = 0
     @State private var lockedID: String? = nil
+    /// When the strands began forming the mark, for the title sequence.
+    @State private var formedAt: Date? = nil
 
     init(state: TakeoverState, actions: TakeoverActions) {
         self.state = state
@@ -203,10 +205,12 @@ struct TakeoverView: View {
         } else {
             let risen = CGPoint(x: origin.x, y: origin.y + 190)
             ZStack {
-                BreathingMark(meter: narrator.meter, size: 220)
-                    .scaleEffect(state.risen ? 1 : 0.06)
+                // The three strands fly in and twist into the knot where it
+                // will live; the halo comes up under it as they arrive.
+                BreathingMark(meter: narrator.meter, size: 240, formedAt: state.risen ? formedAt : nil)
                     .opacity(state.risen ? 1 : 0)
-                    .position(state.risen ? risen : origin)
+                    .position(risen)
+                    .onChange(of: state.risen) { on in if on, formedAt == nil { formedAt = Date() } }
                 VStack(spacing: Design.Space.wide) {
                     Text("Visor")
                         .font(.system(size: 54, weight: .semibold, design: .default))
@@ -513,6 +517,7 @@ enum MarkColor {
 struct BreathingMark: View {
     @ObservedObject var meter: VoiceMeter
     var size: CGFloat
+    var formedAt: Date? = nil
 
     var body: some View {
         ZStack {
@@ -522,7 +527,7 @@ struct BreathingMark: View {
                 .frame(width: size * 1.8, height: size * 1.8)
                 .scaleEffect(0.6 + meter.level * 0.6)
                 .opacity(0.2 + Double(meter.level) * 0.8)
-            HeroMark(size: size)
+            HeroMark(size: size, formedAt: formedAt)
                 .scaleEffect(1 + meter.level * 0.06)
         }
         .frame(width: size, height: size)
@@ -703,18 +708,27 @@ struct VideoIntro: NSViewRepresentable {
 // MARK: - The mark
 
 /// The mark: the Blender-rendered trefoil turning once every six seconds,
-/// or the flat BeamMark if the sheet isn't bundled. Bobs gently so it
-/// reads as alive, not pasted.
+/// or the flat BeamMark if the sheet isn't bundled. Given `formedAt`, it
+/// first plays the formation — three strands flying in and twisting into
+/// the knot — from that instant, and the turn takes over where it ends.
+/// Bobs gently so it reads as alive, not pasted.
 struct HeroMark: View {
     var size: CGFloat
+    var formedAt: Date? = nil
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / HeroSheet.fps, paused: Design.Motion.reduced)) { context in
+        TimelineView(.animation(minimumInterval: 1 / HeroSheet.formFps, paused: Design.Motion.reduced)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let bob = Design.Motion.reduced ? 0 : sin(t * 1.2) * size * 0.03
             Group {
-                if let sheet = HeroSheet.image {
-                    HeroSheet.frame(sheet, index: Int(t * HeroSheet.fps) % HeroSheet.count, size: size)
+                if let formedAt, let form = HeroSheet.form,
+                   context.date.timeIntervalSince(formedAt) < HeroSheet.formDuration, !Design.Motion.reduced {
+                    let i = Int(context.date.timeIntervalSince(formedAt) * HeroSheet.formFps)
+                    HeroSheet.frame(form, index: min(HeroSheet.formCount - 1, max(0, i)), size: size,
+                                    columns: HeroSheet.formColumns, count: HeroSheet.formCount)
+                } else if let sheet = HeroSheet.image {
+                    let since = formedAt.map { max(0, context.date.timeIntervalSince($0) - HeroSheet.formDuration) } ?? t
+                    HeroSheet.frame(sheet, index: Int(since * HeroSheet.fps) % HeroSheet.count, size: size)
                 } else {
                     BeamMark()
                         .frame(width: size * 0.7, height: size * 0.62)
@@ -736,18 +750,28 @@ enum HeroSheet {
     static let columns = 10
     static let fps: Double = 15
     static let cell: CGFloat = 256
-    static let image: NSImage? = {
-        guard let url = Bundle.main.resourceURL?.appendingPathComponent("hero-sheet.png"),
-              let image = NSImage(contentsOf: url) else { return nil }
-        return image
-    }()
+    /// The formation: 60 frames in a 10×6 grid, two and a half seconds.
+    static let formCount = 60
+    static let formColumns = 10
+    static let formFps: Double = 24
+    static var formDuration: TimeInterval { Double(formCount) / formFps }
 
-    static func frame(_ sheet: NSImage, index: Int, size: CGFloat) -> some View {
+    static let image: NSImage? = load("hero-sheet.png")
+    static let form: NSImage? = load("hero-form.png")
+
+    private static func load(_ name: String) -> NSImage? {
+        guard let url = Bundle.main.resourceURL?.appendingPathComponent(name) else { return nil }
+        return NSImage(contentsOf: url)
+    }
+
+    static func frame(_ sheet: NSImage, index: Int, size: CGFloat,
+                      columns: Int = HeroSheet.columns, count: Int = HeroSheet.count) -> some View {
         let scale = size / cell
         let col = CGFloat(index % columns), row = CGFloat(index / columns)
+        let rows = (count + columns - 1) / columns
         return Image(nsImage: sheet)
             .resizable()
-            .frame(width: cell * CGFloat(columns) * scale, height: cell * CGFloat(count / columns) * scale)
+            .frame(width: cell * CGFloat(columns) * scale, height: cell * CGFloat(rows) * scale)
             .offset(x: -col * cell * scale, y: -row * cell * scale)
             .frame(width: size, height: size, alignment: .topLeading)
             .clipped()
