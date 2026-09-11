@@ -82,6 +82,7 @@ struct SettingsView: View {
         .frame(minWidth: 800, minHeight: 560)
         .background(Design.Retro.bg)
         .foregroundStyle(Design.Retro.text)
+        .buttonStyle(.settings)
         .tint(Design.Retro.accent)
         .font(Design.Text.body)                 // chosen face as the default for any un-fonted text
         .environment(\.colorScheme, VisorTheme.current.isDark ? .dark : .light)
@@ -228,19 +229,19 @@ private struct AgentsPane: View {
                     .background(Capsule().fill(OpenRouterClient.hasKey ? Design.Retro.accentDim : Color.white.opacity(0.05)))
                 Spacer()
                 if OpenRouterClient.hasKey && !editingKey {
-                    Button("Change") { editingKey = true }.buttonStyle(.borderless).font(Design.Text.caption)
+                    Button("Change") { editingKey = true }.buttonStyle(.settingsQuiet).font(Design.Text.caption)
                 }
                 Button("Get a key") {
                     if let url = URL(string: "https://openrouter.ai/keys") { NSWorkspace.shared.open(url) }
                 }
-                .buttonStyle(.borderless).font(Design.Text.caption)
+                .buttonStyle(.settingsQuiet).font(Design.Text.caption)
             }
             KeyStatusRow(kind: .openRouter)
             if !OpenRouterClient.hasKey || editingKey {
                 HStack {
                     SecureField("paste your API key", text: $keyDraft)
                         .textFieldStyle(.roundedBorder)
-                    Button("Save") {
+                    ProminentButton("Save") {
                         Keychain.set(keyDraft.trimmingCharacters(in: .whitespacesAndNewlines),
                                      account: OpenRouterClient.sharedKeyAccount)
                         keyDraft = ""
@@ -337,7 +338,7 @@ private struct AgentRow: View {
                         .foregroundStyle(Design.Retro.text)
                 } else {
                     Button("Make default") { ai.setDefault(provider.name) }
-                        .buttonStyle(.borderless).font(Design.Text.caption)
+                        .buttonStyle(.settingsQuiet).font(Design.Text.caption)
                 }
 
                 // Collapsed, the row shows just what it is; the settings live
@@ -478,7 +479,7 @@ private struct AgentRow: View {
                     SecureField(ai.hasKey(provider) ? "•••••• (set)" : "paste API key",
                                 text: $keyDraft)
                         .textFieldStyle(.roundedBorder)
-                    Button("Save") {
+                    ProminentButton("Save") {
                         ai.setKey(keyDraft, for: provider)
                         keyDraft = ""
                     }
@@ -1181,7 +1182,7 @@ private struct VoicePane: View {
                             : "paste an OpenAI key",
                             text: $voiceDraft)
                     .textFieldStyle(.roundedBorder)
-                Button("Save") {
+                ProminentButton("Save") {
                     Keychain.set(voiceDraft.trimmingCharacters(in: .whitespacesAndNewlines),
                                  account: VoiceInput.keyAccount)
                     voiceDraft = ""
@@ -1250,7 +1251,7 @@ private struct VoicePane: View {
                             NSWorkspace.shared.open(url)
                         }
                         .font(Design.Text.caption2)
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.settingsQuiet)
                     }
                     // Said here because the alternative is someone opening
                     // that pane, seeing Visor already switched on, and
@@ -1266,7 +1267,7 @@ private struct VoicePane: View {
                 SettingsMenu(selection: Binding(get: { pushToTalk.trigger }, set: { pushToTalk.setTrigger($0) }),
                              options: PushToTalk.Trigger.allCases.map { ($0, $0.title) }, width: 160)
                 if pushToTalk.trigger != .off && !pushToTalk.isTrusted {
-                    Button("Grant access…") { pushToTalk.requestTrust() }
+                    ProminentButton("Grant access…") { pushToTalk.requestTrust() }
                         .font(Design.Text.caption)
                 }
             }
@@ -1314,7 +1315,7 @@ private struct VoicePane: View {
                     Button { VoiceInput.transcriptionModel = option.id } label: {
                         Text(option.id).font(Design.Text.f(10))
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.settingsQuiet)
                     .help(option.note)
                 }
                 Spacer(minLength: 0)
@@ -1370,7 +1371,7 @@ private struct VoicePane: View {
                                 VoiceInput.cleanupModel = result.model
                                 cleanupModel = result.model
                             }
-                            .font(Design.Text.caption2).buttonStyle(.borderless)
+                            .font(Design.Text.caption2).buttonStyle(.settingsQuiet)
                         }
                     }
                     if let error = result.error {
@@ -1398,7 +1399,7 @@ private struct VoicePane: View {
                     Text(suggestion.id.split(separator: "/").last.map(String.init) ?? suggestion.id)
                         .font(Design.Text.f(10))
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.settingsQuiet)
                 .help("\(suggestion.id) — \(suggestion.note)")
             }
             Spacer(minLength: 0)
@@ -1416,7 +1417,7 @@ private struct VoicePane: View {
                         promptDraft = VoiceInput.defaultCleanupPrompt
                         VoiceInput.cleanupPrompt = promptDraft
                     }
-                    .font(Design.Text.caption2).buttonStyle(.borderless)
+                    .font(Design.Text.caption2).buttonStyle(.settingsQuiet)
                 }
             }
             TextEditor(text: $promptDraft)
@@ -1526,7 +1527,7 @@ private struct VoicePane: View {
                                         .foregroundStyle(copiedEntry == entry.id
                                                             ? Color.accentColor : .secondary)
                                 }
-                                .buttonStyle(.borderless)
+                                .buttonStyle(.settingsQuiet)
                                 .help("Copy this transcript")
                                 Button {
                                     VoiceLog.delete(entry.id)
@@ -1536,7 +1537,7 @@ private struct VoicePane: View {
                                         .font(Design.Text.f(9))
                                         .foregroundStyle(.secondary)
                                 }
-                                .buttonStyle(.borderless)
+                                .buttonStyle(.settingsQuiet)
                                 .help("Delete this entry")
                             }
                             Divider()
@@ -1611,12 +1612,12 @@ private struct CLIAccountRow: View {
                     Text("unknown").font(Design.Text.caption).foregroundStyle(.secondary)
                 }
                 Button("Check") { accounts.refresh(provider) }
-                    .font(Design.Text.caption2).buttonStyle(.borderless)
+                    .font(Design.Text.caption2).buttonStyle(.settingsQuiet)
                 Spacer(minLength: 0)
                 Button(showingProfile ? "Hide profile" : "Use a different account") {
                     showingProfile.toggle()
                 }
-                .font(Design.Text.caption2).buttonStyle(.borderless)
+                .font(Design.Text.caption2).buttonStyle(.settingsQuiet)
             }
 
             if showingProfile {
@@ -1650,7 +1651,7 @@ private struct CLIAccountRow: View {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(signInCommand, forType: .string)
                     }
-                    .font(Design.Text.caption2).buttonStyle(.borderless)
+                    .font(Design.Text.caption2).buttonStyle(.settingsQuiet)
                 }
             }
         }

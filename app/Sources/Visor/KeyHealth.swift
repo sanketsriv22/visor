@@ -68,11 +68,13 @@ final class KeyHealth: ObservableObject {
                 openRouter = .rejected("OpenRouter rejected this key (\(keyResponse.statusCode)).")
                 return
             }
+            let label = (info?["label"] as? String)?.trimmingCharacters(in: .whitespaces)
             let keyUsage = info?["usage"] as? Double
             let keyLimit = info?["limit"] as? Double
             let free = info?["is_free_tier"] as? Bool ?? false
 
             var parts: [String] = []
+            if let label, !label.isEmpty { parts.append("“\(label)”") }
             if let remaining {
                 parts.append(String(format: "$%.2f left", max(0, remaining)))
                 if let total { parts.append(String(format: "of $%.2f bought", total)) }
@@ -146,14 +148,14 @@ struct KeyStatusRow: View {
             Spacer(minLength: 6)
             if let link {
                 Button(link.title) { NSWorkspace.shared.open(link.url) }
-                    .buttonStyle(.borderless).font(Design.Text.caption)
+                    .buttonStyle(.settingsQuiet).font(Design.Text.caption)
             }
             Button(status == .checking ? "Checking…" : "Check") {
                 Task {
                     if kind == .openRouter { await health.checkOpenRouter() } else { await health.checkOpenAI() }
                 }
             }
-            .buttonStyle(.borderless).font(Design.Text.caption)
+            .buttonStyle(.settingsQuiet).font(Design.Text.caption)
             .disabled(status == .checking || status == .noKey)
         }
         .onAppear { health.checkAll() }

@@ -213,7 +213,7 @@ private struct SecretRow: View {
                 HStack(spacing: 8) {
                     SecureField(store.isSet(meta) ? "•••••• — type to replace" : "paste key", text: $draft)
                         .textFieldStyle(.roundedBorder)
-                    Button("Save") {
+                    ProminentButton("Save") {
                         store.setValue(draft, for: meta.account); draft = ""; editing = false
                         KeyHealth.shared.checkAll(force: true)
                     }
@@ -247,7 +247,7 @@ private struct AddSecretForm: View {
             HStack {
                 Spacer()
                 Button("Cancel", action: done)
-                Button("Add") {
+                ProminentButton("Add") {
                     store.add(label: label, category: category, value: value); done()
                 }
                 .disabled(label.trimmingCharacters(in: .whitespaces).isEmpty)

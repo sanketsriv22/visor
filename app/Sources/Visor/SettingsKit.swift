@@ -222,3 +222,78 @@ struct SettingsMenu<Value: Hashable>: View {
         .frame(width: width, alignment: .leading)
     }
 }
+
+
+/// Settings' buttons, three weights. Regular: a raised control on the
+/// panel colour. Prominent: the accent, for the one action a form wants.
+/// Quiet: accent text for links and small actions. All three brighten on
+/// hover and press down with a small scale, so a click reads as a click.
+struct SettingsButtonStyle: ButtonStyle {
+    enum Kind { case regular, prominent, quiet }
+    var kind: Kind = .regular
+
+    func makeBody(configuration: Configuration) -> some View {
+        Body(configuration: configuration, kind: kind)
+    }
+
+    private struct Body: View {
+        let configuration: Configuration
+        let kind: Kind
+        @State private var hover = false
+        @Environment(\.isEnabled) private var enabled
+
+        var body: some View {
+            configuration.label
+                .font(Design.Text.f(12).weight(.medium))
+                .foregroundStyle(foreground)
+                .lineLimit(1)
+                .padding(.horizontal, kind == .quiet ? 6 : 12)
+                .frame(height: 26)
+                .background(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous).fill(fill))
+                .overlay(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
+                    .strokeBorder(stroke, lineWidth: 1))
+                .contentShape(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous))
+                .scaleEffect(configuration.isPressed ? 0.96 : 1)
+                .opacity(enabled ? 1 : 0.4)
+                .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+                .animation(.easeOut(duration: 0.15), value: hover)
+                .onHover { hover = $0 }
+        }
+
+        private var foreground: Color {
+            switch kind {
+            case .regular:   return Design.Retro.text
+            case .prominent: return Design.Retro.onAccent
+            case .quiet:     return Design.Retro.accent
+            }
+        }
+
+        private var fill: Color {
+            let pressed = configuration.isPressed
+            switch kind {
+            case .regular:   return Color.white.opacity(pressed ? 0.16 : (hover ? 0.12 : 0.07))
+            case .prominent: return Design.Retro.accent.opacity(pressed ? 0.8 : (hover ? 0.92 : 1))
+            case .quiet:     return Design.Retro.accent.opacity(pressed ? 0.2 : (hover ? 0.12 : 0))
+            }
+        }
+
+        private var stroke: Color {
+            switch kind {
+            case .regular:   return hover ? Color.white.opacity(0.22) : Design.Retro.line
+            case .prominent: return Design.Retro.accent
+            case .quiet:     return .clear
+            }
+        }
+    }
+}
+
+extension ButtonStyle where Self == SettingsButtonStyle {
+    static var settings: SettingsButtonStyle { SettingsButtonStyle(kind: .regular) }
+    static var settingsProminent: SettingsButtonStyle { SettingsButtonStyle(kind: .prominent) }
+    static var settingsQuiet: SettingsButtonStyle { SettingsButtonStyle(kind: .quiet) }
+}
+
+/// The one action a form is for.
+func ProminentButton(_ title: String, action: @escaping () -> Void) -> some View {
+    Button(title, action: action).buttonStyle(.settingsProminent)
+}
