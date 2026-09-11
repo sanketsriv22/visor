@@ -23,6 +23,12 @@ you ◀──audio── GPT-Live ◀──commentary── Visor ◀──reply
   the reply streams. Each finished paragraph is handed back with
   `session.commentary.append` on the open delegation so the voice starts
   talking before the agent is done; the rest follows when the reply ends.
+- It is the chat. Your words fill the composer as they're heard and go in
+  as your turn when the voice hands them to the agent; the reply is the
+  agent's turn. The composer's placeholder says what's happening
+  (Listening, Working, Speaking), its mic lights on the accent and rings
+  with your level (click to mute), and the small status beside it ends
+  the conversation. The switch itself sits beside the agent's name.
 - Every turn is in the transcript. What you said is written as your turn
   the moment an answer to it begins (`liveAppend`), whether the voice
   delegated or not; when the voice answers by itself, its words stream in

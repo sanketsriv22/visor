@@ -20,6 +20,7 @@ import SwiftUI
 /// reason it isn't a SwiftUI `TextField`.
 struct Composer: View {
     @ObservedObject var chat: ChatController
+    @ObservedObject private var live = LiveSession.shared
     var layout: ChatSurface
 
     @State private var draftHeight: CGFloat = 24
@@ -71,6 +72,14 @@ struct Composer: View {
 
     private var placeholder: String {
         if chat.chatAgents.isEmpty { return "Add an agent in Settings to start" }
+        switch live.state {
+        case .connecting: return "Connecting…"
+        case .listening:  return live.muted ? "Muted — unmute to talk" : "Listening…"
+        case .thinking:   return "\(chat.agent?.name ?? "The agent") is working…"
+        case .speaking:   return "Speaking…"
+        case .failed(let why): return why
+        case .off: break
+        }
         return "Ask \(chat.agent?.name ?? "anything")"
     }
 
@@ -97,25 +106,36 @@ struct Composer: View {
 
             Spacer(minLength: 0)
 
-            if chat.isStreaming {
-                HStack(spacing: 6) {
-                    DotMatrixIndicator(size: metrics.button * 0.34, tint: Design.Retro.accent)
-                    Text("Streaming")
-                        .font(.system(size: metrics.chipFont - 1, weight: .medium))
-                        .foregroundStyle(Design.Ink.tertiary)
+            if live.state.isOn {
+                // Talking: the state of the conversation and the mic, in
+                // the row where the mic already lives. Click the words to
+                // end it; click the mic to mute.
+                LiveComposerStatus(chat: chat, fontSize: metrics.chipFont - 1)
+                    .padding(.trailing, 4)
+                    .transition(.opacity)
+                LiveMicButton(size: metrics.button)
+                    .accessibilityIdentifier("visor.composer.liveMic")
+            } else {
+                if chat.isStreaming {
+                    HStack(spacing: 6) {
+                        DotMatrixIndicator(size: metrics.button * 0.34, tint: Design.Retro.accent)
+                        Text("Streaming")
+                            .font(.system(size: metrics.chipFont - 1, weight: .medium))
+                            .foregroundStyle(Design.Ink.tertiary)
+                    }
+                    .padding(.trailing, 4)
+                    .transition(.opacity)
                 }
-                .padding(.trailing, 4)
-                .transition(.opacity)
+                DictationControl(voice: chat.voice, onToggle: chat.toggleDictation,
+                                 size: metrics.button, circular: true)
+                    .accessibilityIdentifier("visor.composer.dictate")
             }
-
-            DictationControl(voice: chat.voice, onToggle: chat.toggleDictation,
-                             size: metrics.button, circular: true)
-                .accessibilityIdentifier("visor.composer.dictate")
 
             sendButton
         }
         .frame(height: metrics.button)
         .animation(.easeOut(duration: 0.15), value: chat.isStreaming)
+        .animation(.easeOut(duration: 0.15), value: live.state.isOn)
     }
 
     @ViewBuilder

@@ -220,6 +220,9 @@ final class LiveSession: NSObject, ObservableObject {
                     turnDelegated = false
                 }
                 heard += delta
+                // Your words, as they're heard, in the composer — it's your
+                // turn being written.
+                chat?.draft = heard
                 state = .listening
             }
         case "session.output_transcript.delta":
@@ -265,6 +268,7 @@ final class LiveSession: NSObject, ObservableObject {
         let text = heard.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         chat.liveAppend(role: .user, content: text)
+        chat.draft = ""
         userTurnWritten = true
     }
 
@@ -540,45 +544,30 @@ struct LiveToggle: View {
     }
 }
 
-/// While Live is on: what's happening, the level, mute, and the way out.
-/// Sits under the agent's identity so the transcript stays the transcript.
-struct LivePill: View {
+/// In the composer while Live is on: the state of the conversation and a
+/// level. Click it to end the conversation.
+struct LiveComposerStatus: View {
     @ObservedObject var chat: ChatController
+    var fontSize: CGFloat
     @ObservedObject private var live = LiveSession.shared
 
     var body: some View {
-        if live.state.isOn || { if case .failed = live.state { return true }; return false }() {
-            HStack(spacing: Design.Space.normal) {
+        Button { live.stop() } label: {
+            HStack(spacing: 6) {
                 StatusDot(state: dotState)
                 Text(label)
-                    .font(Design.Typography.secondary())
-                    .foregroundStyle(Design.Ink.secondary)
+                    .font(.system(size: fontSize, weight: .medium))
+                    .foregroundStyle(Design.Ink.tertiary)
                     .lineLimit(1)
                 LevelBars(level: live.state == .speaking ? live.outputLevel : live.inputLevel,
-                          tint: live.state == .speaking ? Design.Retro.accent : Design.Ink.primary)
-                if !live.heard.isEmpty || !live.saying.isEmpty {
-                    Text(live.state == .speaking ? live.saying : live.heard)
-                        .font(Design.Typography.caption())
-                        .foregroundStyle(Design.Ink.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                }
-                Spacer(minLength: 0)
-                IconButton(symbol: live.muted ? "mic.slash" : "mic", size: Design.Metric.small,
-                           tint: live.muted ? Design.Ink.warning : Design.Ink.secondary,
-                           help: live.muted ? "Unmute" : "Mute the mic") { live.muted.toggle() }
-                    .accessibilityIdentifier("visor.live.mute")
-                IconButton(symbol: "xmark", size: Design.Metric.small, help: "End the live conversation") { live.stop() }
-                    .accessibilityIdentifier("visor.live.end")
+                          tint: live.state == .speaking ? Design.Retro.accent : Design.Ink.secondary)
             }
-            .padding(.leading, Design.Space.roomy)
-            .padding(.trailing, Design.Space.snug)
-            .frame(height: Design.Metric.large)
-            .background(Capsule().fill(Design.Retro.accent.opacity(0.10)))
-            .overlay(Capsule().strokeBorder(Design.Retro.accent.opacity(0.35), lineWidth: Design.Stroke.hairline))
-            .transition(.opacity.combined(with: .move(edge: .top)))
-            .accessibilityIdentifier("visor.live.pill")
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .help("End the live conversation")
+        .accessibilityIdentifier("visor.live.status")
     }
 
     private var dotState: StatusDot.State {
@@ -592,12 +581,40 @@ struct LivePill: View {
     private var label: String {
         switch live.state {
         case .off: return "Live"
-        case .connecting: return "Live · connecting"
-        case .listening: return live.muted ? "Live · muted" : "Live · listening"
-        case .thinking: return "Live · \(chat.agent?.name ?? "agent") is working"
-        case .speaking: return "Live · speaking"
-        case .failed(let why): return why
+        case .connecting: return "Connecting"
+        case .listening: return live.muted ? "Muted" : "Listening"
+        case .thinking: return "Working"
+        case .speaking: return "Speaking"
+        case .failed: return "Live failed"
         }
+    }
+}
+
+/// The composer's mic while Live is on: lit on the accent and ringed by
+/// the input level; click to mute.
+struct LiveMicButton: View {
+    var size: CGFloat
+    @ObservedObject private var live = LiveSession.shared
+
+    var body: some View {
+        Button { live.muted.toggle() } label: {
+            ZStack {
+                Circle()
+                    .strokeBorder(Design.Retro.accent.opacity(0.5), lineWidth: 2)
+                    .scaleEffect(1 + live.inputLevel * 0.35)
+                    .opacity(live.muted ? 0 : Double(0.3 + live.inputLevel * 0.7))
+                Circle().fill(live.muted ? Color.white.opacity(0.1) : Design.Retro.accent)
+                Image(systemName: live.muted ? "mic.slash.fill" : "mic.fill")
+                    .font(.system(size: size * 0.42, weight: .semibold))
+                    .foregroundStyle(live.muted ? Color.white.opacity(0.6) : Design.Retro.onAccent)
+            }
+            .frame(width: size, height: size)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.visorBare)
+        .focusable(false)
+        .animation(.linear(duration: 0.05), value: live.inputLevel)
+        .help(live.muted ? "Unmute the mic" : "Mute the mic")
     }
 }
 

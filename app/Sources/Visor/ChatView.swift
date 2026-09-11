@@ -78,7 +78,6 @@ struct ChatCard: View {
                                action: chat.stop)
                         .accessibilityIdentifier("visor.chat.stop")
                 }
-                LiveToggle(chat: chat)
                 IconButton(symbol: "square.and.pencil", size: Design.Metric.small,
                            help: "New chat") { chat.newChat() }
                     .accessibilityIdentifier("visor.chat.new")
@@ -99,17 +98,14 @@ struct ChatCard: View {
     /// identity leads the card. One control — name, model, status — that
     /// opens the agent selector.
     private var agentBar: some View {
-        VStack(alignment: .leading, spacing: Design.Space.snug) {
-            HStack(spacing: Design.Space.normal) {
-                AgentIdentity(chat: chat)
-                Spacer(minLength: 0)
-            }
-            LivePill(chat: chat)
+        HStack(spacing: Design.Space.normal) {
+            AgentIdentity(chat: chat)
+            Spacer(minLength: 0)
+            LiveToggle(chat: chat)
         }
         .padding(.horizontal, 14)
         .padding(.top, 4)
         .padding(.bottom, 6)
-        .animation(Design.Motion.animation(Design.Motion.standard), value: LiveSession.shared.state)
     }
 
     /// What to say under an agent's name: the model for a hosted one, and for a
@@ -1006,24 +1002,20 @@ struct HUDView: View {
     /// glass is its background, and the reading measure is the constraint.
     private var centre: some View {
         VStack(spacing: Design.Space.roomy) {
-            VStack(spacing: Design.Space.snug) {
-                HStack(spacing: Design.Space.normal) {
-                    AgentIdentity(chat: chat)
-                    Text(chat.conversation.title.isEmpty ? "New conversation" : chat.conversation.title)
-                        .font(Design.Typography.secondary())
-                        .foregroundStyle(Design.Ink.tertiary)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    LiveToggle(chat: chat, size: Design.Metric.regular)
-                    IconButton(symbol: "arrow.down.right.and.arrow.up.left",
-                               help: "Back to the notch — Esc, or \(ShortcutSettings.hint(.hud))",
-                               action: onExit)
-                        .accessibilityIdentifier("visor.hud.exit")
-                }
-                LivePill(chat: chat)
+            HStack(spacing: Design.Space.normal) {
+                AgentIdentity(chat: chat)
+                Text(chat.conversation.title.isEmpty ? "New conversation" : chat.conversation.title)
+                    .font(Design.Typography.secondary())
+                    .foregroundStyle(Design.Ink.tertiary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                LiveToggle(chat: chat, size: Design.Metric.regular)
+                IconButton(symbol: "arrow.down.right.and.arrow.up.left",
+                           help: "Back to the notch — Esc, or \(ShortcutSettings.hint(.hud))",
+                           action: onExit)
+                    .accessibilityIdentifier("visor.hud.exit")
             }
             .frame(maxWidth: Design.Metric.readingWidth + Design.Space.section * 2)
-            .animation(Design.Motion.animation(Design.Motion.standard), value: LiveSession.shared.state)
 
             TranscriptView(chat: chat, layout: .hud, active: visible) {
                 EmptyInvitation(chat: chat, scale: scale)
