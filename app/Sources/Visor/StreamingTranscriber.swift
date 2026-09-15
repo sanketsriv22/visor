@@ -53,9 +53,19 @@ final class StreamingTranscriber: NSObject {
     private var converter: AVAudioConverter?
     private var outbox = Data()
 
-    /// The realtime models that support turn detection. `gpt-4o-transcribe`
-    /// is the full-fidelity one; `-mini` is quicker.
-    static let model = "gpt-4o-transcribe"
+    /// The realtime models that support turn detection, which the phrase-
+    /// by-phrase path needs (`gpt-transcribe`, the file model, does not).
+    /// Mini is $0.003 a minute — a third less than the file path's
+    /// $0.0045 — and quicker; the full model is $0.006 and a little more
+    /// accurate on hard audio. Settings → Voice → Speed chooses.
+    static let models: [(id: String, title: String)] = [
+        ("gpt-4o-mini-transcribe", "Mini — $0.003/min, fastest"),
+        ("gpt-4o-transcribe", "Full — $0.006/min, most accurate"),
+    ]
+    static var model: String {
+        get { UserDefaults.standard.string(forKey: "visor.streamingModel") ?? "gpt-4o-mini-transcribe" }
+        set { UserDefaults.standard.set(newValue, forKey: "visor.streamingModel") }
+    }
 
     /// Open the session and start streaming the microphone.
     func start(key: String, model: String = StreamingTranscriber.model, prompt: String? = nil) throws {

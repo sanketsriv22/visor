@@ -25,7 +25,7 @@ model; it is that the work overlaps the speaking.
 `StreamingTranscriber` opens `wss://api.openai.com/v1/realtime?intent=transcription`
 the moment recording starts, sends `session.update` with
 `type: "transcription"`, PCM16 at 24 kHz, near-field noise reduction,
-`gpt-4o-transcribe`, and **server VAD with a 900 ms silence** — long
+`gpt-4o-mini-transcribe` by default ($0.003/min; the full `gpt-4o-transcribe` is $0.006 and a switch in Settings; the file path's `gpt-transcribe` is $0.0045 but cannot do turn detection), and **server VAD with a 900 ms silence** — long
 enough that a breath mid-sentence doesn't end a segment. The microphone
 is streamed in 100 ms pieces. Each pause closes a segment
 (`input_audio_buffer.committed` → an item) that the service transcribes

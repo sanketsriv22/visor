@@ -1167,13 +1167,20 @@ private struct VoicePane: View {
     }
 
     @State private var streamingOn = VoiceInput.streamingEnabled
+    @State private var streamingModel = StreamingTranscriber.model
 
     private var streamingRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             SettingsRow(title: "Transcribe while you speak",
-                        caption: "Streams the microphone to the transcription service as you talk, so the words are ready when you let go — instead of uploading a recording afterwards and waiting for all of it. Falls back to the upload if the stream drops.") {
+                        caption: "Streams the microphone to the transcription service as you talk; each phrase is transcribed at the pause after it, so the words are ready when you let go. Falls back to uploading the recording if the stream drops.") {
                 Toggle("", isOn: Binding(get: { streamingOn }, set: { streamingOn = $0; VoiceInput.streamingEnabled = $0 }))
                     .labelsHidden().toggleStyle(.switch)
+            }
+            if streamingOn {
+                SettingsRow(title: "Model", caption: "Both hear phrases as you pause. The file path's model can't, and costs $0.0045/min.") {
+                    SettingsMenu(selection: Binding(get: { streamingModel }, set: { streamingModel = $0; StreamingTranscriber.model = $0 }),
+                                 options: StreamingTranscriber.models.map { ($0.id, $0.title) }, width: 250)
+                }
             }
         }
     }
