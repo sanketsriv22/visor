@@ -222,9 +222,10 @@ final class VoiceInput: NSObject, ObservableObject {
     /// may be a tap. `start()` then shows the pill over the same capture;
     /// `cancel()` drops it.
     func arm() {
-        guard state == .idle, !armed else { return }
-        guard Self.hasKey, AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { return }
+        guard state == .idle, !armed else { DictationLog.note("arm: ignored (state \(state), armed \(armed))"); return }
+        guard Self.hasKey, AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { DictationLog.note("arm: no key or not authorised"); return }
         armed = true
+        DictationLog.note("arm")
         openMicrophone()
     }
 
@@ -234,8 +235,10 @@ final class VoiceInput: NSObject, ObservableObject {
             armed = false
             state = .recording
             startMetering()
+            DictationLog.note("start: from armed")
             return
         }
+        DictationLog.note("start: state \(state)")
         guard Self.hasKey else {
             state = .failed("Add an OpenAI key in Settings to dictate")
             return
@@ -328,16 +331,17 @@ final class VoiceInput: NSObject, ObservableObject {
 
     /// Stop recording and transcribe what was captured.
     func finish() {
-        guard state == .recording else { return }
+        guard state == .recording else { DictationLog.note("finish: ignored (state \(state))"); return }
         stopMetering()
         MicEngine.shared.stop()
-        guard let url = fileURL else { state = .idle; return }
+        guard let url = fileURL else { DictationLog.note("finish: no file"); state = .idle; return }
         state = .transcribing
         finishedAt = Date()
         if let streamer, streamer.isOpen, !streamFailed {
-            // The words are mostly here already; ask for the rest.
+            DictationLog.note("finish: waiting on stream")
             streamer.finish()
         } else {
+            DictationLog.note("finish: upload (stream \(streamer == nil ? "absent" : "closed")\(streamNote.map { ": \($0)" } ?? ""))")
             Task { await transcribe(url) }
         }
     }
@@ -357,6 +361,16 @@ final class VoiceInput: NSObject, ObservableObject {
             guard let self else { return }
             let started = self.startedAt
             self.streamer = nil
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Nothing from the stream is not nothing said: the recording is
+            // on disk. Upload it rather than lose the words.
+            if trimmed.isEmpty, let url = self.fileURL,
+               (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0 > 4_000 {
+                DictationLog.note("final: stream returned nothing — uploading the file")
+                self.streamNote = "stream returned nothing"
+                Task { await self.transcribe(url) }
+                return
+            }
             if let fileURL { try? FileManager.default.removeItem(at: fileURL) }
             self.fileURL = nil
             self.deliver(raw: text, transcribeSeconds: self.finishedAt.map { Date().timeIntervalSince($0) } ?? 0,
@@ -372,7 +386,7 @@ final class VoiceInput: NSObject, ObservableObject {
             if self.state == .transcribing, let url = self.fileURL {
                 Task { await self.transcribe(url) }
             }
-            NSLog("[Visor] streaming transcription failed, using upload: %@", why)
+            DictationLog.note("stream failed (state \(self.state)): \(why)")
         }
         do {
             // The realtime session needs a model that supports turn detection;
@@ -393,7 +407,17 @@ final class VoiceInput: NSObject, ObservableObject {
     /// needs it, the log, the caller.
     private func deliver(raw: String, transcribeSeconds: TimeInterval, startedAt: Date?, path: String) {
         let raw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty else { state = .idle; partial = ""; return }
+        DictationLog.note("deliver: \(path) \(raw.count) chars after \(String(format: "%.2f", transcribeSeconds)) s")
+        guard !raw.isEmpty else {
+            // Say so, visibly and in the log — never a silent nothing.
+            state = .failed("Nothing was transcribed")
+            partial = ""
+            VoiceLog.append(VoiceEntry(text: "", duration: startedAt.map { Date().timeIntervalSince($0) },
+                                       conversation: currentConversation?(), transcribeSeconds: transcribeSeconds,
+                                       path: path, note: streamNote ?? "empty transcript"))
+            streamNote = nil
+            return
+        }
         Task { @MainActor in
             var trimmed = raw
             let cleanupStarted = Date()
@@ -420,6 +444,7 @@ final class VoiceInput: NSObject, ObservableObject {
 
     /// Abandon a recording without transcribing it.
     func cancel() {
+        DictationLog.note("cancel (state \(state), armed \(armed))")
         stopMetering()
         streamer?.cancel()
         streamer = nil
@@ -538,6 +563,7 @@ final class VoiceInput: NSObject, ObservableObject {
         }
         guard let audio = try? Data(contentsOf: url), audio.count > 1_000 else {
             // Anything this small is a mis-tap, not speech.
+            DictationLog.note("upload: file too small or missing (\((try? Data(contentsOf: url))?.count ?? -1) bytes)")
             state = .idle
             return
         }
@@ -554,8 +580,13 @@ final class VoiceInput: NSObject, ObservableObject {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            DictationLog.note("upload: \(audio.count) bytes → \(status)")
             guard (200..<300).contains(status) else {
-                state = .failed(Self.reason(from: data) ?? "Transcription failed (\(status))")
+                let why = Self.reason(from: data) ?? "Transcription failed (\(status))"
+                DictationLog.note("upload: FAILED \(why)")
+                state = .failed(why)
+                VoiceLog.append(VoiceEntry(text: "", duration: startedAt.map { Date().timeIntervalSince($0) },
+                                           conversation: currentConversation?(), path: "upload", note: why))
                 return
             }
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -566,7 +597,10 @@ final class VoiceInput: NSObject, ObservableObject {
             deliver(raw: text, transcribeSeconds: Date().timeIntervalSince(transcribeStarted), startedAt: startedAt,
                     path: Self.streamingEnabled ? "upload" : "upload (streaming off)")
         } catch {
+            DictationLog.note("upload: FAILED \(error.localizedDescription)")
             state = .failed(error.localizedDescription)
+            VoiceLog.append(VoiceEntry(text: "", duration: startedAt.map { Date().timeIntervalSince($0) },
+                                       conversation: currentConversation?(), path: "upload", note: error.localizedDescription))
         }
     }
 

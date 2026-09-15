@@ -25,6 +25,11 @@ final class MicEngine {
     private(set) var running = false
     /// Which start() is in flight, so a stop() that lands first wins.
     private var generation = 0
+    /// Every engine call — prepare, start, stop — goes through here, in
+    /// order. A stop's prepare() racing the next start() on another queue
+    /// is the kind of thing that leaves an engine that delivers nothing.
+    private let audio = DispatchQueue(label: "visor.mic", qos: .userInteractive)
+    private var written = 0
 
     private init() {}
 
@@ -40,7 +45,13 @@ final class MicEngine {
     /// on the main thread if the device can't be opened.
     func start(file url: URL?, onPCM: @escaping (Data) -> Void, onPeak: @escaping (Float) -> Void,
                onFailure: @escaping (Error) -> Void) throws {
-        guard !running else { return }
+        if running {
+            // Never reuse a previous session's closures: they point at a
+            // transcriber that is gone.
+            DictationLog.note("mic: start while running — stopping first")
+            stop()
+        }
+        written = 0
         let input = engine.inputNode
         let inFormat = input.outputFormat(forBus: 0)
         converter = AVAudioConverter(from: inFormat, to: Self.wire)
@@ -61,16 +72,22 @@ final class MicEngine {
         generation += 1
         let gen = generation
         let engine = self.engine
-        DispatchQueue.global(qos: .userInteractive).async {
+        DictationLog.note("mic: start gen=\(gen) format=\(Int(inFormat.sampleRate))Hz/\(inFormat.channelCount)ch file=\(url?.lastPathComponent ?? "none")")
+        audio.async {
             do {
                 engine.prepare()
                 try engine.start()
                 Task { @MainActor in
-                    // Stopped before the device opened: close it again.
-                    if gen != self.generation || !self.running { engine.stop() }
+                    if gen != self.generation || !self.running {
+                        DictationLog.note("mic: started gen=\(gen) but stopped meanwhile — closing")
+                        self.audio.async { engine.stop() }
+                    } else {
+                        DictationLog.note("mic: running gen=\(gen)")
+                    }
                 }
             } catch {
                 Task { @MainActor in
+                    DictationLog.note("mic: start FAILED gen=\(gen): \(error.localizedDescription)")
                     guard gen == self.generation else { return }
                     self.stop()
                     onFailure(error)
@@ -81,16 +98,20 @@ final class MicEngine {
 
     func stop() {
         generation += 1
+        let was = running
         if running { engine.inputNode.removeTap(onBus: 0) }
-        // Unconditional: a start still opening the device is caught by the
-        // generation check, and stopping a stopped engine is free.
-        engine.stop()
         running = false
         file = nil          // closes and flushes
         onPCM = nil; onPeak = nil
-        // Ready for the next one.
+        DictationLog.note("mic: stop (was \(was ? "running" : "idle"), \(written) bytes written)")
         let engine = self.engine
-        DispatchQueue.global(qos: .utility).async { engine.prepare() }
+        // Unconditional, in order with any start still in flight: stopping
+        // a stopped engine is free, and the generation check closes a start
+        // that lands after this.
+        audio.async {
+            engine.stop()
+            engine.prepare()
+        }
     }
 
     private nonisolated func capture(_ buffer: AVAudioPCMBuffer) {
@@ -112,7 +133,10 @@ final class MicEngine {
             var peak: Int16 = 0
             for i in 0..<count { peak = max(peak, abs(channel[i])) }
             self.onPeak?(Float(peak) / 32767)
-            try? self.file?.write(from: out)
+            do { try self.file?.write(from: out) } catch {
+                if self.written == 0 { DictationLog.note("mic: file write failed: \(error.localizedDescription)") }
+            }
+            self.written += count * 2
             self.onPCM?(Data(bytes: channel, count: count * 2))
         }
     }

@@ -80,6 +80,7 @@ final class StreamingTranscriber: NSObject {
         self.socket = socket
         socket.resume()
         isOpen = true
+        DictationLog.note("stream: open model=\(model)")
         receive()
         var transcription: [String: Any] = ["model": model]
         if let prompt, !prompt.isEmpty { transcription["prompt"] = prompt }
@@ -113,12 +114,14 @@ final class StreamingTranscriber: NSObject {
         guard isOpen, !committed else { return }
         committed = true
         flush(force: true)
+        DictationLog.note("stream: finish — \(sentBytes) bytes sent, \(order.count) segments, uncommitted=\(audioSinceCut)")
         if audioSinceCut { send(["type": "input_audio_buffer.commit"]) }
         settleIfDone()
         // If a final never arrives, hand over what we have rather than hang.
         let work = DispatchWorkItem { [weak self] in
             guard let self, !self.finished else { return }
             self.finished = true
+            DictationLog.note("stream: no final after 5 s — handing over \(self.stitched.count) chars")
             self.onFinal?(self.stitched)
             self.close()
         }
@@ -140,6 +143,7 @@ final class StreamingTranscriber: NSObject {
         guard !order.contains(where: { segments[$0]?.done == false }) else { return }
         finished = true
         closeTimer?.cancel()
+        DictationLog.note("stream: final \(stitched.count) chars")
         onFinal?(stitched)
         close()
     }
@@ -194,6 +198,7 @@ final class StreamingTranscriber: NSObject {
         case "session.updated", "session.created", "transcription_session.updated", "transcription_session.created":
             if !ready {
                 ready = true
+                DictationLog.note("stream: ready (\(type)); \(queued.count) chunks queued")
                 // Audio captured before the session was ready goes now.
                 for chunk in queued { send(["type": "input_audio_buffer.append", "audio": chunk]) }
                 queued.removeAll()
@@ -217,6 +222,7 @@ final class StreamingTranscriber: NSObject {
             let id = (event["item_id"] as? String) ?? order.last ?? "item"
             open(id)
             let full = (event["transcript"] as? String) ?? (event["text"] as? String) ?? segments[id]?.text ?? ""
+            DictationLog.note("stream: segment done \(id.suffix(6)) \(full.count) chars")
             segments[id] = (full, true)
             text = stitched
             onPartial?(text)
@@ -226,6 +232,7 @@ final class StreamingTranscriber: NSObject {
         case "error":
             let err = event["error"] as? [String: Any]
             let message = err?["message"] as? String ?? "Transcription failed"
+            DictationLog.note("stream: error \(message)")
             // A commit with nothing new in the buffer is not a failure: the
             // last phrase already closed on its own.
             if committed, message.lowercased().contains("buffer") {
@@ -249,6 +256,7 @@ final class StreamingTranscriber: NSObject {
     private func fail(_ message: String) {
         guard !finished else { return }
         finished = true
+        DictationLog.note("stream: FAILED \(message)")
         close()
         onFailure?(message)
     }
@@ -267,6 +275,7 @@ final class StreamingTranscriber: NSObject {
     private func flush(force: Bool) {
         guard force || outbox.count >= 4_800 else { return }
         guard !outbox.isEmpty else { return }
+        sentBytes += outbox.count
         let chunk = outbox.base64EncodedString()
         outbox.removeAll(keepingCapacity: true)
         if ready { send(["type": "input_audio_buffer.append", "audio": chunk]) } else { queued.append(chunk) }
