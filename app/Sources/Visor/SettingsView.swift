@@ -1188,8 +1188,27 @@ private struct VoicePane: View {
     @State private var streamingOn = VoiceInput.streamingEnabled
     @State private var streamingModel = StreamingTranscriber.model
 
+    /// What will actually run on the next dictation, in one line — so the
+    /// model fields below can't be mistaken for it.
+    private var inUse: some View {
+        let model = StreamingTranscriber.models.first { $0.id == streamingModel }
+        let text = streamingOn
+            ? "Using now: \(model?.title.components(separatedBy: " —").first ?? streamingModel) (\(streamingModel)), streaming as you speak · falls back to \(VoiceInput.transcriptionModel) by upload"
+            : "Using now: \(VoiceInput.transcriptionModel), uploaded after you stop"
+        return HStack(spacing: 8) {
+            Circle().fill(Color(red: 0.36, green: 0.85, blue: 0.5)).frame(width: 7, height: 7)
+            Text(text).font(Design.Text.caption).foregroundStyle(Design.Retro.text)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
+            .fill(Design.Retro.accentDim))
+    }
+
     private var streamingRow: some View {
         VStack(alignment: .leading, spacing: 10) {
+            inUse
             SettingsRow(title: "Transcribe while you speak",
                         caption: "Streams the microphone to the transcription service as you talk; each phrase is transcribed at the pause after it, so the words are ready when you let go. Falls back to uploading the recording if the stream drops.") {
                 Toggle("", isOn: Binding(get: { streamingOn }, set: { streamingOn = $0; VoiceInput.streamingEnabled = $0 }))
@@ -1208,13 +1227,6 @@ private struct VoicePane: View {
     /// gateway and doesn't proxy audio transcription.
     private var voiceKey: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text("Voice key").font(Design.Text.headline)
-                if VoiceInput.hasKey {
-                    Label("set", systemImage: "checkmark.circle.fill")
-                        .font(Design.Text.caption2).foregroundStyle(.green)
-                }
-            }
             HStack {
                 SecureField(VoiceInput.hasKey
                             ? "•••••• (set) — type to replace"
@@ -1471,14 +1483,14 @@ private struct VoicePane: View {
     private var notchGames: some View {
         VStack(alignment: .leading, spacing: 10) {
             SettingsRow(title: "While you talk",
-                        caption: "The wave grows out of the notch's right side and follows your voice; the games spread to both sides.") {
+                        caption: "Eight visuals your voice drives, and three games. Some grow out of the notch's right side; the rest spread to both.") {
                 SettingsMenu(selection: $visuals.during,
-                             options: NotchVisuals.During.allCases.map { ($0, $0.title) }, width: 260)
+                             options: NotchVisuals.During.allCases.map { ($0, $0.title) }, width: 280)
             }
             SettingsRow(title: "While it transcribes",
                         caption: "Usually half a second now; something that reads in a glance.") {
                 SettingsMenu(selection: $visuals.after,
-                             options: NotchVisuals.After.allCases.map { ($0, $0.title) }, width: 260)
+                             options: NotchVisuals.After.allCases.map { ($0, $0.title) }, width: 280)
             }
             if visuals.during == .voicePong {
                 Text("Your paddle is on the left and moves while you speak, turning round "

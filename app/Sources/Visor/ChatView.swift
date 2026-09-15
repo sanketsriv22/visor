@@ -1287,31 +1287,6 @@ struct VoiceInvaders: View {
     }
 }
 
-/// Your voice as a wave in the dot matrix: the newest sample at the notch's
-/// edge, older ones flowing right, each column lit from the middle out to
-/// its level — sound coming out of the notch.
-struct VoiceWave: View {
-    @ObservedObject var voice: VoiceInput
-
-    private static let columns = 20
-    private static let rows = 10
-
-    var body: some View {
-        let recent = Array(voice.levels.suffix(Self.columns).reversed())
-        DotGrid(columns: (0..<Self.columns).map { i in
-            let level = i < recent.count ? Double(recent[i]) : 0
-            let half = Double(Self.rows) / 2
-            return (0..<Self.rows).map { row in
-                let distance = abs(Double(row) + 0.5 - half)   // 0.5 … 4.5
-                let reach = 0.5 + level * (half - 0.5)         // rows lit each way
-                if distance <= reach { return 1.0 }
-                if distance <= reach + 1 { return 0.35 }
-                return 0.0
-            }
-        })
-    }
-}
-
 /// Voice Pong, which is the invaders' sibling: a simulation your voice
 /// changes, drawn across both pills as one board with the notch for a net.
 struct VoicePongView: View {
@@ -1545,15 +1520,18 @@ struct ListeningPill: View {
         switch voice.state {
         case .recording:
             switch visuals.during {
-            case .wave:      VoiceWave(voice: voice)
             case .invaders:  VoiceInvaders(arcade: voice.arcade, side: side)
             case .voicePong: VoicePongView(pong: voice.pong, side: side)
             case .pong:      NotchPong(side: side)
+            default:
+                if let kind = visuals.during.gallery { NotchLiveView(voice: voice, kind: kind, side: side) }
             }
         case .transcribing:
             switch visuals.after {
             case .pong:  NotchPong(side: side)
             case .quiet: Color.clear
+            default:
+                if let kind = visuals.after.gallery { NotchIdleView(kind: kind, side: side) }
             }
         default:
             statusContent

@@ -147,8 +147,10 @@ struct SettingsCard<Content: View>: View {
                     .foregroundStyle(Design.Retro.faint)
                     .lineLimit(1)
             }
-            Spacer(minLength: 0)
+            Rectangle().fill(Design.Retro.line).frame(height: 1).opacity(0.7)
+                .padding(.leading, 8)
         }
+        .padding(.top, 6)
         .contentShape(Rectangle())
     }
 }
@@ -252,8 +254,8 @@ struct SettingsMenu<Value: Hashable>: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(Design.Retro.accent)
             }
-            .padding(.horizontal, 10)
-            .frame(height: 26)
+            .padding(.horizontal, 12)
+            .frame(height: 30)
             .background(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
                 .fill(Design.Retro.text.opacity(hover ? 0.12 : 0.07)))
             .overlay(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
@@ -276,7 +278,7 @@ struct SettingsMenu<Value: Hashable>: View {
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
-            .frame(height: 26)
+            .frame(height: 30)
         }
         .frame(width: width)
         .onHover { hover = $0 }

@@ -15,27 +15,33 @@ final class NotchVisuals: ObservableObject {
     static let shared = NotchVisuals()
 
     enum During: String, CaseIterable, Identifiable {
-        case wave, invaders, voicePong, pong
+        // The gallery's, then the games.
+        case wave, mirror, bars, ripple, fire, comet, rain, pulse
+        case invaders, voicePong, pong
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .wave:      return "Wave — your voice, to the right"
             case .invaders:  return "Invaders — talking fires"
             case .voicePong: return "Pong — talking moves your paddle"
             case .pong:      return "Pong — plays itself"
+            default:         return gallery?.title ?? rawValue
             }
         }
+        var gallery: NotchGallery.Live? { NotchGallery.Live(rawValue: rawValue) }
+        var rightOnly: Bool { gallery?.sides == .right }
     }
 
     enum After: String, CaseIterable, Identifiable {
-        case pong, quiet
+        case scanner, orbit, snake, ember, drizzle, pong, quiet
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .pong:  return "Pong"
-            case .quiet: return "Nothing"
+            case .pong:  return "Pong — through the notch"
+            default:     return gallery?.title ?? rawValue
             }
         }
+        var gallery: NotchGallery.Idle? { NotchGallery.Idle(rawValue: rawValue) }
+        var rightOnly: Bool { gallery?.sides == .right }
     }
 
     @Published var during: During {
@@ -59,7 +65,7 @@ final class NotchVisuals: ObservableObject {
     /// games were designed for the notch's own height and stay in it.
     var extraHeight: CGFloat { during == .voicePong ? VoicePong.extraHeight : 0 }
 
-    /// The wave grows out of the notch's right side only; the games span
-    /// both sides with the notch in the middle.
-    var rightOnly: Bool { during == .wave }
+    /// Some visuals grow out of the notch's right side only; the rest span
+    /// both sides with the notch in the middle. Decided per moment.
+    func rightOnly(transcribing: Bool) -> Bool { transcribing ? after.rightOnly : during.rightOnly }
 }
