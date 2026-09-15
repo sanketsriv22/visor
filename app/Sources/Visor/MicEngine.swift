@@ -23,6 +23,8 @@ final class MicEngine {
     private var onPCM: ((Data) -> Void)?
     private var onPeak: ((Float) -> Void)?
     private(set) var running = false
+    /// Which start() is in flight, so a stop() that lands first wins.
+    private var generation = 0
 
     private init() {}
 
@@ -32,7 +34,12 @@ final class MicEngine {
         engine.prepare()
     }
 
-    func start(file url: URL?, onPCM: @escaping (Data) -> Void, onPeak: @escaping (Float) -> Void) throws {
+    /// Opens the device off the main thread — `AVAudioEngine.start()` takes
+    /// a few hundred milliseconds the first time and tens after, and on the
+    /// main thread that was the pill waiting to paint. `onFailure` is called
+    /// on the main thread if the device can't be opened.
+    func start(file url: URL?, onPCM: @escaping (Data) -> Void, onPeak: @escaping (Float) -> Void,
+               onFailure: @escaping (Error) -> Void) throws {
         guard !running else { return }
         let input = engine.inputNode
         let inFormat = input.outputFormat(forBus: 0)
@@ -50,20 +57,39 @@ final class MicEngine {
         input.installTap(onBus: 0, bufferSize: 2400, format: inFormat) { [weak self] buffer, _ in
             self?.capture(buffer)
         }
-        engine.prepare()
-        try engine.start()
         running = true
+        generation += 1
+        let gen = generation
+        let engine = self.engine
+        DispatchQueue.global(qos: .userInteractive).async {
+            do {
+                engine.prepare()
+                try engine.start()
+                Task { @MainActor in
+                    // Stopped before the device opened: close it again.
+                    if gen != self.generation || !self.running { engine.stop() }
+                }
+            } catch {
+                Task { @MainActor in
+                    guard gen == self.generation else { return }
+                    self.stop()
+                    onFailure(error)
+                }
+            }
+        }
     }
 
     func stop() {
         guard running else { return }
+        generation += 1
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         running = false
         file = nil          // closes and flushes
         onPCM = nil; onPeak = nil
         // Ready for the next one.
-        engine.prepare()
+        let engine = self.engine
+        DispatchQueue.global(qos: .utility).async { engine.prepare() }
     }
 
     private nonisolated func capture(_ buffer: AVAudioPCMBuffer) {

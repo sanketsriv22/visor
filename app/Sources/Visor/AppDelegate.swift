@@ -157,6 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
         pushToTalk.onHoldStart = { [weak self] in self?.controller?.beginDictation() }
         pushToTalk.onHoldEnd = { [weak self] in self?.controller?.endDictation() }
+        pushToTalk.onCancel = { [weak self] in self?.controller?.cancelDictation() }
         pushToTalk.onToggle = { [weak self] in self?.controller?.toggleDictation() }
         // The notch asks for Settings (e.g. from "no agents yet").
         NotificationCenter.default.addObserver(

@@ -283,6 +283,12 @@ final class VoiceInput: NSObject, ObservableObject {
                                        onPeak: { [weak self] peak in
                                            let db = 20 * log10(max(peak, 0.00001))
                                            if let self, db > self.peakDB { self.peakDB = db }
+                                       },
+                                       onFailure: { [weak self] error in
+                                           guard let self, self.state == .recording else { return }
+                                           self.stopMetering()
+                                           self.streamer?.cancel(); self.streamer = nil
+                                           self.state = .failed("Couldn't start the microphone: \(error.localizedDescription)")
                                        })
         } catch {
             stopMetering()

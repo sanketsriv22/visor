@@ -741,6 +741,9 @@ final class NotchController {
     /// End a hold-to-talk recording and transcribe it.
     func endDictation() { chat.voice.finish() }
 
+    /// A press that turned out to be a tap: drop what it recorded.
+    func cancelDictation() { chat.voice.cancel() }
+
     /// Show the HUD's window, built at full size before it is ever displayed.
     private func showHUD() {
         guard let screen = targetScreen else { return }
