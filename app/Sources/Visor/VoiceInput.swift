@@ -380,9 +380,9 @@ final class VoiceInput: NSObject, ObservableObject {
                 duration: startedAt.map { cleanupStarted.timeIntervalSince($0) },
                 conversation: currentConversation?(),
                 transcribeSeconds: transcribeSeconds,
-                cleanupSeconds: cleaned ? Date().timeIntervalSince(cleanupStarted) : nil,
                 path: path,
-                note: path == "upload" ? streamNote : nil))
+                note: path == "upload" ? streamNote : nil,
+                cleanupSeconds: cleaned ? Date().timeIntervalSince(cleanupStarted) : nil))
             self.startedAt = nil
             streamNote = nil
             onTranscript?(trimmed)
