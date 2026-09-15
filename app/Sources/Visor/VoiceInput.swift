@@ -7,12 +7,12 @@ import Foundation
 /// not proxy audio transcription, so the OpenRouter key every chat agent
 /// shares can't be reused here.
 ///
-/// Two paths run at once. A `StreamingTranscriber` opens a realtime
-/// session the moment you start and receives words while you speak, so
-/// releasing the key leaves only the last second to finish — the fast
-/// path. Alongside it, `AVAudioRecorder` still writes AAC to disk and
-/// hands us metering; if the stream fails for any reason, the file is
-/// uploaded exactly as before. Nothing is lost either way.
+/// One microphone engine (`MicEngine`) feeds three things at once: the
+/// `StreamingTranscriber`, which receives words while you speak so
+/// releasing the key leaves only the last phrase to finish; an AAC file
+/// on disk, uploaded the old way if the stream fails for any reason; and
+/// the meter. Nothing is lost either way, and the pill shows the moment
+/// the key is heard, before the device has even opened.
 @MainActor
 final class VoiceInput: NSObject, ObservableObject {
     /// Stream while speaking (fast) or upload the file afterwards (the old
@@ -55,7 +55,8 @@ final class VoiceInput: NSObject, ObservableObject {
     /// same samples or the halves won't line up as it passes behind.
     @Published private(set) var levels: [Float] = Array(repeating: 0, count: 28)
 
-    private var recorder: AVAudioRecorder?
+    /// The loudest thing heard since the meter last looked, in dBFS.
+    private var peakDB: Float = -80
     private var meterTimer: Timer?
     private var fileURL: URL?
     private var startedAt: Date?
@@ -264,44 +265,37 @@ final class VoiceInput: NSObject, ObservableObject {
     }
 
     private func beginRecording() {
-        if Self.streamingEnabled { beginStream() } else { warmConnection() }
         // Where the words are going, decided now rather than when they arrive.
         // Transcription is a round trip; focus can move in between.
         TextInsertion.captureTarget()
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("visor-dictation-\(UUID().uuidString).m4a")
-        // 16 kHz mono is what the model wants anyway; recording higher just
-        // makes a bigger upload for no accuracy.
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 16_000,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
-        ]
+        fileURL = url
+        startedAt = Date()
+        // The pill first. The device takes a moment to open; the person
+        // shouldn't wait on it to know the key was heard.
+        state = .recording
+        startMetering()
+        if Self.streamingEnabled { beginStream() } else { warmConnection() }
         do {
-            let recorder = try AVAudioRecorder(url: url, settings: settings)
-            recorder.isMeteringEnabled = true
-            recorder.delegate = self
-            guard recorder.record() else {
-                state = .failed("Couldn't start the microphone")
-                return
-            }
-            self.recorder = recorder
-            self.fileURL = url
-            self.startedAt = Date()
-            state = .recording
-            startMetering()
+            try MicEngine.shared.start(file: url,
+                                       onPCM: { [weak self] pcm in self?.streamer?.feed(pcm) },
+                                       onPeak: { [weak self] peak in
+                                           let db = 20 * log10(max(peak, 0.00001))
+                                           if let self, db > self.peakDB { self.peakDB = db }
+                                       })
         } catch {
-            state = .failed(error.localizedDescription)
+            stopMetering()
+            streamer?.cancel(); streamer = nil
+            state = .failed("Couldn't start the microphone: \(error.localizedDescription)")
         }
     }
 
     /// Stop recording and transcribe what was captured.
     func finish() {
-        guard state == .recording, let recorder else { return }
+        guard state == .recording else { return }
         stopMetering()
-        recorder.stop()
-        self.recorder = nil
+        MicEngine.shared.stop()
         guard let url = fileURL else { state = .idle; return }
         state = .transcribing
         finishedAt = Date()
@@ -395,8 +389,7 @@ final class VoiceInput: NSObject, ObservableObject {
         streamer?.cancel()
         streamer = nil
         partial = ""
-        recorder?.stop()
-        recorder = nil
+        MicEngine.shared.stop()
         if let fileURL { try? FileManager.default.removeItem(at: fileURL) }
         fileURL = nil
         state = .idle
@@ -423,8 +416,7 @@ final class VoiceInput: NSObject, ObservableObject {
     }
 
     private func sampleLevel() {
-        guard let recorder, recorder.isRecording else { return }
-        recorder.updateMeters()
+        guard state == .recording else { return }
         // dBFS: -160 is silence, 0 is clipping. The window matters more than it
         // sounds. Normal speech into a laptop mic averages about -40 dB and
         // peaks near -20; mapping from -45 put ordinary talking at 0.1-0.4 of
@@ -433,8 +425,8 @@ final class VoiceInput: NSObject, ObservableObject {
         // Peak rather than average: average is pulled down by the gaps between
         // syllables, so it under-reads exactly when someone is speaking
         // normally. Peak is what you see when you watch a voice.
-        let dB = max(recorder.peakPower(forChannel: 0),
-                     recorder.averagePower(forChannel: 0))
+        let dB = peakDB
+        peakDB = -80
 
         // The floor is measured, not assumed.
         //
@@ -565,14 +557,5 @@ final class VoiceInput: NSObject, ObservableObject {
               let error = object["error"] as? [String: Any],
               let message = error["message"] as? String else { return nil }
         return message
-    }
-}
-
-extension VoiceInput: AVAudioRecorderDelegate {
-    nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        Task { @MainActor in
-            self.state = .failed(error?.localizedDescription ?? "Recording failed")
-            self.stopMetering()
-        }
     }
 }

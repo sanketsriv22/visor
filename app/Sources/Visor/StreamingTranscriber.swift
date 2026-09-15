@@ -48,9 +48,6 @@ final class StreamingTranscriber: NSObject {
     private var audioSinceCut = false
     private var sentBytes = 0
 
-    private let engine = AVAudioEngine()
-    private let wire = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 24_000, channels: 1, interleaved: true)!
-    private var converter: AVAudioConverter?
     private var outbox = Data()
 
     /// The realtime models that support turn detection, which the phrase-
@@ -67,7 +64,7 @@ final class StreamingTranscriber: NSObject {
         set { UserDefaults.standard.set(newValue, forKey: "visor.streamingModel") }
     }
 
-    /// Open the session and start streaming the microphone.
+    /// Open the session. Audio arrives through `feed`.
     func start(key: String, model: String? = nil, prompt: String? = nil) throws {
         guard !isOpen else { return }
         let model = model ?? Self.model
@@ -108,7 +105,6 @@ final class StreamingTranscriber: NSObject {
                 ],
             ],
         ])
-        try startAudio()
     }
 
     /// Stop the microphone; commit the phrase in flight, if there is one,
@@ -116,7 +112,6 @@ final class StreamingTranscriber: NSObject {
     func finish() {
         guard isOpen, !committed else { return }
         committed = true
-        stopAudio()
         flush(force: true)
         if audioSinceCut { send(["type": "input_audio_buffer.commit"]) }
         settleIfDone()
@@ -151,7 +146,6 @@ final class StreamingTranscriber: NSObject {
 
     /// Drop everything.
     func cancel() {
-        stopAudio()
         close()
     }
 
@@ -255,53 +249,18 @@ final class StreamingTranscriber: NSObject {
     private func fail(_ message: String) {
         guard !finished else { return }
         finished = true
-        stopAudio()
         close()
         onFailure?(message)
     }
 
     // MARK: Audio
 
-    private func startAudio() throws {
-        let input = engine.inputNode
-        let inFormat = input.outputFormat(forBus: 0)
-        converter = AVAudioConverter(from: inFormat, to: wire)
-        input.installTap(onBus: 0, bufferSize: 2400, format: inFormat) { [weak self] buffer, _ in
-            self?.capture(buffer)
-        }
-        engine.prepare()
-        try engine.start()
-    }
-
-    private func stopAudio() {
-        guard engine.isRunning else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-    }
-
-    private nonisolated func capture(_ buffer: AVAudioPCMBuffer) {
-        Task { @MainActor in
-            guard let converter = self.converter, self.isOpen, !self.committed else { return }
-            let ratio = self.wire.sampleRate / buffer.format.sampleRate
-            let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 16
-            guard let out = AVAudioPCMBuffer(pcmFormat: self.wire, frameCapacity: capacity) else { return }
-            var consumed = false
-            var error: NSError?
-            converter.convert(to: out, error: &error) { _, status in
-                if consumed { status.pointee = .noDataNow; return nil }
-                consumed = true
-                status.pointee = .haveData
-                return buffer
-            }
-            guard error == nil, out.frameLength > 0, let channel = out.int16ChannelData?[0] else { return }
-            let count = Int(out.frameLength)
-            var peak: Int16 = 0
-            for i in 0..<count { peak = max(peak, abs(channel[i])) }
-            self.onLevel?(Float(peak) / 32767)
-            self.outbox.append(Data(bytes: channel, count: count * 2))
-            self.audioSinceCut = true
-            self.flush(force: false)
-        }
+    /// 16-bit mono PCM at 24 kHz, from the shared microphone engine.
+    func feed(_ pcm: Data) {
+        guard isOpen, !committed else { return }
+        outbox.append(pcm)
+        audioSinceCut = true
+        flush(force: false)
     }
 
     /// Ship 100 ms at a time (4,800 bytes at 24 kHz mono 16-bit).
