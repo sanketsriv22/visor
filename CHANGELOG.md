@@ -19,6 +19,7 @@ the menu-bar dropdown, and published as the release notes for each version.
 - Live conversation is the chat: your words stream into your turn as you speak, the reply streams as the agent's; the composer folds to one row with a waveform in voice mode, and the switch is beside the mic. Session events are logged to ~/Library/Logs/Visor/live.log.
 - HUD text size is capped at 1.25×; the transcript no longer unpins when content grows under a pinned reader.
 - The mark is live: the icon's trefoil built and rendered in SceneKit as iridescent metal, any size, sixty frames a second. The introduction forms it from three strands in the middle of the screen and sends it into the notch. The screen behind the tour is blurred and lit where the moment is.
+- Dictation transcribes while you speak: the microphone streams to a realtime transcription session from the first word, the words show faintly in the composer as they arrive, and letting go leaves only the last second to finish. The recording still goes to disk and is uploaded the old way if the stream drops. Off in Settings → Voice → Speed if you want the old path.
 - A Design Lab (`Visor --design-lab`) renders every surface with isolated fixtures, including frame sequences.
 
 ## 1.0-beta.36 — 2026-09-02

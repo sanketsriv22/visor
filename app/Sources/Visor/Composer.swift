@@ -60,7 +60,17 @@ struct Composer: View {
 
     private var field: some View {
         ZStack(alignment: .topLeading) {
-            if chat.draft.isEmpty {
+            if chat.draft.isEmpty, !chat.voice.partial.isEmpty, chat.voice.state.isBusy {
+                // What you're saying, as it's heard — it lands as the draft
+                // when you let go.
+                Text(chat.voice.partial)
+                    .font(.system(size: metrics.fontSize))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineSpacing(metrics.lineSpacing)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    .padding(.top, metrics.lineInset)
+            } else if chat.draft.isEmpty {
                 Text(placeholder)
                     .font(.system(size: metrics.fontSize))
                     .foregroundStyle(.white.opacity(0.45))

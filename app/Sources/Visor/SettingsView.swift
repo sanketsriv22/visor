@@ -1159,9 +1159,22 @@ private struct VoicePane: View {
             SettingsCard(label: "Live conversation") { LiveVoiceSettings() }
             SettingsCard(label: "Visor's voice") { NarratorVoicePicker() }
             SettingsCard(label: "Transcription") { voiceKey }
+            SettingsCard(label: "Speed") { streamingRow }
             SettingsCard(label: "Transcription model") { transcriptionModelField }
             SettingsCard(label: "Dictation games") { notchGames }
             SettingsCard(label: "Voice log") { voiceLogSection }
+        }
+    }
+
+    @State private var streamingOn = VoiceInput.streamingEnabled
+
+    private var streamingRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SettingsRow(title: "Transcribe while you speak",
+                        caption: "Streams the microphone to the transcription service as you talk, so the words are ready when you let go — instead of uploading a recording afterwards and waiting for all of it. Falls back to the upload if the stream drops.") {
+                Toggle("", isOn: Binding(get: { streamingOn }, set: { streamingOn = $0; VoiceInput.streamingEnabled = $0 }))
+                    .labelsHidden().toggleStyle(.switch)
+            }
         }
     }
 
@@ -1303,9 +1316,9 @@ private struct VoicePane: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Text("Transcribe with").font(Design.Text.caption).foregroundStyle(.secondary)
-                TextField("whisper-1", text: Binding(
+                TextField("gpt-transcribe", text: Binding(
                     get: { VoiceInput.transcriptionModel },
-                    set: { VoiceInput.transcriptionModel = $0.isEmpty ? "whisper-1" : $0 }))
+                    set: { VoiceInput.transcriptionModel = $0.isEmpty ? "gpt-transcribe" : $0 }))
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 200)
             }

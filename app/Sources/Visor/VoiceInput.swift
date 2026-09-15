@@ -7,12 +7,25 @@ import Foundation
 /// not proxy audio transcription, so the OpenRouter key every chat agent
 /// shares can't be reused here.
 ///
-/// Recording uses `AVAudioRecorder` rather than `AVAudioEngine`. The engine
-/// would mean owning format conversion and buffer plumbing to get a file
-/// Whisper accepts; the recorder writes AAC straight to disk and hands us
-/// metering for free, which is all the level display needs.
+/// Two paths run at once. A `StreamingTranscriber` opens a realtime
+/// session the moment you start and receives words while you speak, so
+/// releasing the key leaves only the last second to finish — the fast
+/// path. Alongside it, `AVAudioRecorder` still writes AAC to disk and
+/// hands us metering; if the stream fails for any reason, the file is
+/// uploaded exactly as before. Nothing is lost either way.
 @MainActor
 final class VoiceInput: NSObject, ObservableObject {
+    /// Stream while speaking (fast) or upload the file afterwards (the old
+    /// way). Kept as a switch so the two can be compared on the same Mac.
+    static var streamingEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: "visor.dictationStreaming") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "visor.dictationStreaming") }
+    }
+
+    /// The transcript so far, while it is still being spoken.
+    @Published private(set) var partial = ""
+    private var streamer: StreamingTranscriber?
+    private var streamFailed = false
     enum State: Equatable {
         case idle
         case denied
@@ -250,7 +263,7 @@ final class VoiceInput: NSObject, ObservableObject {
     }
 
     private func beginRecording() {
-        warmConnection()
+        if Self.streamingEnabled { beginStream() } else { warmConnection() }
         // Where the words are going, decided now rather than when they arrive.
         // Transcription is a round trip; focus can move in between.
         TextInsertion.captureTarget()
@@ -290,12 +303,89 @@ final class VoiceInput: NSObject, ObservableObject {
         self.recorder = nil
         guard let url = fileURL else { state = .idle; return }
         state = .transcribing
-        Task { await transcribe(url) }
+        finishedAt = Date()
+        if let streamer, streamer.isOpen, !streamFailed {
+            // The words are mostly here already; ask for the rest.
+            streamer.finish()
+        } else {
+            Task { await transcribe(url) }
+        }
+    }
+
+    // MARK: - Streaming
+
+    /// Open the realtime session as recording begins. Anything that goes
+    /// wrong — no session, a dropped socket, an error event — falls back
+    /// to the file upload, which is still being written.
+    private func beginStream() {
+        guard let key = Keychain.get(Self.keyAccount)?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty else { return }
+        let t = StreamingTranscriber()
+        streamFailed = false
+        partial = ""
+        t.onPartial = { [weak self] text in self?.partial = text }
+        t.onFinal = { [weak self] text in
+            guard let self else { return }
+            let started = self.startedAt
+            self.streamer = nil
+            if let fileURL { try? FileManager.default.removeItem(at: fileURL) }
+            self.fileURL = nil
+            self.deliver(raw: text, transcribeSeconds: self.finishedAt.map { Date().timeIntervalSince($0) } ?? 0, startedAt: started)
+        }
+        t.onFailure = { [weak self] why in
+            guard let self else { return }
+            self.streamFailed = true
+            self.streamer = nil
+            // Still recording: the file path takes over at finish(). Already
+            // finishing: upload the file now.
+            if self.state == .transcribing, let url = self.fileURL {
+                Task { await self.transcribe(url) }
+            }
+            NSLog("[Visor] streaming transcription failed, using upload: %@", why)
+        }
+        do {
+            try t.start(key: key, model: Self.transcriptionModel)
+            streamer = t
+        } catch {
+            streamFailed = true
+        }
+    }
+
+    /// When finish() was called — the stream's wait is measured from here,
+    /// the upload's from when the file was ready; both are "after key-up".
+    private var finishedAt: Date?
+
+    /// One place the transcript lands, from either path: cleanup if it
+    /// needs it, the log, the caller.
+    private func deliver(raw: String, transcribeSeconds: TimeInterval, startedAt: Date?) {
+        let raw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { state = .idle; partial = ""; return }
+        Task { @MainActor in
+            var trimmed = raw
+            let cleanupStarted = Date()
+            var cleaned = false
+            if Self.cleanupEnabled, Self.needsCleanup(raw), let polish {
+                cleaned = true
+                trimmed = await polish(raw)
+            }
+            state = .idle
+            partial = ""
+            VoiceLog.append(VoiceEntry(
+                text: trimmed,
+                duration: startedAt.map { cleanupStarted.timeIntervalSince($0) },
+                conversation: currentConversation?(),
+                transcribeSeconds: transcribeSeconds,
+                cleanupSeconds: cleaned ? Date().timeIntervalSince(cleanupStarted) : nil))
+            self.startedAt = nil
+            onTranscript?(trimmed)
+        }
     }
 
     /// Abandon a recording without transcribing it.
     func cancel() {
         stopMetering()
+        streamer?.cancel()
+        streamer = nil
+        partial = ""
         recorder?.stop()
         recorder = nil
         if let fileURL { try? FileManager.default.removeItem(at: fileURL) }
@@ -434,31 +524,7 @@ final class VoiceInput: NSObject, ObservableObject {
                 state = .failed("Couldn't read the transcript")
                 return
             }
-            let raw = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !raw.isEmpty else { state = .idle; return }
-
-            var trimmed = raw
-            let cleanupStarted = Date()
-            var cleaned = false
-            if Self.cleanupEnabled, Self.needsCleanup(raw), let polish {
-                cleaned = true
-                // Still .transcribing while this runs — from the outside it's
-                // one step, and the pill shouldn't flicker between two.
-                trimmed = await polish(raw)
-            }
-            state = .idle
-            // Logged whether or not anything is listening for it: a transcript
-            // that only ever existed in a composer you then closed is gone.
-            VoiceLog.append(VoiceEntry(
-                text: trimmed,
-                duration: startedAt.map { Date().timeIntervalSince($0) },
-                conversation: currentConversation?(),
-                transcribeSeconds: cleanupStarted.timeIntervalSince(transcribeStarted),
-                // nil rather than zero when the pass was skipped — the log
-                // should say it didn't happen, not that it was instant.
-                cleanupSeconds: cleaned ? Date().timeIntervalSince(cleanupStarted) : nil))
-            startedAt = nil
-            onTranscript?(trimmed)
+            deliver(raw: text, transcribeSeconds: Date().timeIntervalSince(transcribeStarted), startedAt: startedAt)
         } catch {
             state = .failed(error.localizedDescription)
         }
