@@ -751,6 +751,9 @@ final class NotchController {
     /// notch is already open it stays open, on whichever face you left it.
     func toggleDictation() { chat.toggleDictation() }
 
+    /// The key went down: open the microphone quietly.
+    func armDictation() { chat.voice.arm() }
+
     /// Begin a hold-to-talk recording. Like `toggleDictation`, this never opens
     /// the notch.
     func beginDictation() { chat.voice.start() }

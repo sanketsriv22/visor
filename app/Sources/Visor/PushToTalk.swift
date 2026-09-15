@@ -70,14 +70,18 @@ final class PushToTalk: ObservableObject {
 
     @Published private(set) var trigger: Trigger = .off
 
-    /// Begin recording — on the key's first instant. Waiting to learn
-    /// whether a press was a hold or a tap was a 280 ms delay on every
-    /// dictation and clipped the first syllable; now a press always starts
-    /// recording, and the release decides how it ends: let go after a
-    /// hold and it transcribes; a tap leaves it running until the next tap.
+    /// The key went down: open the microphone now, quietly, so nothing said
+    /// in the first instant is lost — but show nothing yet. A modifier key
+    /// gets tapped by accident constantly; a tap must be nothing, and a
+    /// recording that showed and then vanished was a flash.
+    var onArm: (() -> Void)?
+    /// The press has lasted long enough to be a hold: show that we're
+    /// listening. Recording has been running since `onArm`.
     var onHoldStart: (() -> Void)?
     /// End the recording (and transcribe).
     var onHoldEnd: (() -> Void)?
+    /// The press turned out to be a tap: drop what the microphone caught.
+    var onCancel: (() -> Void)?
     /// Double-tap: start or stop, and stay in that state.
     var onToggle: (() -> Void)?
 
@@ -87,7 +91,12 @@ final class PushToTalk: ObservableObject {
     /// How long the key must be down before it counts as a hold rather than a
     /// tap. Short enough not to clip the start of speech, long enough that a
     /// double-tap's first press isn't mistaken for one.
-    let holdThreshold: TimeInterval = 0.28
+    /// Long enough to tell a hold from a tap, short enough that the pill
+    /// feels immediate. Audio is captured from the first instant regardless.
+    let holdThreshold: TimeInterval = 0.18
+    /// Two taps inside this window toggle recording on until the next press.
+    let doubleTapWindow: TimeInterval = 0.4
+    private var lastTapAt: Date?
 
     private var pressedAt: Date?
     private var holding = false
@@ -189,23 +198,42 @@ final class PushToTalk: ObservableObject {
         guard pressedAt == nil else { return }   // autorepeat
         pressedAt = Date()
         if toggledOn { return }                  // this press ends it, on release
-        onHoldStart?()                           // recording starts now
+        onArm?()                                 // the microphone, now
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.pressedAt != nil, !self.holding else { return }
+            self.holding = true
+            self.onHoldStart?()                  // the pill, once it's a hold
+        }
+        holdWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + holdThreshold, execute: work)
     }
 
-    /// The key came up.
+    /// The key came up. `heldFor` can be given by tests.
     func released(heldFor override: TimeInterval? = nil) {
         let heldFor = override ?? pressedAt.map { Date().timeIntervalSince($0) } ?? 0
+        let wasHolding = holding || heldFor >= holdThreshold
         cancelHold()
         if toggledOn {
-            // Tapped while toggled on: done.
-            toggledOn = false
+            toggledOn = false                    // tapped while toggled on: done
+            lastTapAt = nil
             onHoldEnd?()
-        } else if heldFor >= holdThreshold {
-            // Held: done when let go.
+            return
+        }
+        if wasHolding {
+            lastTapAt = nil
             onHoldEnd?()
-        } else {
-            // Tapped: keep recording until the next tap.
+            return
+        }
+        // A tap. Two inside the window toggle on — the second tap's arm
+        // becomes the recording; one alone is nothing.
+        let now = Date()
+        if let last = lastTapAt, now.timeIntervalSince(last) <= doubleTapWindow {
+            lastTapAt = nil
             toggledOn = true
+            onHoldStart?()
+        } else {
+            lastTapAt = now
+            onCancel?()
         }
     }
 

@@ -80,9 +80,10 @@ final class MicEngine {
     }
 
     func stop() {
-        guard running else { return }
         generation += 1
-        engine.inputNode.removeTap(onBus: 0)
+        if running { engine.inputNode.removeTap(onBus: 0) }
+        // Unconditional: a start still opening the device is caught by the
+        // generation check, and stopping a stopped engine is free.
         engine.stop()
         running = false
         file = nil          // closes and flushes

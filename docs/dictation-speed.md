@@ -66,10 +66,16 @@ paths with the Speed switch in Settings → Voice.
   view's pills and the strip under the notch all read `active`. Changing
   the visual mid-session takes effect next session. The 2026-09-15 bug
   was the frame reading one visual and the pills another.
-- **Recording starts on key-down.** `PushToTalk.pressed()` calls
-  `onHoldStart` immediately; `released` decides how it ends (hold →
-  transcribe; tap → keep recording until the next tap). Nothing is ever
-  started and cancelled, so the notch never flashes.
+- **The microphone opens on key-down; the pill shows on the hold.**
+  `PushToTalk.pressed()` calls `onArm` at once (capture, no UI), then
+  `onHoldStart` at 180 ms (the pill). Release after a hold transcribes; a
+  lone tap cancels the armed capture silently (no UI ever showed, so no
+  flash); a double-tap toggles on. A tap must be nothing: modifier keys
+  are tapped by accident all day, and a tap that started a recording left
+  the mic light on.
+- **The meter holds the last buffer's peak.** Buffers arrive at ~20 Hz,
+  the meter samples at 50; reading silence between them collapsed the
+  noise floor and lit the meter on room noise.
 - **Every visual fills its grid.** All thirteen return 20×10 values in
   0…1 for both sides at any time; fire is hotter at the bottom.
 - The lab's `notch-listening` scene draws the collapsed notch for a

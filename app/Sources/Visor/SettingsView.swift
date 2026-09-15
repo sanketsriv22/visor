@@ -1273,7 +1273,7 @@ private struct VoicePane: View {
     private var landing: some View {
         VStack(alignment: .leading, spacing: 10) {
             SettingsRow(title: "Hold to talk",
-                        caption: "Hold the key to record and let go to transcribe; tap it to keep recording until the next tap. Recording starts the instant the key goes down. The only part of Visor that needs Accessibility — a bare modifier press has no key equivalent.") {
+                        caption: "Hold the key to record and let go to transcribe; double-tap to keep recording until the next press. The microphone opens the instant the key goes down, so nothing is clipped; a single tap is nothing. The only part of Visor that needs Accessibility — a bare modifier press has no key equivalent.") {
                 HStack(spacing: 8) {
                     SettingsMenu(selection: Binding(get: { pushToTalk.trigger }, set: { pushToTalk.setTrigger($0) }),
                                  options: PushToTalk.Trigger.allCases.map { ($0, $0.title) }, width: 170)

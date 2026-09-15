@@ -24,6 +24,9 @@ final class VoiceInput: NSObject, ObservableObject {
 
     /// The transcript so far, while it is still being spoken.
     @Published private(set) var partial = ""
+    /// The microphone is open and streaming but nothing shows yet — the
+    /// first 180 ms of a press, before it's known to be a hold.
+    private(set) var armed = false
     private var streamer: StreamingTranscriber?
     private var streamFailed = false
     private var streamNote: String?
@@ -55,7 +58,7 @@ final class VoiceInput: NSObject, ObservableObject {
     /// same samples or the halves won't line up as it passes behind.
     @Published private(set) var levels: [Float] = Array(repeating: 0, count: 28)
 
-    /// The loudest thing heard since the meter last looked, in dBFS.
+    /// The last buffer's peak, in dBFS.
     private var peakDB: Float = -80
     private var meterTimer: Timer?
     private var fileURL: URL?
@@ -215,7 +218,24 @@ final class VoiceInput: NSObject, ObservableObject {
         }
     }
 
+    /// Open the microphone without showing anything: a press has begun and
+    /// may be a tap. `start()` then shows the pill over the same capture;
+    /// `cancel()` drops it.
+    func arm() {
+        guard state == .idle, !armed else { return }
+        guard Self.hasKey, AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { return }
+        armed = true
+        openMicrophone()
+    }
+
     func start() {
+        if armed {
+            // Already capturing since the key went down; now show it.
+            armed = false
+            state = .recording
+            startMetering()
+            return
+        }
         guard Self.hasKey else {
             state = .failed("Add an OpenAI key in Settings to dictate")
             return
@@ -268,6 +288,15 @@ final class VoiceInput: NSObject, ObservableObject {
     }
 
     private func beginRecording() {
+        openMicrophone()
+        // The pill first. The device takes a moment to open; the person
+        // shouldn't wait on it to know the key was heard.
+        state = .recording
+        startMetering()
+    }
+
+    /// The capture itself: the file, the stream, the engine. Shows nothing.
+    private func openMicrophone() {
         // Where the words are going, decided now rather than when they arrive.
         // Transcription is a round trip; focus can move in between.
         TextInsertion.captureTarget()
@@ -275,27 +304,24 @@ final class VoiceInput: NSObject, ObservableObject {
             .appendingPathComponent("visor-dictation-\(UUID().uuidString).m4a")
         fileURL = url
         startedAt = Date()
-        // The pill first. The device takes a moment to open; the person
-        // shouldn't wait on it to know the key was heard.
-        state = .recording
-        startMetering()
         if Self.streamingEnabled { beginStream() } else { warmConnection() }
         do {
             try MicEngine.shared.start(file: url,
                                        onPCM: { [weak self] pcm in self?.streamer?.feed(pcm) },
                                        onPeak: { [weak self] peak in
-                                           let db = 20 * log10(max(peak, 0.00001))
-                                           if let self, db > self.peakDB { self.peakDB = db }
+                                           self?.peakDB = 20 * log10(max(peak, 0.00001))
                                        },
                                        onFailure: { [weak self] error in
-                                           guard let self, self.state == .recording else { return }
+                                           guard let self, self.state == .recording || self.armed else { return }
                                            self.stopMetering()
                                            self.streamer?.cancel(); self.streamer = nil
+                                           self.armed = false
                                            self.state = .failed("Couldn't start the microphone: \(error.localizedDescription)")
                                        })
         } catch {
             stopMetering()
             streamer?.cancel(); streamer = nil
+            armed = false
             state = .failed("Couldn't start the microphone: \(error.localizedDescription)")
         }
     }
@@ -398,6 +424,7 @@ final class VoiceInput: NSObject, ObservableObject {
         streamer?.cancel()
         streamer = nil
         partial = ""
+        armed = false
         MicEngine.shared.stop()
         if let fileURL { try? FileManager.default.removeItem(at: fileURL) }
         fileURL = nil
@@ -434,8 +461,10 @@ final class VoiceInput: NSObject, ObservableObject {
         // Peak rather than average: average is pulled down by the gaps between
         // syllables, so it under-reads exactly when someone is speaking
         // normally. Peak is what you see when you watch a voice.
+        // Buffers arrive about twenty times a second and the meter samples
+        // fifty; reading "silence" between them collapsed the noise floor and
+        // lit the meter on room noise. Hold the last reading instead.
         let dB = peakDB
-        peakDB = -80
 
         // The floor is measured, not assumed.
         //

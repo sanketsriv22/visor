@@ -155,7 +155,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
         TrackpadGesture.shared.startIfPossible()
 
+        pushToTalk.onArm = { [weak self] in self?.controller?.armDictation() }
         pushToTalk.onHoldStart = { [weak self] in self?.controller?.beginDictation() }
+        pushToTalk.onCancel = { [weak self] in self?.controller?.cancelDictation() }
         pushToTalk.onHoldEnd = { [weak self] in self?.controller?.endDictation() }
         pushToTalk.onToggle = { [weak self] in self?.controller?.toggleDictation() }
         // The notch asks for Settings (e.g. from "no agents yet").

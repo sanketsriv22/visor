@@ -48,38 +48,57 @@ final class ListeningTests: XCTestCase {
 
     // MARK: The key
 
-    func testHoldRecordsFromTheFirstInstantAndEndsOnRelease() {
+    func testPressArmsTheMicrophoneAtOnce() {
         let key = PushToTalk()
-        var starts = 0, ends = 0
-        key.onHoldStart = { starts += 1 }
-        key.onHoldEnd = { ends += 1 }
+        var arms = 0, shows = 0
+        key.onArm = { arms += 1 }
+        key.onHoldStart = { shows += 1 }
         key.pressed()
-        XCTAssertEqual(starts, 1, "recording must begin on key-down, not after a threshold")
-        key.released(heldFor: key.holdThreshold + 0.1)
-        XCTAssertEqual(ends, 1)
+        XCTAssertEqual(arms, 1, "the microphone must open on key-down, before the hold is known")
+        XCTAssertEqual(shows, 0, "nothing shows until it's a hold")
     }
 
-    func testTapTogglesAndNeverCancels() {
+    func testHoldEndsOnRelease() {
         let key = PushToTalk()
-        var starts = 0, ends = 0
-        key.onHoldStart = { starts += 1 }
+        var ends = 0, cancels = 0
         key.onHoldEnd = { ends += 1 }
-        key.pressed(); key.released(heldFor: 0.05)      // tap: keep recording
-        XCTAssertEqual(starts, 1); XCTAssertEqual(ends, 0)
-        key.pressed()                                   // second press: no new start
-        XCTAssertEqual(starts, 1)
-        key.released(heldFor: 0.05)                     // second tap: done
-        XCTAssertEqual(ends, 1)
-        key.pressed(); key.released(heldFor: 0.05)      // a new session starts cleanly
-        XCTAssertEqual(starts, 2); XCTAssertEqual(ends, 1)
+        key.onCancel = { cancels += 1 }
+        key.pressed()
+        key.released(heldFor: key.holdThreshold + 0.1)
+        XCTAssertEqual(ends, 1); XCTAssertEqual(cancels, 0)
     }
 
-    func testAutorepeatDoesNotRestart() {
+    func testALoneTapIsNothing() {
         let key = PushToTalk()
-        var starts = 0
-        key.onHoldStart = { starts += 1 }
+        var ends = 0, cancels = 0, shows = 0
+        key.onHoldEnd = { ends += 1 }
+        key.onCancel = { cancels += 1 }
+        key.onHoldStart = { shows += 1 }
+        key.pressed(); key.released(heldFor: 0.05)
+        XCTAssertEqual(cancels, 1, "a tap must drop what it armed")
+        XCTAssertEqual(ends, 0); XCTAssertEqual(shows, 0)
+    }
+
+    func testDoubleTapTogglesOnAndTheNextPressEndsIt() {
+        let key = PushToTalk()
+        var arms = 0, shows = 0, ends = 0, cancels = 0
+        key.onArm = { arms += 1 }; key.onHoldStart = { shows += 1 }
+        key.onHoldEnd = { ends += 1 }; key.onCancel = { cancels += 1 }
+        key.pressed(); key.released(heldFor: 0.05)      // first tap: cancelled
+        key.pressed(); key.released(heldFor: 0.05)      // second tap: toggled on
+        XCTAssertEqual(arms, 2); XCTAssertEqual(cancels, 1); XCTAssertEqual(shows, 1)
+        key.pressed()                                   // while on: no new arm
+        XCTAssertEqual(arms, 2)
+        key.released(heldFor: 0.05)                     // done
+        XCTAssertEqual(ends, 1)
+    }
+
+    func testAutorepeatDoesNotRearm() {
+        let key = PushToTalk()
+        var arms = 0
+        key.onArm = { arms += 1 }
         key.pressed(); key.pressed(); key.pressed()
-        XCTAssertEqual(starts, 1)
+        XCTAssertEqual(arms, 1)
     }
 
     // MARK: Visuals
