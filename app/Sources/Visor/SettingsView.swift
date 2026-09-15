@@ -1164,14 +1164,16 @@ private struct VoicePane: View {
                 title: "Voice",
                 subtitle: "Dictate anywhere on your Mac. The words land at the caret in whatever you're typing in, and every transcript is kept here.")
 
+            SettingsCard(label: "OpenAI key", collapsible: true,
+                         summary: VoiceInput.hasKey ? "set" : "not set") { voiceKey }
             SettingsCard(label: "Transcription", collapsible: true,
                          summary: streamingOn ? StreamingTranscriber.models.first { $0.id == streamingModel }?.title ?? streamingModel : "upload") {
-                voiceKey
-                Rectangle().fill(Design.Retro.line).frame(height: 1).opacity(0.6)
                 streamingRow
                 Rectangle().fill(Design.Retro.line).frame(height: 1).opacity(0.6)
                 transcriptionModelField
             }
+            SettingsCard(label: "Where it lands", collapsible: true,
+                         summary: pushToTalk.trigger == .off ? "" : "hold \(pushToTalk.trigger.title)") { landing }
             SettingsCard(label: "What the notch shows", collapsible: true,
                          summary: NotchVisuals.shared.during.title.components(separatedBy: " —").first ?? "") { notchGames }
             SettingsCard(label: "Live conversation", collapsible: true, openByDefault: false,
@@ -1252,34 +1254,33 @@ private struct VoicePane: View {
             InfoNote(text: "\(ShortcutSettings.hint(.dictate)) dictates into the composer using OpenAI's transcription API. This is a separate key because OpenRouter doesn't carry audio — leave it blank and dictation stays off.",
                      summary: "About the voice key")
 
-            Toggle(isOn: Binding(
-                get: { TextInsertion.clipboardFallback },
-                set: { TextInsertion.clipboardFallback = $0; clipboardOn = $0 })) {
-                    Text("Fall back to the clipboard if it can't be inserted").font(Design.Text.caption)
-                }
-                .toggleStyle(.switch)
-            Text("Off by default. A transcript on the clipboard is one you still have to paste, and it takes over something you may have been using. Every transcript is in the log below regardless.")
-                .font(Design.Text.caption2).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
 
-            Toggle(isOn: Binding(
-                get: { TextInsertion.insertIntoFocusedApp },
-                set: { TextInsertion.insertIntoFocusedApp = $0; insertOn = $0 })) {
-                    Text("Type dictation into the app you're using").font(Design.Text.caption)
+    /// Where the words go, and how you start talking.
+    private var landing: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SettingsRow(title: "Hold to talk",
+                        caption: "Hold the key to record, release to transcribe; double-tap to toggle. The only part of Visor that needs Accessibility — a bare modifier press has no key equivalent.") {
+                HStack(spacing: 8) {
+                    SettingsMenu(selection: Binding(get: { pushToTalk.trigger }, set: { pushToTalk.setTrigger($0) }),
+                                 options: PushToTalk.Trigger.allCases.map { ($0, $0.title) }, width: 170)
+                    if pushToTalk.trigger != .off && !pushToTalk.isTrusted {
+                        ProminentButton("Grant access…") { pushToTalk.requestTrust() }
+                    }
                 }
-                .toggleStyle(.switch)
-            Text("When the composer isn't focused, the transcript is inserted at the caret in the app you were in when you started speaking. Your clipboard is left alone — it's only used if the text can't be inserted at all.")
-                .font(Design.Text.caption2).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            // Stated, not discovered. Without Accessibility this feature
-            // degrades to a clipboard copy, and a silent degradation is
-            // indistinguishable from the feature being broken.
+            }
+            Rectangle().fill(Design.Retro.line).frame(height: 1).opacity(0.6)
+            SettingsRow(title: "Type dictation into the app you're using",
+                        caption: "When the composer isn't focused, the transcript is inserted at the caret in the app you were in when you started speaking. Your clipboard is left alone unless the text can't be inserted at all.") {
+                Toggle("", isOn: Binding(get: { TextInsertion.insertIntoFocusedApp },
+                                         set: { TextInsertion.insertIntoFocusedApp = $0; insertOn = $0 }))
+                    .labelsHidden().toggleStyle(.switch)
+            }
             if insertOn && !trust.granted {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                         Text("Accessibility is off, so dictation can only reach the clipboard.")
                             .font(Design.Text.caption2)
                         Button("Open Settings") {
@@ -1287,30 +1288,19 @@ private struct VoicePane: View {
                             else { return }
                             NSWorkspace.shared.open(url)
                         }
-                        .font(Design.Text.caption2)
                         .buttonStyle(.settingsQuiet)
                     }
-                    // Said here because the alternative is someone opening
-                    // that pane, seeing Visor already switched on, and
-                    // reasonably concluding the app is broken.
-                    Text("If Visor is already switched on there, switch it off and on again. macOS ties the permission to the exact build it was granted to, and every update is a new one — the pane keeps showing the app as enabled either way, because it's listing the entry rather than checking it still matches.")
+                    Text("If Visor is already switched on there, switch it off and on again. macOS ties the permission to the exact build it was granted to, and every update is a new one.")
                         .font(Design.Text.caption2).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-
-            HStack(spacing: 8) {
-                Text("Hold to talk").font(Design.Text.caption).foregroundStyle(.secondary)
-                SettingsMenu(selection: Binding(get: { pushToTalk.trigger }, set: { pushToTalk.setTrigger($0) }),
-                             options: PushToTalk.Trigger.allCases.map { ($0, $0.title) }, width: 160)
-                if pushToTalk.trigger != .off && !pushToTalk.isTrusted {
-                    ProminentButton("Grant access…") { pushToTalk.requestTrust() }
-                        .font(Design.Text.caption)
-                }
+            SettingsRow(title: "Fall back to the clipboard if it can't be inserted",
+                        caption: "Off by default: a transcript on the clipboard is one you still have to paste, and it takes over something you may have been using. Every transcript is in the log regardless.") {
+                Toggle("", isOn: Binding(get: { TextInsertion.clipboardFallback },
+                                         set: { TextInsertion.clipboardFallback = $0; clipboardOn = $0 }))
+                    .labelsHidden().toggleStyle(.switch)
             }
-            Text("Hold the key to record and release to transcribe; double-tap it to toggle. This is the only part of Visor that needs Accessibility — a bare modifier press produces no key equivalent, so it can't use the permission-free shortcut mechanism everything else does.")
-                .font(Design.Text.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -1480,12 +1470,6 @@ private struct VoicePane: View {
 
     private var notchGames: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("What the notch shows").font(Design.Text.headline)
-            Text("Two moments, two slots. While you're talking there's a voice level to "
-               + "play with; afterwards there isn't, so what fits there plays itself.")
-                .font(Design.Text.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
             SettingsRow(title: "While you talk",
                         caption: "The wave grows out of the notch's right side and follows your voice; the games spread to both sides.") {
                 SettingsMenu(selection: $visuals.during,

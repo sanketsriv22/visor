@@ -235,42 +235,54 @@ struct SettingsMenu<Value: Hashable>: View {
     @Binding var selection: Value
     let options: [(Value, String)]
     var width: CGFloat = 200
+    @State private var hover = false
 
     var body: some View {
-        Menu {
-            ForEach(options, id: \.0) { value, title in
-                Button {
-                    selection = value
-                } label: {
-                    if value == selection {
-                        Label(title, systemImage: "checkmark")
-                    } else {
-                        Text(title)
-                    }
-                }
-            }
-        } label: {
+        // Drawn as a control; the menu itself is a transparent layer over it.
+        // A Menu's own label loses its background on macOS, which left these
+        // as bare text.
+        ZStack {
             HStack(spacing: 6) {
                 Text(options.first { $0.0 == selection }?.1 ?? "")
-                    .font(Design.Text.f(12))
+                    .font(Design.Text.f(12).weight(.medium))
                     .foregroundStyle(Design.Retro.text)
                     .lineLimit(1)
                 Spacer(minLength: 8)
-                RetroIcon(Glyph.chevron, size: 9, color: Design.Retro.accent)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Design.Retro.accent)
             }
-            .padding(.horizontal, 10).padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .frame(height: 26)
             .background(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
-                .fill(Design.Retro.text.opacity(0.07)))
+                .fill(Design.Retro.text.opacity(hover ? 0.12 : 0.07)))
             .overlay(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
-                .stroke(Design.Retro.text.opacity(0.16), lineWidth: 1))
-            .contentShape(Rectangle())
+                .strokeBorder(Design.Retro.text.opacity(hover ? 0.28 : 0.16), lineWidth: 1))
+
+            Menu {
+                ForEach(options, id: \.0) { value, title in
+                    Button {
+                        selection = value
+                    } label: {
+                        if value == selection {
+                            Label(title, systemImage: "checkmark")
+                        } else {
+                            Text(title)
+                        }
+                    }
+                }
+            } label: {
+                Rectangle().fill(Color.black.opacity(0.001))
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(height: 26)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(width: width, alignment: .leading)
+        .frame(width: width)
+        .onHover { hover = $0 }
+        .animation(.easeOut(duration: 0.15), value: hover)
     }
 }
-
 
 /// Settings' buttons, three weights. Regular: a raised control on the
 /// panel colour. Prominent: the accent, for the one action a form wants.
