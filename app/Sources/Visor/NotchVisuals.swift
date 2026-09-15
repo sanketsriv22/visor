@@ -66,6 +66,11 @@ final class NotchVisuals: ObservableObject {
     var extraHeight: CGFloat { during == .voicePong ? VoicePong.extraHeight : 0 }
 
     /// Some visuals grow out of the notch's right side only; the rest span
-    /// both sides with the notch in the middle. Decided per moment.
-    func rightOnly(transcribing: Bool) -> Bool { transcribing ? after.rightOnly : during.rightOnly }
+    /// both sides with the notch in the middle. Decided once for the whole
+    /// listening session from the "while you talk" visual — the window is
+    /// framed when listening starts and must not change shape under the
+    /// pills when transcribing begins. A one-sided "while it transcribes"
+    /// visual in a two-sided session leaves the left pill empty; a two-
+    /// sided one in a one-sided session shows its right half.
+    var rightOnly: Bool { during.rightOnly }
 }

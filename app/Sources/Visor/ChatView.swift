@@ -1527,11 +1527,16 @@ struct ListeningPill: View {
                 if let kind = visuals.during.gallery { NotchLiveView(voice: voice, kind: kind, side: side) }
             }
         case .transcribing:
-            switch visuals.after {
-            case .pong:  NotchPong(side: side)
-            case .quiet: Color.clear
-            default:
-                if let kind = visuals.after.gallery { NotchIdleView(kind: kind, side: side) }
+            // A one-sided visual has nothing for the left pill.
+            if side == .leading, visuals.after.rightOnly {
+                Color.clear
+            } else {
+                switch visuals.after {
+                case .pong:  NotchPong(side: side)
+                case .quiet: Color.clear
+                default:
+                    if let kind = visuals.after.gallery { NotchIdleView(kind: kind, side: side) }
+                }
             }
         default:
             statusContent

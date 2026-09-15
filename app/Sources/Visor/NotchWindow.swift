@@ -1205,7 +1205,7 @@ final class NotchController {
             // from the notch, so extra height is taken off the bottom edge.
             let extra = NotchVisuals.shared.extraHeight
             // The wave grows to the right only; the games spread both ways.
-            let left: CGFloat = NotchVisuals.shared.rightOnly(transcribing: chat.voice.state == .transcribing) ? 0 : Self.listeningPillWidth
+            let left: CGFloat = NotchVisuals.shared.rightOnly ? 0 : Self.listeningPillWidth
             frame = ui.listening
                 ? NSRect(x: hit.minX - left, y: hit.minY - extra,
                          width: hit.width + left + Self.listeningPillWidth,

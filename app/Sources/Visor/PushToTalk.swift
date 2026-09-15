@@ -70,14 +70,14 @@ final class PushToTalk: ObservableObject {
 
     @Published private(set) var trigger: Trigger = .off
 
-    /// Begin recording — on the key's first instant, before we know whether
-    /// this is a hold or a tap. Waiting to find out was a 280 ms delay on
-    /// every dictation and clipped the first syllable.
+    /// Begin recording — on the key's first instant. Waiting to learn
+    /// whether a press was a hold or a tap was a 280 ms delay on every
+    /// dictation and clipped the first syllable; now a press always starts
+    /// recording, and the release decides how it ends: let go after a
+    /// hold and it transcribes; a tap leaves it running until the next tap.
     var onHoldStart: (() -> Void)?
-    /// End a hold-to-talk recording (and transcribe).
+    /// End the recording (and transcribe).
     var onHoldEnd: (() -> Void)?
-    /// The press turned out to be a lone tap: drop the recording it started.
-    var onCancel: (() -> Void)?
     /// Double-tap: start or stop, and stay in that state.
     var onToggle: (() -> Void)?
 
@@ -88,11 +88,8 @@ final class PushToTalk: ObservableObject {
     /// tap. Short enough not to clip the start of speech, long enough that a
     /// double-tap's first press isn't mistaken for one.
     private let holdThreshold: TimeInterval = 0.28
-    /// Two taps inside this window toggle.
-    private let doubleTapWindow: TimeInterval = 0.4
 
     private var pressedAt: Date?
-    private var lastTapAt: Date?
     private var holding = false
     /// A double-tap left the recording running; the next press ends it.
     private var toggledOn = false
@@ -189,45 +186,23 @@ final class PushToTalk: ObservableObject {
     private func pressed() {
         guard pressedAt == nil else { return }   // autorepeat
         pressedAt = Date()
-        if toggledOn { return }                  // this press will end it, on release
-        // Recording starts now. Whether it was a hold or a tap is decided
-        // on release; a tap's recording is thrown away.
-        onHoldStart?()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, self.pressedAt != nil else { return }
-            self.holding = true
-        }
-        holdWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + holdThreshold, execute: work)
+        if toggledOn { return }                  // this press ends it, on release
+        onHoldStart?()                           // recording starts now
     }
 
     private func released() {
-        let wasHolding = holding
         let heldFor = pressedAt.map { Date().timeIntervalSince($0) } ?? 0
         cancelHold()
-
         if toggledOn {
-            // A press-and-release while toggled on ends the recording.
+            // Tapped while toggled on: done.
             toggledOn = false
-            lastTapAt = nil
             onHoldEnd?()
-            return
-        }
-        if wasHolding || heldFor >= holdThreshold {
+        } else if heldFor >= holdThreshold {
+            // Held: done when let go.
             onHoldEnd?()
-            lastTapAt = nil
-            return
-        }
-
-        // A tap. Two inside the window leave the recording running (toggle
-        // on); one alone is nothing, and its recording goes.
-        let now = Date()
-        if let last = lastTapAt, now.timeIntervalSince(last) <= doubleTapWindow {
-            lastTapAt = nil
-            toggledOn = true
         } else {
-            lastTapAt = now
-            onCancel?()
+            // Tapped: keep recording until the next tap.
+            toggledOn = true
         }
     }
 
