@@ -127,7 +127,7 @@ enum NotchGallery {
                 let v = slice.isEmpty ? 0 : slice.reduce(0, +) / Double(slice.count)
                 let wobble = 0.85 + 0.15 * sin(t * (3 + Double(band)) + Double(band))
                 let col = bar(v * wobble)
-                for k in 0..<3 where band * 3 + k + 1 < columns { out[band * 3 + k + 1] = col }
+                for k in 0..<2 where band * 3 + k + 1 < columns { out[band * 3 + k + 1] = col }
             }
             return out
         case .ripple:
@@ -135,16 +135,19 @@ enum NotchGallery {
             // outward through both pills and fade.
             var board = empty(columns * 2)
             let spikes = recent.enumerated().filter { $0.element > 0.55 }
+            let cx = Double(columns), cy = Double(rows) / 2
             for (age, _) in spikes.map({ (recent.count - 1 - $0.offset, $0.element) }) {
-                let r = Double(age) * 0.9
+                let r = 1.5 + Double(age) * 0.85
                 let alpha = max(0, 1 - Double(age) / Double(columns))
+                guard alpha > 0 else { continue }
                 for c in 0..<(columns * 2) {
-                    let dist = abs(Double(c) + 0.5 - Double(columns))   // from the notch
-                    if abs(dist - r) < 0.75 {
-                        for row in 0..<rows {
-                            let d = abs(Double(row) + 0.5 - Double(rows) / 2)
-                            board[c][row] = max(board[c][row], alpha * (d < r * 0.4 + 1 ? 1 : 0.2))
-                        }
+                    for row in 0..<rows {
+                        let dx = Double(c) + 0.5 - cx
+                        let dy = (Double(row) + 0.5 - cy) * 2.2          // cells are wider than tall on screen
+                        let dist = (dx * dx + dy * dy).squareRoot()
+                        let d = abs(dist - r)
+                        guard d < 1.2 else { continue }
+                        board[c][row] = max(board[c][row], alpha * (1 - d / 1.2))
                     }
                 }
             }
@@ -227,7 +230,7 @@ enum NotchGallery {
         case .ember:
             return slice(fire(t: t, height: 0.3, width: columns * 2), side: side)
         case .drizzle:
-            return slice(rain(t: t, density: 0.1, width: columns * 2), side: side)
+            return slice(rain(t: t, density: 0.3, width: columns * 2), side: side)
         case .quiet:
             return empty()
         }
@@ -252,7 +255,7 @@ enum NotchGallery {
             let neighbour = 0.5 * (hash(c - 1, 0, frame / 3) + hash(c + 1, 0, frame / 3))
             let reach = max(0.08, min(0.95, height * (0.6 * base + 0.4 * neighbour)))
             return (0..<rows).map { row in
-                let fromBottom = Double(rows - row) / Double(rows)      // 1 at the bottom
+                let fromBottom = Double(row + 1) / Double(rows)         // 1 at the bottom row
                 let flicker = 0.7 + 0.3 * hash(c, row, frame)
                 let v = max(0, min(1, (reach - (1 - fromBottom)) / reach))
                 return v * v * flicker
