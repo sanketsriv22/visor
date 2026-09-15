@@ -68,8 +68,9 @@ final class StreamingTranscriber: NSObject {
     }
 
     /// Open the session and start streaming the microphone.
-    func start(key: String, model: String = StreamingTranscriber.model, prompt: String? = nil) throws {
+    func start(key: String, model: String? = nil, prompt: String? = nil) throws {
         guard !isOpen else { return }
+        let model = model ?? Self.model
         text = ""; ready = false; queued = []; committed = false; finished = false
         order = []; segments = [:]; audioSinceCut = false; sentBytes = 0
         let config = URLSessionConfiguration.default
