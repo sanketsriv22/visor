@@ -17,6 +17,9 @@ struct VoiceEntry: Codable, Identifiable, Equatable {
     ///
     /// Optional so entries written before this decode unchanged.
     var transcribeSeconds: Double?
+    /// "stream" or "upload", and the reason when the stream fell back.
+    var path: String?
+    var note: String?
     var cleanupSeconds: Double?
 }
 

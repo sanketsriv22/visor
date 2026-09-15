@@ -6,11 +6,17 @@ import Foundation
 /// The old path recorded to a file, then uploaded the whole thing, then
 /// waited for the whole transcript — nothing began until you stopped
 /// talking, so a long dictation paid for all of it at the end. This one
-/// opens a realtime transcription session the moment you start, streams
-/// the microphone to it as 16-bit PCM in 100 ms pieces, and receives the
-/// words while you are still speaking. Releasing the key sends one
-/// commit; what's left to wait for is the last second or so of audio.
-/// That is how Wispr Flow feels instant on a two-minute dictation.
+/// opens a realtime transcription session the moment you start and
+/// streams the microphone to it as 16-bit PCM in 100 ms pieces. The
+/// service's voice-activity detection closes a segment at each pause and
+/// transcribes it *while you keep talking*; the segments are stitched in
+/// order. Releasing the key commits only the phrase in flight, so the
+/// wait after key-up is the last phrase's, whatever the total length.
+/// That is how Wispr Flow feels instant on a twenty-minute dictation.
+///
+/// The one thing turn detection must not do is cut a sentence at a
+/// breath, so the silence it waits for is long (900 ms) and the pieces
+/// are joined with a space, not a full stop.
 ///
 /// Fidelity is the same model family as before (`gpt-transcribe`) and
 /// slightly better in one respect: the file path re-encoded the mic to
@@ -33,18 +39,29 @@ final class StreamingTranscriber: NSObject {
     private var committed = false
     private var finished = false
     private var closeTimer: DispatchWorkItem?
+    /// Segments in the order the service opened them, by item id, with
+    /// their text so far and whether they are done.
+    private var order: [String] = []
+    private var segments: [String: (text: String, done: Bool)] = [:]
+    /// Audio has been sent since the last segment closed, so key-up has
+    /// something to commit.
+    private var audioSinceCut = false
+    private var sentBytes = 0
 
     private let engine = AVAudioEngine()
     private let wire = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 24_000, channels: 1, interleaved: true)!
     private var converter: AVAudioConverter?
     private var outbox = Data()
 
-    static let model = "gpt-transcribe"
+    /// The realtime models that support turn detection. `gpt-4o-transcribe`
+    /// is the full-fidelity one; `-mini` is quicker.
+    static let model = "gpt-4o-transcribe"
 
     /// Open the session and start streaming the microphone.
     func start(key: String, model: String = StreamingTranscriber.model, prompt: String? = nil) throws {
         guard !isOpen else { return }
         text = ""; ready = false; queued = []; committed = false; finished = false
+        order = []; segments = [:]; audioSinceCut = false; sentBytes = 0
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 20
         let session = URLSession(configuration: config, delegate: self, delegateQueue: .main)
@@ -67,9 +84,15 @@ final class StreamingTranscriber: NSObject {
                         "format": ["type": "audio/pcm", "rate": 24_000],
                         "transcription": transcription,
                         "noise_reduction": ["type": "near_field"],
-                        // We end the turn ourselves, on key-up; the model
-                        // must not cut a sentence at a pause.
-                        "turn_detection": NSNull(),
+                        // Each pause closes a segment the service transcribes
+                        // while you go on talking. A long silence, so a breath
+                        // mid-sentence doesn't end one.
+                        "turn_detection": [
+                            "type": "server_vad",
+                            "threshold": 0.5,
+                            "prefix_padding_ms": 300,
+                            "silence_duration_ms": 900,
+                        ],
                     ],
                 ],
             ],
@@ -77,22 +100,42 @@ final class StreamingTranscriber: NSObject {
         try startAudio()
     }
 
-    /// Stop the microphone and ask for the final transcript.
+    /// Stop the microphone; commit the phrase in flight, if there is one,
+    /// and wait for every open segment to finish.
     func finish() {
         guard isOpen, !committed else { return }
         committed = true
         stopAudio()
         flush(force: true)
-        send(["type": "input_audio_buffer.commit"])
-        // If nothing final arrives, hand over what we have rather than hang.
+        if audioSinceCut { send(["type": "input_audio_buffer.commit"]) }
+        settleIfDone()
+        // If a final never arrives, hand over what we have rather than hang.
         let work = DispatchWorkItem { [weak self] in
             guard let self, !self.finished else { return }
             self.finished = true
-            self.onFinal?(self.text)
+            self.onFinal?(self.stitched)
             self.close()
         }
         closeTimer = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+    }
+
+    /// Everything so far, in order: finished segments and the one in flight.
+    private var stitched: String {
+        order.compactMap { segments[$0]?.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    /// After key-up, the transcript is final once nothing is uncommitted
+    /// and no segment is still being transcribed.
+    private func settleIfDone() {
+        guard committed, !finished, !audioSinceCut else { return }
+        guard !order.contains(where: { segments[$0]?.done == false }) else { return }
+        finished = true
+        closeTimer?.cancel()
+        onFinal?(stitched)
+        close()
     }
 
     /// Drop everything.
@@ -150,27 +193,51 @@ final class StreamingTranscriber: NSObject {
                 for chunk in queued { send(["type": "input_audio_buffer.append", "audio": chunk]) }
                 queued.removeAll()
             }
+        case "input_audio_buffer.committed", "conversation.item.created":
+            // A segment closed (by the service's VAD, or by our commit): a
+            // new item that will now be transcribed.
+            if let id = (event["item_id"] as? String) ?? ((event["item"] as? [String: Any])?["id"] as? String) {
+                open(id)
+            }
+            if type == "input_audio_buffer.committed" { audioSinceCut = false }
         case _ where type.hasSuffix("transcription.delta"):
             if let delta = event["delta"] as? String {
-                text += delta
+                let id = (event["item_id"] as? String) ?? order.last ?? "item"
+                open(id)
+                segments[id]?.text += delta
+                text = stitched
                 onPartial?(text)
             }
         case _ where type.hasSuffix("transcription.completed") || type.hasSuffix("transcription.done"):
-            let full = (event["transcript"] as? String) ?? (event["text"] as? String) ?? text
-            text = full
-            if committed, !finished {
-                finished = true
-                closeTimer?.cancel()
-                onFinal?(full)
-                close()
-            } else {
-                onPartial?(full)
-            }
+            let id = (event["item_id"] as? String) ?? order.last ?? "item"
+            open(id)
+            let full = (event["transcript"] as? String) ?? (event["text"] as? String) ?? segments[id]?.text ?? ""
+            segments[id] = (full, true)
+            text = stitched
+            onPartial?(text)
+            settleIfDone()
+        case "input_audio_buffer.speech_started":
+            audioSinceCut = true
         case "error":
             let err = event["error"] as? [String: Any]
-            fail(err?["message"] as? String ?? "Transcription failed")
+            let message = err?["message"] as? String ?? "Transcription failed"
+            // A commit with nothing new in the buffer is not a failure: the
+            // last phrase already closed on its own.
+            if committed, message.lowercased().contains("buffer") {
+                audioSinceCut = false
+                settleIfDone()
+                return
+            }
+            fail(message)
         default:
             break
+        }
+    }
+
+    private func open(_ id: String) {
+        if segments[id] == nil {
+            segments[id] = ("", false)
+            order.append(id)
         }
     }
 
@@ -221,6 +288,7 @@ final class StreamingTranscriber: NSObject {
             for i in 0..<count { peak = max(peak, abs(channel[i])) }
             self.onLevel?(Float(peak) / 32767)
             self.outbox.append(Data(bytes: channel, count: count * 2))
+            self.audioSinceCut = true
             self.flush(force: false)
         }
     }

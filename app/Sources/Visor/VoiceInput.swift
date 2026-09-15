@@ -26,6 +26,7 @@ final class VoiceInput: NSObject, ObservableObject {
     @Published private(set) var partial = ""
     private var streamer: StreamingTranscriber?
     private var streamFailed = false
+    private var streamNote: String?
     enum State: Equatable {
         case idle
         case denied
@@ -329,11 +330,13 @@ final class VoiceInput: NSObject, ObservableObject {
             self.streamer = nil
             if let fileURL { try? FileManager.default.removeItem(at: fileURL) }
             self.fileURL = nil
-            self.deliver(raw: text, transcribeSeconds: self.finishedAt.map { Date().timeIntervalSince($0) } ?? 0, startedAt: started)
+            self.deliver(raw: text, transcribeSeconds: self.finishedAt.map { Date().timeIntervalSince($0) } ?? 0,
+                         startedAt: started, path: "stream")
         }
         t.onFailure = { [weak self] why in
             guard let self else { return }
             self.streamFailed = true
+            self.streamNote = why
             self.streamer = nil
             // Still recording: the file path takes over at finish(). Already
             // finishing: upload the file now.
@@ -343,10 +346,13 @@ final class VoiceInput: NSObject, ObservableObject {
             NSLog("[Visor] streaming transcription failed, using upload: %@", why)
         }
         do {
-            try t.start(key: key, model: Self.transcriptionModel)
+            // The realtime session needs a model that supports turn detection;
+            // the file model setting stays what it is for the upload path.
+            try t.start(key: key, model: StreamingTranscriber.model)
             streamer = t
         } catch {
             streamFailed = true
+            streamNote = error.localizedDescription
         }
     }
 
@@ -356,7 +362,7 @@ final class VoiceInput: NSObject, ObservableObject {
 
     /// One place the transcript lands, from either path: cleanup if it
     /// needs it, the log, the caller.
-    private func deliver(raw: String, transcribeSeconds: TimeInterval, startedAt: Date?) {
+    private func deliver(raw: String, transcribeSeconds: TimeInterval, startedAt: Date?, path: String) {
         let raw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { state = .idle; partial = ""; return }
         Task { @MainActor in
@@ -374,8 +380,11 @@ final class VoiceInput: NSObject, ObservableObject {
                 duration: startedAt.map { cleanupStarted.timeIntervalSince($0) },
                 conversation: currentConversation?(),
                 transcribeSeconds: transcribeSeconds,
-                cleanupSeconds: cleaned ? Date().timeIntervalSince(cleanupStarted) : nil))
+                cleanupSeconds: cleaned ? Date().timeIntervalSince(cleanupStarted) : nil,
+                path: path,
+                note: path == "upload" ? streamNote : nil))
             self.startedAt = nil
+            streamNote = nil
             onTranscript?(trimmed)
         }
     }
@@ -524,7 +533,8 @@ final class VoiceInput: NSObject, ObservableObject {
                 state = .failed("Couldn't read the transcript")
                 return
             }
-            deliver(raw: text, transcribeSeconds: Date().timeIntervalSince(transcribeStarted), startedAt: startedAt)
+            deliver(raw: text, transcribeSeconds: Date().timeIntervalSince(transcribeStarted), startedAt: startedAt,
+                    path: Self.streamingEnabled ? "upload" : "upload (streaming off)")
         } catch {
             state = .failed(error.localizedDescription)
         }

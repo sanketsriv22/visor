@@ -25,13 +25,21 @@ model; it is that the work overlaps the speaking.
 `StreamingTranscriber` opens `wss://api.openai.com/v1/realtime?intent=transcription`
 the moment recording starts, sends `session.update` with
 `type: "transcription"`, PCM16 at 24 kHz, near-field noise reduction,
-`gpt-transcribe`, and **no turn detection** (we end the turn ourselves on
-key-up, so a pause never cuts a sentence). The microphone is streamed in
-100 ms pieces; `conversation.item.input_audio_transcription.delta`
-events build the text as you speak and show faintly in the composer.
-Key-up sends one `input_audio_buffer.commit`; the `completed` event is
-the transcript. A six-second guard hands over whatever has arrived if
-the final never does.
+`gpt-4o-transcribe`, and **server VAD with a 900 ms silence** — long
+enough that a breath mid-sentence doesn't end a segment. The microphone
+is streamed in 100 ms pieces. Each pause closes a segment
+(`input_audio_buffer.committed` → an item) that the service transcribes
+*while you keep talking*; deltas and `completed` events are keyed by
+item id and stitched in order, joined with a space. Key-up commits only
+the phrase in flight and waits for the open items to finish. A
+five-second guard hands over whatever has arrived if a final never does.
+
+The first version of this had turn detection off, on the theory that
+we'd end the turn at key-up. With it off the service transcribes nothing
+until the commit, so every second of speech was still processed after
+key-up — the voice log showed the wait scaling with length exactly as
+the upload had (30 s for a half-hour dictation). The log now records
+which path ran (`path`) and why the stream fell back (`note`).
 
 `AVAudioRecorder` still writes the AAC file alongside, for metering and
 as the fallback: any stream failure — no session, dropped socket, error
