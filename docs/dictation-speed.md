@@ -56,3 +56,22 @@ Every dictation logs `transcribeSeconds` — for the stream, the wait
 after key-up; for the upload, the wait after the file was ready — to
 `voice-log.jsonl`, shown in Settings → Voice → Voice log. Compare the two
 paths with the Speed switch in Settings → Voice.
+
+## Invariants (tested in ListeningTests)
+
+- **One shape per session.** `NotchVisuals.Shape` — whether there is a
+  left pill, and how far the pills hang — is snapshotted by
+  `beginSession()` when listening starts and held until the pills are
+  gone. The window frame (`NotchController.listeningFrame`), the sticky
+  view's pills and the strip under the notch all read `active`. Changing
+  the visual mid-session takes effect next session. The 2026-09-15 bug
+  was the frame reading one visual and the pills another.
+- **Recording starts on key-down.** `PushToTalk.pressed()` calls
+  `onHoldStart` immediately; `released` decides how it ends (hold →
+  transcribe; tap → keep recording until the next tap). Nothing is ever
+  started and cancelled, so the notch never flashes.
+- **Every visual fills its grid.** All thirteen return 20×10 values in
+  0…1 for both sides at any time; fire is hotter at the bottom.
+- The lab's `notch-listening` scene draws the collapsed notch for a
+  two-sided and a one-sided visual, recording and transcribing, with the
+  computed window frame outlined in red so a mismatch is visible.

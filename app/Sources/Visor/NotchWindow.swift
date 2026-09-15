@@ -344,6 +344,9 @@ final class NotchController {
                 // Tracked in both states: collapsed it drives the window
                 // size, expanded it tells the note card's band to make room.
                 let needsResize = !self.ui.expanded
+                // The session's shape is fixed here, before the frame and the
+                // pills read it, and released only after the pills are gone.
+                if listening { NotchVisuals.shared.beginSession() }
                 if listening && needsResize {
                     self.ui.listening = true
                     self.applyFrame(expanded: false)
@@ -362,9 +365,12 @@ final class NotchController {
                     // opening didn't. Raised with the slower collapse curve —
                     // this delay has to outlast the animation, not match it.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) { [weak self] in
-                        guard let self, !self.ui.listening, !self.ui.expanded else { return }
-                        self.applyFrame(expanded: false)
+                        guard let self, !self.ui.listening else { return }
+                        NotchVisuals.shared.endSession()
+                        if !self.ui.expanded { self.applyFrame(expanded: false) }
                     }
+                } else if !listening {
+                    NotchVisuals.shared.endSession()
                 }
             }
 
@@ -608,6 +614,17 @@ final class NotchController {
     }
 
     func saveNow() { store.saveNow() }
+
+    /// The collapsed window while listening: the notch's hit rect plus a pill
+    /// on the right, one on the left if the session's shape has one, and
+    /// extra height taken off the bottom for a visual that hangs lower.
+    /// Pure, so it is tested against the pills' own layout.
+    static func listeningFrame(around hit: NSRect, shape: NotchVisuals.Shape) -> NSRect {
+        let left: CGFloat = shape.leftPill ? listeningPillWidth : 0
+        return NSRect(x: hit.minX - left, y: hit.minY - shape.extraHeight,
+                      width: hit.width + left + listeningPillWidth,
+                      height: hit.height + shape.extraHeight)
+    }
 
     /// The screen the takeover covers: the one with the notch.
     func takeoverFrame() -> NSRect? { targetScreen?.frame }
@@ -1203,14 +1220,7 @@ final class NotchController {
             // shifted rather than widened.
             // And, for a game that needs the room, downward: the pill hangs
             // from the notch, so extra height is taken off the bottom edge.
-            let extra = NotchVisuals.shared.extraHeight
-            // The wave grows to the right only; the games spread both ways.
-            let left: CGFloat = NotchVisuals.shared.rightOnly ? 0 : Self.listeningPillWidth
-            frame = ui.listening
-                ? NSRect(x: hit.minX - left, y: hit.minY - extra,
-                         width: hit.width + left + Self.listeningPillWidth,
-                         height: hit.height + extra)
-                : hit
+            frame = ui.listening ? Self.listeningFrame(around: hit, shape: NotchVisuals.shared.active) : hit
         }
         panel.setFrame(frame, display: true)
     }

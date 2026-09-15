@@ -196,6 +196,9 @@ final class VoiceInput: NSObject, ObservableObject {
         return !raw.contains(where: { ".!?".contains($0) })
     }
 
+    /// The Design Lab's: show a state without a microphone.
+    func previewState(_ preview: State) { state = preview }
+
     static var hasKey: Bool {
         guard let k = Keychain.get(keyAccount)?.trimmingCharacters(in: .whitespacesAndNewlines)
         else { return false }

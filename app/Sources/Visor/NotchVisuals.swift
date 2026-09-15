@@ -58,19 +58,39 @@ final class NotchVisuals: ObservableObject {
             .flatMap(After.init(rawValue:)) ?? .pong
     }
 
-    /// How much taller the listening pill gets, below the notch.
+    /// The shape the notch takes while listening: whether there is a left
+    /// pill, and how far the pills hang below the notch.
     ///
-    /// Voice Pong wants room: ten rows is enough for a formation to march
-    /// across but too tight for a rally to be anything but a blur. The other
-    /// games were designed for the notch's own height and stay in it.
-    var extraHeight: CGFloat { during == .voicePong ? VoicePong.extraHeight : 0 }
+    /// This is the one value the window frame, the pills and the strip
+    /// under the notch all read. It is snapshotted when a listening session
+    /// begins (`beginSession`) and held until it ends, so nothing changes
+    /// shape under the pills when recording turns into transcribing, and
+    /// changing the setting mid-session takes effect next time. That
+    /// invariant is tested (ListeningTests).
+    struct Shape: Equatable {
+        var leftPill: Bool
+        var extraHeight: CGFloat
 
-    /// Some visuals grow out of the notch's right side only; the rest span
-    /// both sides with the notch in the middle. Decided once for the whole
-    /// listening session from the "while you talk" visual — the window is
-    /// framed when listening starts and must not change shape under the
-    /// pills when transcribing begins. A one-sided "while it transcribes"
-    /// visual in a two-sided session leaves the left pill empty; a two-
-    /// sided one in a one-sided session shows its right half.
-    var rightOnly: Bool { during.rightOnly }
+        /// The shape the current settings would give a new session.
+        static func current(during: During) -> Shape {
+            Shape(leftPill: !during.rightOnly,
+                  // Voice Pong wants room: ten rows is enough for a formation
+                  // to march across but too tight for a rally to be anything
+                  // but a blur. Everything else stays in the notch's height.
+                  extraHeight: during == .voicePong ? VoicePong.extraHeight : 0)
+        }
+    }
+
+    /// The session in progress, or nil between sessions.
+    @Published private(set) var session: Shape? = nil
+
+    /// What the pills and the frame use right now: the session's shape
+    /// while one is on, else what the settings would give.
+    var active: Shape { session ?? Shape.current(during: during) }
+
+    func beginSession() { session = Shape.current(during: during) }
+    func endSession() { session = nil }
+
+    var extraHeight: CGFloat { active.extraHeight }
+    var rightOnly: Bool { !active.leftPill }
 }

@@ -87,7 +87,7 @@ final class PushToTalk: ObservableObject {
     /// How long the key must be down before it counts as a hold rather than a
     /// tap. Short enough not to clip the start of speech, long enough that a
     /// double-tap's first press isn't mistaken for one.
-    private let holdThreshold: TimeInterval = 0.28
+    let holdThreshold: TimeInterval = 0.28
 
     private var pressedAt: Date?
     private var holding = false
@@ -183,15 +183,18 @@ final class PushToTalk: ObservableObject {
         isDown ? pressed() : released()
     }
 
-    private func pressed() {
+    /// The key went down. Internal so the state machine can be driven in
+    /// tests without synthesising key events.
+    func pressed() {
         guard pressedAt == nil else { return }   // autorepeat
         pressedAt = Date()
         if toggledOn { return }                  // this press ends it, on release
         onHoldStart?()                           // recording starts now
     }
 
-    private func released() {
-        let heldFor = pressedAt.map { Date().timeIntervalSince($0) } ?? 0
+    /// The key came up.
+    func released(heldFor override: TimeInterval? = nil) {
+        let heldFor = override ?? pressedAt.map { Date().timeIntervalSince($0) } ?? 0
         cancelHold()
         if toggledOn {
             // Tapped while toggled on: done.

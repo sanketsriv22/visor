@@ -178,6 +178,38 @@ enum DesignLab {
                     .background(Design.Retro.bg)
                     .environment(\.colorScheme, VisorTheme.current.isDark ? .dark : .light))
             },
+            Scenario(name: "notch-listening", size: CGSize(width: 1100, height: 4 * 90 + 40), themed: false,
+                     note: "The collapsed notch while listening and while transcribing, for a two-sided and a one-sided visual — the window frame and the pills from the same shape") { f in
+                func row(_ during: NotchVisuals.During, _ after: NotchVisuals.After, _ state: VoiceInput.State) -> AnyView {
+                    let ui = UIState()
+                    ui.notchSize = notch; ui.trueNotch = notch; ui.expanded = false
+                    NotchVisuals.shared.during = during; NotchVisuals.shared.after = after
+                    NotchVisuals.shared.beginSession()
+                    ui.listening = true
+                    let chat = f.chat(.empty)
+                    chat.voice.previewState(state)
+                    let shape = NotchVisuals.shared.active
+                    let hit = NSRect(x: 0, y: 0, width: notch.width + 8, height: notch.height + 8)
+                    let frame = NotchController.listeningFrame(around: hit, shape: shape)
+                    return AnyView(HStack(spacing: 12) {
+                        Text("\(during.rawValue) / \(after.rawValue) · \(state == .recording ? "recording" : "transcribing")")
+                            .font(.system(size: 10, design: .monospaced)).frame(width: 220, alignment: .leading)
+                        ZStack(alignment: .top) {
+                            Rectangle().stroke(Color.red.opacity(0.6), lineWidth: 1)
+                                .frame(width: frame.width, height: frame.height)
+                            StickyRootView(store: f.notes, ui: ui, ai: f.ai, chat: chat, onToggle: {}, onMode: { _ in })
+                                .frame(width: frame.width, height: frame.height + 40, alignment: .top)
+                        }
+                        .frame(width: 520, height: 80, alignment: .topLeading)
+                    })
+                }
+                return AnyView(VStack(alignment: .leading, spacing: 10) {
+                    row(.invaders, .pong, .recording)
+                    row(.invaders, .orbit, .transcribing)
+                    row(.wave, .pong, .recording)
+                    row(.wave, .scanner, .transcribing)
+                }.padding(16).background(Color(red: 0.3, green: 0.34, blue: 0.48)).foregroundStyle(.white))
+            },
             Scenario(name: "notch-visuals", size: CGSize(width: 760, height: 13 * 118 + 40), themed: false,
                      note: "Every notch visual, both pills (left · notch · right), frozen at t=1.7 with a spoken level history") { _ in
                 let levels: [Float] = (0..<28).map { i in Float(0.15 + 0.7 * abs(sin(Double(i) * 0.55))) }
