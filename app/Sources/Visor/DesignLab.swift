@@ -178,6 +178,12 @@ enum DesignLab {
                     .background(Design.Retro.bg)
                     .environment(\.colorScheme, VisorTheme.current.isDark ? .dark : .light))
             },
+            Scenario(name: "settings-voice", size: CGSize(width: 900, height: 1100), themed: true,
+                     note: "Settings → Voice, whole window") { f in
+                AnyView(SettingsView(ai: f.ai, chat: f.chat(.empty), pushToTalk: PushToTalk(), tab: .voice)
+                    .frame(width: 900, height: 1100)
+                    .environment(\.colorScheme, VisorTheme.current.isDark ? .dark : .light))
+            },
             Scenario(name: "mark", size: CGSize(width: 512, height: 512), themed: false,
                      note: "The live mark at rest, rendered by SceneKit") { _ in
                 AnyView(Group {

@@ -58,12 +58,19 @@ struct SettingsView: View {
     @ObservedObject var pushToTalk: PushToTalk
     @StateObject private var catalog = ModelCatalog()
     @ObservedObject private var focus = SettingsFocus.shared
-    @State private var tab: SettingsTab = .appearance
+    @State private var tab: SettingsTab
     // Observed only so the whole window re-renders when the theme or font is
     // changed in the Appearance pane — every view reads its colours/font from
     // Design, which forwards to these.
     @AppStorage(VisorTheme.key) private var themeRaw = VisorTheme.mono.rawValue
     @AppStorage(VisorFont.key) private var fontRaw = VisorFont.defaultFamily
+
+    init(ai: AIRunner, chat: ChatController, pushToTalk: PushToTalk, tab: SettingsTab = .appearance) {
+        self.ai = ai
+        self.chat = chat
+        self.pushToTalk = pushToTalk
+        _tab = State(initialValue: tab)
+    }
 
     var body: some View {
         HStack(spacing: 0) {
