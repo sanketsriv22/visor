@@ -1118,10 +1118,11 @@ private struct NarratorVoicePicker: View {
             }
             .buttonStyle(.plain)
             Spacer()
-            ActionChip(title: narrator.speaking && previewing == voice.id ? "Playing…" : "Hear it") {
+            Button(narrator.speaking && previewing == voice.id ? "Playing…" : "Hear it") {
                 previewing = voice.id
                 narrator.preview(voice)
             }
+            .buttonStyle(.settings)
         }
     }
 
@@ -1156,13 +1157,22 @@ private struct VoicePane: View {
                 title: "Voice",
                 subtitle: "Dictate anywhere on your Mac. The words land at the caret in whatever you're typing in, and every transcript is kept here.")
 
-            SettingsCard(label: "Live conversation") { LiveVoiceSettings() }
-            SettingsCard(label: "Visor's voice") { NarratorVoicePicker() }
-            SettingsCard(label: "Transcription") { voiceKey }
-            SettingsCard(label: "Speed") { streamingRow }
-            SettingsCard(label: "Transcription model") { transcriptionModelField }
-            SettingsCard(label: "Dictation games") { notchGames }
-            SettingsCard(label: "Voice log") { voiceLogSection }
+            SettingsCard(label: "Transcription", collapsible: true,
+                         summary: streamingOn ? StreamingTranscriber.models.first { $0.id == streamingModel }?.title ?? streamingModel : "upload") {
+                voiceKey
+                Rectangle().fill(Design.Retro.line).frame(height: 1).opacity(0.6)
+                streamingRow
+                Rectangle().fill(Design.Retro.line).frame(height: 1).opacity(0.6)
+                transcriptionModelField
+            }
+            SettingsCard(label: "What the notch shows", collapsible: true,
+                         summary: NotchVisuals.shared.during.title.components(separatedBy: " —").first ?? "") { notchGames }
+            SettingsCard(label: "Live conversation", collapsible: true, openByDefault: false,
+                         summary: LiveSession.shared.voice.capitalized) { LiveVoiceSettings() }
+            SettingsCard(label: "Visor's voice", collapsible: true, openByDefault: false,
+                         summary: Narrator.savedVoice.name) { NarratorVoicePicker() }
+            SettingsCard(label: "Voice log", collapsible: true, openByDefault: false,
+                         summary: voiceEntries.isEmpty ? "" : "\(voiceEntries.count) recent") { voiceLogSection }
         }
     }
 
@@ -1322,7 +1332,7 @@ private struct VoicePane: View {
     var transcriptionModelField: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Text("Transcribe with").font(Design.Text.caption).foregroundStyle(.secondary)
+                Text("Upload fallback — transcribe with").font(Design.Text.caption).foregroundStyle(.secondary)
                 TextField("gpt-transcribe", text: Binding(
                     get: { VoiceInput.transcriptionModel },
                     set: { VoiceInput.transcriptionModel = $0.isEmpty ? "gpt-transcribe" : $0 }))
@@ -1469,19 +1479,15 @@ private struct VoicePane: View {
                 .font(Design.Text.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: Design.Space.roomy) {
-                Text("While listening")
-                    .font(Design.Text.f(12))
-                    .frame(width: 110, alignment: .leading)
+            SettingsRow(title: "While you talk",
+                        caption: "The wave grows out of the notch's right side and follows your voice; the games spread to both sides.") {
                 SettingsMenu(selection: $visuals.during,
-                             options: NotchVisuals.During.allCases.map { ($0, $0.title) }, width: 220)
+                             options: NotchVisuals.During.allCases.map { ($0, $0.title) }, width: 260)
             }
-            HStack(spacing: Design.Space.roomy) {
-                Text("While transcribing")
-                    .font(Design.Text.f(12))
-                    .frame(width: 110, alignment: .leading)
+            SettingsRow(title: "While it transcribes",
+                        caption: "Usually half a second now; something that reads in a glance.") {
                 SettingsMenu(selection: $visuals.after,
-                             options: NotchVisuals.After.allCases.map { ($0, $0.title) }, width: 220)
+                             options: NotchVisuals.After.allCases.map { ($0, $0.title) }, width: 260)
             }
             if visuals.during == .voicePong {
                 Text("Your paddle is on the left and moves while you speak, turning round "
@@ -1490,6 +1496,17 @@ private struct VoicePane: View {
                     .font(Design.Text.caption2).foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    private func copy(_ entry: VoiceEntry) {
+        let board = NSPasteboard.general
+        board.clearContents()
+        board.setString(entry.text, forType: .string)
+        copiedEntry = entry.id
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            if copiedEntry == entry.id { copiedEntry = nil }
         }
     }
 
@@ -1520,8 +1537,10 @@ private struct VoicePane: View {
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(entry.text)
                                         .font(Design.Text.f(11))
-                                        .textSelection(.enabled)
                                         .fixedSize(horizontal: false, vertical: true)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture { copy(entry) }
+                                        .help("Click to copy the whole transcript")
                                     Text(VoicePane.stamp.string(from: entry.date)
                                          + (entry.duration.map { String(format: " · %.1fs", $0) } ?? "")
                                          + VoicePane.timings(entry))
@@ -1531,16 +1550,7 @@ private struct VoicePane: View {
                                 // Selectable text is not the same as copyable
                                 // text: dragging across a small row in a scroll
                                 // view mostly scrolls it. One click.
-                                Button {
-                                    let board = NSPasteboard.general
-                                    board.clearContents()
-                                    board.setString(entry.text, forType: .string)
-                                    copiedEntry = entry.id
-                                    Task { @MainActor in
-                                        try? await Task.sleep(nanoseconds: 1_200_000_000)
-                                        if copiedEntry == entry.id { copiedEntry = nil }
-                                    }
-                                } label: {
+                                Button { copy(entry) } label: {
                                     Image(systemName: copiedEntry == entry.id
                                                         ? "checkmark" : "doc.on.doc")
                                         .font(Design.Text.f(9))

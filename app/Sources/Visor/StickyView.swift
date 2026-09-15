@@ -90,7 +90,7 @@ struct StickyRootView: View {
                 // the strip below it is 8pt taller than the hardware because of
                 // the click underhang.
                 HStack(alignment: .top, spacing: 0) {
-                    if ui.listening {
+                    if ui.listening, !visuals.rightOnly {
                         // The mirror of the meter: same width, same shape,
                         // rounded on the outer corner instead of the inner one.
                         ListeningPill(voice: chat.voice,

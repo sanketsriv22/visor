@@ -80,28 +80,76 @@ struct SettingsHeader: View {
 struct SettingsCard<Content: View>: View {
     var label: String? = nil
     var spacing: CGFloat = 10
+    /// A card that folds: the header is the switch, and the state is
+    /// remembered per label. `openByDefault` is the first-run state.
+    var collapsible = false
+    var openByDefault = true
+    /// A word or two beside the label while folded — what's set.
+    var summary: String? = nil
     @ViewBuilder var content: () -> Content
+
+    @State private var open: Bool? = nil
+
+    private var isOpen: Bool {
+        guard collapsible else { return true }
+        if let open { return open }
+        if let label, let saved = UserDefaults.standard.object(forKey: "visor.settings.open.\(label)") as? Bool { return saved }
+        return openByDefault
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             if let label {
-                HStack(spacing: 6) {
-                    Text("»").font(.custom(Design.Text.face, size: 10))
-                        .foregroundStyle(Design.Retro.accent)
-                    Text(label.uppercased())
-                        .font(Design.Text.sectionLabel)
-                        .tracking(1)
-                        .foregroundStyle(Design.Retro.dim)
+                if collapsible {
+                    Button {
+                        let next = !isOpen
+                        open = next
+                        UserDefaults.standard.set(next, forKey: "visor.settings.open.\(label)")
+                    } label: {
+                        header(label)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(.isButton)
+                } else {
+                    header(label)
                 }
             }
-            VStack(alignment: .leading, spacing: spacing, content: content)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
-                .background(RoundedRectangle(cornerRadius: Design.Panel.radius, style: .continuous)
-                    .fill(Design.Panel.card))
-                .overlay(RoundedRectangle(cornerRadius: Design.Panel.radius, style: .continuous)
-                    .stroke(Design.Panel.cardStroke, lineWidth: 1))
+            if isOpen {
+                VStack(alignment: .leading, spacing: spacing, content: content)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+                    .background(RoundedRectangle(cornerRadius: Design.Panel.radius, style: .continuous)
+                        .fill(Design.Panel.card))
+                    .overlay(RoundedRectangle(cornerRadius: Design.Panel.radius, style: .continuous)
+                        .stroke(Design.Panel.cardStroke, lineWidth: 1))
+                    .transition(.opacity)
+            }
         }
+        .animation(.easeOut(duration: 0.15), value: isOpen)
+    }
+
+    private func header(_ label: String) -> some View {
+        HStack(spacing: 6) {
+            if collapsible {
+                RetroIcon(isOpen ? Glyph.chevron : "▸", size: 10, color: Design.Retro.accent)
+                    .frame(width: 12)
+            } else {
+                Text("»").font(.custom(Design.Text.face, size: 10))
+                    .foregroundStyle(Design.Retro.accent)
+            }
+            Text(label.uppercased())
+                .font(Design.Text.sectionLabel)
+                .tracking(1)
+                .foregroundStyle(Design.Retro.dim)
+            if !isOpen, let summary, !summary.isEmpty {
+                Text("· \(summary)")
+                    .font(Design.Text.caption)
+                    .foregroundStyle(Design.Retro.faint)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
     }
 }
 
@@ -212,9 +260,9 @@ struct SettingsMenu<Value: Hashable>: View {
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
-                .fill(Design.Retro.panel))
+                .fill(Design.Retro.text.opacity(0.07)))
             .overlay(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
-                .stroke(Design.Retro.line, lineWidth: 1))
+                .stroke(Design.Retro.text.opacity(0.16), lineWidth: 1))
             .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
@@ -271,7 +319,7 @@ struct SettingsButtonStyle: ButtonStyle {
         private var fill: Color {
             let pressed = configuration.isPressed
             switch kind {
-            case .regular:   return Color.white.opacity(pressed ? 0.16 : (hover ? 0.12 : 0.07))
+            case .regular:   return Design.Retro.text.opacity(pressed ? 0.16 : (hover ? 0.12 : 0.07))
             case .prominent: return Design.Retro.accent.opacity(pressed ? 0.8 : (hover ? 0.92 : 1))
             case .quiet:     return Design.Retro.accent.opacity(pressed ? 0.2 : (hover ? 0.12 : 0))
             }
@@ -279,7 +327,7 @@ struct SettingsButtonStyle: ButtonStyle {
 
         private var stroke: Color {
             switch kind {
-            case .regular:   return hover ? Color.white.opacity(0.22) : Design.Retro.line
+            case .regular:   return hover ? Design.Retro.text.opacity(0.28) : Design.Retro.text.opacity(0.16)
             case .prominent: return Design.Retro.accent
             case .quiet:     return .clear
             }

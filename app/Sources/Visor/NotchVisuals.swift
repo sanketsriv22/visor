@@ -15,10 +15,11 @@ final class NotchVisuals: ObservableObject {
     static let shared = NotchVisuals()
 
     enum During: String, CaseIterable, Identifiable {
-        case invaders, voicePong, pong
+        case wave, invaders, voicePong, pong
         var id: String { rawValue }
         var title: String {
             switch self {
+            case .wave:      return "Wave — your voice, to the right"
             case .invaders:  return "Invaders — talking fires"
             case .voicePong: return "Pong — talking moves your paddle"
             case .pong:      return "Pong — plays itself"
@@ -57,4 +58,8 @@ final class NotchVisuals: ObservableObject {
     /// across but too tight for a rally to be anything but a blur. The other
     /// games were designed for the notch's own height and stay in it.
     var extraHeight: CGFloat { during == .voicePong ? VoicePong.extraHeight : 0 }
+
+    /// The wave grows out of the notch's right side only; the games span
+    /// both sides with the notch in the middle.
+    var rightOnly: Bool { during == .wave }
 }

@@ -1201,9 +1201,11 @@ final class NotchController {
             // And, for a game that needs the room, downward: the pill hangs
             // from the notch, so extra height is taken off the bottom edge.
             let extra = NotchVisuals.shared.extraHeight
+            // The wave grows to the right only; the games spread both ways.
+            let left: CGFloat = NotchVisuals.shared.rightOnly ? 0 : Self.listeningPillWidth
             frame = ui.listening
-                ? NSRect(x: hit.minX - Self.listeningPillWidth, y: hit.minY - extra,
-                         width: hit.width + Self.listeningPillWidth * 2,
+                ? NSRect(x: hit.minX - left, y: hit.minY - extra,
+                         width: hit.width + left + Self.listeningPillWidth,
                          height: hit.height + extra)
                 : hit
         }
