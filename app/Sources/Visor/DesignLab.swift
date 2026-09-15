@@ -178,38 +178,15 @@ enum DesignLab {
                     .background(Design.Retro.bg)
                     .environment(\.colorScheme, VisorTheme.current.isDark ? .dark : .light))
             },
-            Scenario(name: "notch-listening", size: CGSize(width: 1100, height: 4 * 90 + 40), themed: false,
-                     note: "The collapsed notch while listening and while transcribing, for a two-sided and a one-sided visual — the window frame and the pills from the same shape") { f in
-                @MainActor func row(_ during: NotchVisuals.During, _ after: NotchVisuals.After, _ state: VoiceInput.State) -> AnyView {
-                    let notch = f.notch
-                    let ui = UIState()
-                    ui.notchSize = notch; ui.trueNotch = notch; ui.expanded = false
-                    NotchVisuals.shared.during = during; NotchVisuals.shared.after = after
-                    NotchVisuals.shared.beginSession()
-                    ui.listening = true
-                    let chat = f.chat(.empty)
-                    chat.voice.previewState(state)
-                    let shape = NotchVisuals.shared.active
-                    let hit = NSRect(x: 0, y: 0, width: notch.width + 8, height: notch.height + 8)
-                    let frame = NotchController.listeningFrame(around: hit, shape: shape)
-                    return AnyView(HStack(spacing: 12) {
-                        Text("\(during.rawValue) / \(after.rawValue) · \(state == .recording ? "recording" : "transcribing")")
-                            .font(.system(size: 10, design: .monospaced)).frame(width: 220, alignment: .leading)
-                        ZStack(alignment: .top) {
-                            Rectangle().stroke(Color.red.opacity(0.6), lineWidth: 1)
-                                .frame(width: frame.width, height: frame.height)
-                            StickyRootView(store: f.notes, ui: ui, ai: f.ai, chat: chat, onToggle: {}, onMode: { _ in })
-                                .frame(width: frame.width, height: frame.height + 40, alignment: .top)
-                        }
-                        .frame(width: 520, height: 80, alignment: .topLeading)
-                    })
-                }
-                return AnyView(VStack(alignment: .leading, spacing: 10) {
-                    row(.invaders, .pong, .recording)
-                    row(.invaders, .orbit, .transcribing)
-                    row(.wave, .pong, .recording)
-                    row(.wave, .scanner, .transcribing)
-                }.padding(16).background(Color(red: 0.3, green: 0.34, blue: 0.48)).foregroundStyle(.white))
+            // One scenario per shape: the visuals are a shared singleton, so
+            // two shapes in one capture would read the last one set.
+            Scenario(name: "notch-listening-both", size: CGSize(width: 900, height: 2 * 90 + 40), themed: false,
+                     note: "The collapsed notch, two-sided visual: recording, then transcribing with a one-sided idle visual (left pill empty). Red = the computed window frame.") { f in
+                AnyView(f.listening(during: .invaders, after: .orbit))
+            },
+            Scenario(name: "notch-listening-right", size: CGSize(width: 900, height: 2 * 90 + 40), themed: false,
+                     note: "The collapsed notch, one-sided visual: recording, then transcribing with a two-sided idle visual (right half only). Red = the computed window frame.") { f in
+                AnyView(f.listening(during: .wave, after: .pong))
             },
             Scenario(name: "notch-visuals", size: CGSize(width: 760, height: 13 * 118 + 40), themed: false,
                      note: "Every notch visual, both pills (left · notch · right), frozen at t=1.7 with a spoken level history") { _ in
@@ -718,6 +695,39 @@ enum DesignLab {
                     .frame(width: notch.width, height: notch.height)
                 HUDRootView(chat: chat, store: notes, ui: ui, onExit: {}, onClose: {})
             }
+        }
+
+        /// The collapsed notch while listening — recording, then transcribing
+        /// — for one settings pair, with the window frame the controller
+        /// would compute outlined in red. The pills and the frame must agree.
+        func listening(during: NotchVisuals.During, after: NotchVisuals.After) -> some View {
+            let v = NotchVisuals.shared
+            v.during = during; v.after = after
+            v.endSession(); v.beginSession()
+            let shape = v.active
+            let hit = NSRect(x: 0, y: 0, width: notch.width + 8, height: notch.height + 8)
+            let frame = NotchController.listeningFrame(around: hit, shape: shape)
+            func row(_ state: VoiceInput.State) -> some View {
+                let ui = UIState()
+                ui.notchSize = hit.size; ui.trueNotch = notch; ui.expanded = false; ui.listening = true
+                let chat = self.chat(.empty)
+                chat.voice.previewState(state)
+                return HStack(spacing: 12) {
+                    Text("\(during.rawValue) / \(after.rawValue) · \(state == .recording ? "recording" : "transcribing")")
+                        .font(.system(size: 10, design: .monospaced)).frame(width: 220, alignment: .leading)
+                    ZStack(alignment: .top) {
+                        Rectangle().stroke(Color.red.opacity(0.7), lineWidth: 1)
+                            .frame(width: frame.width, height: frame.height)
+                        StickyRootView(store: notes, ui: ui, ai: ai, chat: chat, onToggle: {}, onMode: { _ in })
+                            .frame(width: frame.width, height: frame.height + 40, alignment: .top)
+                    }
+                    .frame(width: 560, height: 80, alignment: .topLeading)
+                }
+            }
+            return VStack(alignment: .leading, spacing: 10) {
+                row(.recording)
+                row(.transcribing)
+            }.padding(16).background(Color(red: 0.3, green: 0.34, blue: 0.48)).foregroundStyle(.white)
         }
 
         /// The takeover over a synthetic screen, stacked as the app orders

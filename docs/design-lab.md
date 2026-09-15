@@ -48,6 +48,8 @@ Font can be pinned the same way UserDefaults arguments always work:
 | `hud`, `hud-streaming` | The HUD with pinned rails |
 | `menu-panel` † | The menu-bar dropdown |
 | `settings-appearance` † | Settings → Appearance |
+| `notch-listening-both`, `notch-listening-right` | The collapsed notch listening, for a two- and a one-sided visual, recording then transcribing, with the computed window frame outlined — the pills and the frame must agree |
+| `notch-visuals` | Every notch visual on both pills at a frozen instant |
 | `takeover-intro`, `-notch`, `-open`, `-agent`, `-agent-key`, `-task`, `-approval`, `-trouble`, `-milestone`, `-hud`, `-drive`, `-stopped`, `-finale` | The introduction at each moment, over a dimmed screen as the app layers it (`-open` is for `--frames`) |
 | `selector-models`, `selector-options`, `selector-agents` | The selector family's content |
 | `computer-use-running`, `computer-use-done` | Computer use mid-task and finished |
