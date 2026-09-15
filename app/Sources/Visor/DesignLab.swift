@@ -178,27 +178,27 @@ enum DesignLab {
                     .background(Design.Retro.bg)
                     .environment(\.colorScheme, VisorTheme.current.isDark ? .dark : .light))
             },
-            Scenario(name: "notch-visuals", size: CGSize(width: 640, height: 20 * 14 + 40), themed: false,
+            Scenario(name: "notch-visuals", size: CGSize(width: 760, height: 13 * 118 + 40), themed: false,
                      note: "Every notch visual, both pills (left · notch · right), frozen at t=1.7 with a spoken level history") { _ in
                 let levels: [Float] = (0..<28).map { i in Float(0.15 + 0.7 * abs(sin(Double(i) * 0.55))) }
                 let t = 1.7
                 func pill(_ grid: [[Double]], warm: Bool) -> some View {
-                    DotGrid(columns: grid, warm: warm, animated: false).padding(6).background(Color.black)
+                    DotGrid(columns: grid, cell: 5, warm: warm, animated: false).padding(8).background(Color.black)
                 }
                 return AnyView(VStack(alignment: .leading, spacing: 8) {
                     ForEach(NotchGallery.Live.allCases) { k in
                         HStack(spacing: 6) {
                             Text(k.rawValue).font(.system(size: 10, design: .monospaced)).frame(width: 60, alignment: .leading)
-                            if k.sides == .both { pill(NotchGallery.live(k, levels: levels, t: t, side: .leading), warm: k.warm) } else { Color.clear.frame(width: 76) }
-                            Rectangle().fill(Color.black).frame(width: 40, height: 22)
+                            if k.sides == .both { pill(NotchGallery.live(k, levels: levels, t: t, side: .leading), warm: k.warm) } else { Color.clear.frame(width: 172) }
+                            Rectangle().fill(Color.black).frame(width: 60, height: 40)
                             pill(NotchGallery.live(k, levels: levels, t: t, side: .trailing), warm: k.warm)
                         }
                     }
                     ForEach(NotchGallery.Idle.allCases) { k in
                         HStack(spacing: 6) {
                             Text(k.rawValue).font(.system(size: 10, design: .monospaced)).frame(width: 60, alignment: .leading)
-                            if k.sides == .both { pill(NotchGallery.idle(k, t: t, side: .leading), warm: k.warm) } else { Color.clear.frame(width: 76) }
-                            Rectangle().fill(Color.black).frame(width: 40, height: 22)
+                            if k.sides == .both { pill(NotchGallery.idle(k, t: t, side: .leading), warm: k.warm) } else { Color.clear.frame(width: 172) }
+                            Rectangle().fill(Color.black).frame(width: 60, height: 40)
                             pill(NotchGallery.idle(k, t: t, side: .trailing), warm: k.warm)
                         }
                     }

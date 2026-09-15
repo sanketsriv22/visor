@@ -246,13 +246,16 @@ enum NotchGallery {
     static func fire(t: Double, height: Double, width: Int) -> [[Double]] {
         let frame = Int(t * 18)
         return (0..<width).map { c in
-            let base = 0.6 + 0.4 * hash(c, 0, frame / 2)
+            // Each column's tongue has its own height that wanders, so the
+            // top of the fire is ragged rather than a level line.
+            let base = 0.55 + 0.45 * hash(c, 0, frame / 3)
+            let neighbour = 0.5 * (hash(c - 1, 0, frame / 3) + hash(c + 1, 0, frame / 3))
+            let reach = max(0.08, min(0.95, height * (0.6 * base + 0.4 * neighbour)))
             return (0..<rows).map { row in
                 let fromBottom = Double(rows - row) / Double(rows)      // 1 at the bottom
-                let reach = height * base
-                let flicker = 0.75 + 0.25 * hash(c, row, frame)
-                let v = (reach - (1 - fromBottom)) / reach
-                return max(0, min(1, v)) * flicker
+                let flicker = 0.7 + 0.3 * hash(c, row, frame)
+                let v = max(0, min(1, (reach - (1 - fromBottom)) / reach))
+                return v * v * flicker
             }
         }
     }
