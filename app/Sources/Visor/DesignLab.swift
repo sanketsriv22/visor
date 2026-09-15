@@ -180,7 +180,8 @@ enum DesignLab {
             },
             Scenario(name: "notch-listening", size: CGSize(width: 1100, height: 4 * 90 + 40), themed: false,
                      note: "The collapsed notch while listening and while transcribing, for a two-sided and a one-sided visual — the window frame and the pills from the same shape") { f in
-                func row(_ during: NotchVisuals.During, _ after: NotchVisuals.After, _ state: VoiceInput.State) -> AnyView {
+                @MainActor func row(_ during: NotchVisuals.During, _ after: NotchVisuals.After, _ state: VoiceInput.State) -> AnyView {
+                    let notch = f.notch
                     let ui = UIState()
                     ui.notchSize = notch; ui.trueNotch = notch; ui.expanded = false
                     NotchVisuals.shared.during = during; NotchVisuals.shared.after = after
