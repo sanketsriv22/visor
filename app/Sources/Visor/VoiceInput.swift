@@ -28,6 +28,11 @@ final class VoiceInput: NSObject, ObservableObject {
     /// first 180 ms of a press, before it's known to be a hold.
     private(set) var armed = false
     private var streamer: StreamingTranscriber?
+    /// The transcriber that has been asked for its final and hasn't
+    /// answered yet. Held here so it cannot be released — and its final
+    /// lost — by a new session starting on top of it.
+    private var finishing: StreamingTranscriber?
+    private var streamerFinishing: Bool { finishing != nil }
     private var streamFailed = false
     private var streamNote: String?
     enum State: Equatable {
@@ -223,6 +228,7 @@ final class VoiceInput: NSObject, ObservableObject {
     /// `cancel()` drops it.
     func arm() {
         guard state == .idle, !armed else { DictationLog.note("arm: ignored (state \(state), armed \(armed))"); return }
+        guard !streamerFinishing else { DictationLog.note("arm: ignored — previous transcript still finishing"); return }
         guard Self.hasKey, AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { DictationLog.note("arm: no key or not authorised"); return }
         armed = true
         DictationLog.note("arm")
@@ -239,6 +245,10 @@ final class VoiceInput: NSObject, ObservableObject {
             return
         }
         DictationLog.note("start: state \(state)")
+        guard state != .transcribing, !streamerFinishing else {
+            DictationLog.note("start: ignored — previous transcript still finishing")
+            return
+        }
         guard Self.hasKey else {
             state = .failed("Add an OpenAI key in Settings to dictate")
             return
@@ -339,6 +349,7 @@ final class VoiceInput: NSObject, ObservableObject {
         finishedAt = Date()
         if let streamer, streamer.isOpen, !streamFailed {
             DictationLog.note("finish: waiting on stream")
+            finishing = streamer
             streamer.finish()
         } else {
             DictationLog.note("finish: upload (stream \(streamer == nil ? "absent" : "closed")\(streamNote.map { ": \($0)" } ?? ""))")
@@ -361,6 +372,7 @@ final class VoiceInput: NSObject, ObservableObject {
             guard let self else { return }
             let started = self.startedAt
             self.streamer = nil
+            self.finishing = nil
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             // Nothing from the stream is not nothing said: the recording is
             // on disk. Upload it rather than lose the words.
@@ -381,6 +393,7 @@ final class VoiceInput: NSObject, ObservableObject {
             self.streamFailed = true
             self.streamNote = why
             self.streamer = nil
+            self.finishing = nil
             // Still recording: the file path takes over at finish(). Already
             // finishing: upload the file now.
             if self.state == .transcribing, let url = self.fileURL {
@@ -444,6 +457,10 @@ final class VoiceInput: NSObject, ObservableObject {
 
     /// Abandon a recording without transcribing it.
     func cancel() {
+        guard state == .recording || armed else {
+            DictationLog.note("cancel: ignored (state \(state)) — a transcription in flight is never cancelled by a key")
+            return
+        }
         DictationLog.note("cancel (state \(state), armed \(armed))")
         stopMetering()
         streamer?.cancel()

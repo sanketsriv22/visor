@@ -93,6 +93,27 @@ final class ListeningTests: XCTestCase {
         XCTAssertEqual(ends, 1)
     }
 
+    func testAReleaseWithoutAPressIsNothing() {
+        let key = PushToTalk()
+        var cancels = 0, ends = 0
+        key.onCancel = { cancels += 1 }
+        key.onHoldEnd = { ends += 1 }
+        key.released(heldFor: 0.05)
+        key.released(heldFor: 2)
+        XCTAssertEqual(cancels, 0); XCTAssertEqual(ends, 0)
+    }
+
+    func testASecondReleaseAfterAHoldIsNothing() {
+        let key = PushToTalk()
+        var cancels = 0, ends = 0
+        key.onCancel = { cancels += 1 }
+        key.onHoldEnd = { ends += 1 }
+        key.pressed()
+        key.released(heldFor: 2)
+        key.released(heldFor: 0.01)                     // a duplicate key-up must not cancel anything
+        XCTAssertEqual(ends, 1); XCTAssertEqual(cancels, 0)
+    }
+
     func testAutorepeatDoesNotRearm() {
         let key = PushToTalk()
         var arms = 0

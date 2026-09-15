@@ -210,6 +210,7 @@ final class PushToTalk: ObservableObject {
 
     /// The key came up. `heldFor` can be given by tests.
     func released(heldFor override: TimeInterval? = nil) {
+        guard pressedAt != nil else { return }   // a release we never saw the press of
         let heldFor = override ?? pressedAt.map { Date().timeIntervalSince($0) } ?? 0
         let wasHolding = holding || heldFor >= holdThreshold
         cancelHold()
