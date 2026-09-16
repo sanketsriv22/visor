@@ -22,6 +22,15 @@ final class MicEngine {
     private var file: AVAudioFile?
     private var onPCM: ((Data) -> Void)?
     private var onPeak: ((Float) -> Void)?
+
+    /// Loudest sample as 0…1. Widened before the absolute value: a fully
+    /// clipped sample is -32768, `abs` of which does not fit in Int16 and
+    /// trapped — one loud click into the microphone took the app down.
+    nonisolated static func peak(_ samples: UnsafePointer<Int16>, _ count: Int) -> Float {
+        var peak: Int32 = 0
+        for i in 0..<count { peak = max(peak, abs(Int32(samples[i]))) }
+        return Float(peak) / 32767
+    }
     private(set) var running = false
     /// Which start() is in flight, so a stop() that lands first wins.
     private var generation = 0
@@ -130,9 +139,7 @@ final class MicEngine {
             }
             guard error == nil, out.frameLength > 0, let channel = out.int16ChannelData?[0] else { return }
             let count = Int(out.frameLength)
-            var peak: Int16 = 0
-            for i in 0..<count { peak = max(peak, abs(channel[i])) }
-            self.onPeak?(Float(peak) / 32767)
+            self.onPeak?(Self.peak(channel, count))
             do { try self.file?.write(from: out) } catch {
                 if self.written == 0 { DictationLog.note("mic: file write failed: \(error.localizedDescription)") }
             }

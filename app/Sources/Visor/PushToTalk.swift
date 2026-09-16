@@ -222,6 +222,7 @@ final class PushToTalk: ObservableObject {
     func released(heldFor override: TimeInterval? = nil) {
         guard pressedAt != nil else { return }   // a release we never saw the press of
         let heldFor = override ?? pressedAt.map { Date().timeIntervalSince($0) } ?? 0
+        let wasShown = holding
         let wasHolding = holding || heldFor >= holdThreshold
         cancelHold()
         if toggledOn {
@@ -232,6 +233,10 @@ final class PushToTalk: ObservableObject {
         }
         if wasHolding {
             lastTapAt = nil
+            // Held past the threshold but the hold never showed — the main
+            // thread was busy (the microphone's first start) when its timer
+            // was due. Start and end are one gesture; deliver both.
+            if !wasShown { onHoldStart?() }
             onHoldEnd?()
             return
         }

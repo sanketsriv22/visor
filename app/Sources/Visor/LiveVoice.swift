@@ -535,9 +535,7 @@ final class LiveSession: NSObject, ObservableObject {
             }
             guard error == nil, out.frameLength > 0, let channel = out.int16ChannelData?[0] else { return }
             let count = Int(out.frameLength)
-            var peak: Int16 = 0
-            for i in 0..<count { peak = max(peak, abs(channel[i])) }
-            self.inputPeak = max(self.inputPeak, CGFloat(peak) / 32767)
+            self.inputPeak = max(self.inputPeak, CGFloat(MicEngine.peak(channel, count)))
             if self.muted { return }
             self.outbox.append(Data(bytes: channel, count: count * 2))
             if self.outbox.count >= 2400 {

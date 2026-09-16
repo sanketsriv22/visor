@@ -63,8 +63,12 @@ final class VoiceInput: NSObject, ObservableObject {
     /// same samples or the halves won't line up as it passes behind.
     @Published private(set) var levels: [Float] = Array(repeating: 0, count: 28)
 
-    /// The last buffer's peak, in dBFS.
-    private var peakDB: Float = -80
+    /// The last buffer's peak, in dBFS; nothing until the first buffer.
+    /// It used to start at -80, and the noise floor snapped to that before
+    /// the microphone's first buffer landed — then room noise sat 30 dB
+    /// above the "floor" and the meter (and the invaders' cannon) fired at
+    /// silence for the half minute the floor took to creep back up.
+    private var peakDB: Float?
     private var meterTimer: Timer?
     private var fileURL: URL?
     private var startedAt: Date?
@@ -227,7 +231,9 @@ final class VoiceInput: NSObject, ObservableObject {
     /// may be a tap. `start()` then shows the pill over the same capture;
     /// `cancel()` drops it.
     func arm() {
-        guard state == .idle, !armed else { DictationLog.note("arm: ignored (state \(state), armed \(armed))"); return }
+        // Any settled state can arm — a failure or a denial from last time
+        // must not eat the next press.
+        guard state != .recording, state != .transcribing, !armed else { DictationLog.note("arm: ignored (state \(state), armed \(armed))"); return }
         guard !streamerFinishing else { DictationLog.note("arm: ignored — previous transcript still finishing"); return }
         guard Self.hasKey, AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { DictationLog.note("arm: no key or not authorised"); return }
         armed = true
@@ -341,6 +347,10 @@ final class VoiceInput: NSObject, ObservableObject {
 
     /// Stop recording and transcribe what was captured.
     func finish() {
+        // Armed but never shown: the key came up before the hold registered
+        // (the microphone's first start can block past the threshold). The
+        // audio was captured from key-down all the same; use it.
+        if armed { DictationLog.note("finish: from armed"); start() }
         guard state == .recording else { DictationLog.note("finish: ignored (state \(state))"); return }
         stopMetering()
         MicEngine.shared.stop()
@@ -478,6 +488,7 @@ final class VoiceInput: NSObject, ObservableObject {
     private func startMetering() {
         // Re-measured each time: the room is not the same room it was.
         noiseFloor = -40
+        peakDB = nil
         meterTimer?.invalidate()
         meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 50, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.sampleLevel() }
@@ -506,7 +517,7 @@ final class VoiceInput: NSObject, ObservableObject {
         // Buffers arrive about twenty times a second and the meter samples
         // fifty; reading "silence" between them collapsed the noise floor and
         // lit the meter on room noise. Hold the last reading instead.
-        let dB = peakDB
+        guard let dB = peakDB else { return }   // no buffer yet: nothing to read
 
         // The floor is measured, not assumed.
         //
@@ -525,10 +536,12 @@ final class VoiceInput: NSObject, ObservableObject {
         }
 
         // Nothing registers until it is clearly above that floor, so an empty
-        // room reads as empty.
-        // Five, not eight: enough to clear the room, little enough that a
-        // normal speaking voice is well up the scale rather than scraping in.
-        let floor = noiseFloor + 5
+        // room reads as empty. The floor follows the *quietest* buffer, and
+        // the peaks of silence scatter 6–8 dB above their quietest; a 5 dB
+        // gate let that scatter through as a whisper and the invaders'
+        // cannon fired at an empty room. Ten clears it, and speech at -20
+        // is still most of the scale.
+        let floor = noiseFloor + 10
         let ceiling: Float = -12
         guard ceiling > floor else { level = 0; levels.removeFirst(); levels.append(0); return }
         let span = max(0, min(1, (dB - floor) / (ceiling - floor)))

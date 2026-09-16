@@ -111,6 +111,23 @@ final class ListeningTests: XCTestCase {
         XCTAssertEqual(ends, 1)
     }
 
+    func testAHoldWhoseTimerNeverFiredStillStarts() {
+        let key = PushToTalk()
+        var shows = 0, ends = 0
+        key.onHoldStart = { shows += 1 }
+        key.onHoldEnd = { ends += 1 }
+        key.pressed()
+        key.released(heldFor: key.holdThreshold + 0.2)  // timer never got the main thread
+        XCTAssertEqual(shows, 1, "a hold delivers its start even when the timer missed")
+        XCTAssertEqual(ends, 1)
+    }
+
+    func testPeakSurvivesAFullyClippedSample() {
+        var samples: [Int16] = [0, 1200, .min, .max, -3]
+        let peak = samples.withUnsafeMutableBufferPointer { MicEngine.peak($0.baseAddress!, $0.count) }
+        XCTAssertGreaterThan(peak, 1.0 - 0.001)
+    }
+
     func testAReleaseWithoutAPressIsNothing() {
         let key = PushToTalk()
         var cancels = 0, ends = 0
