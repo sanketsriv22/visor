@@ -15,6 +15,7 @@ struct MenuBarPanel: View {
     let onIntroduction: () -> Void
     let onCheckUpdates: () -> Void
     let onQuit: () -> Void
+    @ObservedObject private var updater = UpdateInstaller.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -30,7 +31,12 @@ struct MenuBarPanel: View {
             row("Settings", glyph: Glyph.settings, hint: "⌘,", action: onSettings)
             row("What's New", glyph: Glyph.whatsNew, action: onWhatsNew)
             row("Introduction", glyph: Glyph.star, action: onIntroduction)
-            row("Check for Updates", glyph: Glyph.update, action: onCheckUpdates)
+            if let staged = updater.staged {
+                row("Install build \(staged.build)", glyph: Glyph.update,
+                    hint: "ready", action: { updater.installNow() })
+            } else {
+                row("Check for Updates", glyph: Glyph.update, action: onCheckUpdates)
+            }
 
             rule()
 

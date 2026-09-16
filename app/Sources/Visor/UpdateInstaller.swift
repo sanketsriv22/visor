@@ -13,14 +13,20 @@ import Foundation
 /// is written to `update-result` (`installed`, `declined`) for the
 /// installer script to read.
 @MainActor
-final class UpdateInstaller {
+final class UpdateInstaller: ObservableObject {
     static let shared = UpdateInstaller()
 
     /// Whether something would be lost by relaunching right now.
     var isBusy: () -> Bool = { false }
 
+    /// A build staged and waiting — after Not now, the menu-bar panel
+    /// offers it until it's installed. Cleared on install.
+    @Published private(set) var staged: (path: String, build: String)? = nil
+
     private var timer: Timer?
     private var asking = false
+    /// Declined this launch: the panel's row is the way in until the app
+    /// next starts, when it asks once more.
     private var declinedBuild: String?
 
     private static let dir = FileManager.default.homeDirectoryForCurrentUser
@@ -42,18 +48,35 @@ final class UpdateInstaller {
         let build = note["build"] ?? "?"
         guard FileManager.default.fileExists(atPath: path) else {
             try? FileManager.default.removeItem(at: Self.noteURL)
+            staged = nil
             return
         }
+        if staged?.build != build { staged = (path, build) }
         if build == declinedBuild { return }
         if isBusy() { return }          // ask when whatever is in flight has landed
         ask(path: path, build: build)
+    }
+
+    /// The menu-bar panel's row: install the staged build now. Asks first
+    /// only if something is in flight.
+    func installNow() {
+        guard let staged else { return }
+        if isBusy() {
+            let alert = NSAlert()
+            alert.messageText = "Something is still in flight"
+            alert.informativeText = "A dictation, live conversation or computer-use run is running. Finish it, then install."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+        install(path: staged.path, build: staged.build)
     }
 
     private func ask(path: String, build: String) {
         asking = true
         let alert = NSAlert()
         alert.messageText = "Visor build \(build) is ready"
-        alert.informativeText = "Install it and relaunch now? Nothing is in flight. Not now keeps this build; you'll be asked again after the next dictation."
+        alert.informativeText = "Install it and relaunch now? Nothing is in flight. Not now keeps this build; \"Install build \(build)\" stays in the menu-bar panel, and you'll be asked once more the next time Visor starts."
         alert.addButton(withTitle: "Install now")
         alert.addButton(withTitle: "Not now")
         alert.alertStyle = .informational
@@ -87,6 +110,7 @@ final class UpdateInstaller {
         strip.arguments = ["-dr", "com.apple.quarantine", "/Applications/Visor.app"]
         try? strip.run(); strip.waitUntilExit()
         try? FileManager.default.removeItem(at: Self.noteURL)
+        staged = nil
         try? "installed".write(to: Self.resultURL, atomically: true, encoding: .utf8)
         // Relaunch after this process has gone, then go.
         let relaunch = Process()
