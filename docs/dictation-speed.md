@@ -88,10 +88,31 @@ When you stop talking and release the key in the same moment, the
 service's voice detector has just committed your last phrase itself, so
 our `input_audio_buffer.commit` is refused with "buffer too small …
 0.00ms". That refusal is not "nothing left": the detector's item and its
-transcript arrive a beat later. The transcriber now treats that error,
-and any `speech_stopped`, as a segment in flight, and the final waits a
-700 ms grace after the last event before it is declared. Closing the
-socket on the refusal — which is what lost transcripts — is gone.
+transcript are on their way. Closing the socket on the refusal — which
+is what lost transcripts — is gone.
+
+The socket is ordered, and that decides when the final is declared with
+no grace at all (2026-09-16; the 700 ms grace plus a 1.5 s wait on the
+refusal had put 1.2–2.8 s between key-up and delivery). Key-up sends
+one commit, and the service answers it in exactly one of two ways:
+
+- `input_audio_buffer.committed` with no `speech_stopped` before it —
+  the detector's own commits always follow a `speech_stopped`. This is
+  our segment, and it is the last one: the buffer is now empty and no
+  more audio is sent.
+- "buffer too small" — the detector took the last phrase itself, and
+  since it sent that segment's `committed` before this error, the
+  segment is already open here.
+
+Either way, once the answer has arrived every segment the service will
+ever open is known, and the transcript is final the moment the last of
+them completes. A `speech_stopped` after the answer is ignored. The 6 s
+cap remains as the backstop.
+
+A double-tap no longer rebuilds the microphone and session: a lone tap's
+cancel waits out the double-tap window, so the second tap carries on
+with what the first one armed instead of paying the ~170 ms mic restart
+and a fresh socket.
 
 `Visor --probe-transcription <eager|wait> <model>` replays the session
 against the real service with the app's key and writes every server

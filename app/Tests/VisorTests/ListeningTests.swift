@@ -90,6 +90,8 @@ final class ListeningTests: XCTestCase {
         key.onCancel = { cancels += 1 }
         key.onHoldStart = { shows += 1 }
         key.pressed(); key.released(heldFor: 0.05)
+        XCTAssertEqual(cancels, 0, "the drop waits for the double-tap window")
+        key.settleTap()
         XCTAssertEqual(cancels, 1, "a tap must drop what it armed")
         XCTAssertEqual(ends, 0); XCTAssertEqual(shows, 0)
     }
@@ -99,9 +101,10 @@ final class ListeningTests: XCTestCase {
         var arms = 0, shows = 0, ends = 0, cancels = 0
         key.onArm = { arms += 1 }; key.onHoldStart = { shows += 1 }
         key.onHoldEnd = { ends += 1 }; key.onCancel = { cancels += 1 }
-        key.pressed(); key.released(heldFor: 0.05)      // first tap: cancelled
-        key.pressed(); key.released(heldFor: 0.05)      // second tap: toggled on
-        XCTAssertEqual(arms, 2); XCTAssertEqual(cancels, 1); XCTAssertEqual(shows, 1)
+        key.pressed(); key.released(heldFor: 0.05)      // first tap: armed, drop pending
+        key.pressed(); key.released(heldFor: 0.05)      // second tap: toggled on, same arm
+        XCTAssertEqual(arms, 1, "a double-tap keeps the first tap's microphone")
+        XCTAssertEqual(cancels, 0); XCTAssertEqual(shows, 1)
         key.pressed()                                   // while on: no new arm
         XCTAssertEqual(arms, 2)
         key.released(heldFor: 0.05)                     // done

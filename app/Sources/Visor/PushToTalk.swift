@@ -103,6 +103,11 @@ final class PushToTalk: ObservableObject {
     /// A double-tap left the recording running; the next press ends it.
     private var toggledOn = false
     private var holdWork: DispatchWorkItem?
+    /// A lone tap drops what it armed — but only once the double-tap window
+    /// has passed, so a second tap carries on with the microphone and
+    /// session the first one opened instead of tearing them down and
+    /// reopening: that rebuild cost a double-tap most of half a second.
+    private var tapWork: DispatchWorkItem?
 
     private let triggerKey = "visor.pushToTalkTrigger"
     /// Asked once per launch at most.
@@ -198,7 +203,12 @@ final class PushToTalk: ObservableObject {
         guard pressedAt == nil else { return }   // autorepeat
         pressedAt = Date()
         if toggledOn { return }                  // this press ends it, on release
-        onArm?()                                 // the microphone, now
+        if let tapWork {                         // second press of a double-tap: still armed
+            tapWork.cancel()
+            self.tapWork = nil
+        } else {
+            onArm?()                             // the microphone, now
+        }
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.pressedAt != nil, !self.holding else { return }
             self.holding = true
@@ -234,11 +244,27 @@ final class PushToTalk: ObservableObject {
             onHoldStart?()
         } else {
             lastTapAt = now
-            onCancel?()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.tapWork = nil
+                self.onCancel?()
+            }
+            tapWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + doubleTapWindow, execute: work)
         }
     }
 
+    /// Run the pending lone-tap cancel now instead of after the window.
+    /// Internal for tests.
+    func settleTap() {
+        guard let tapWork else { return }
+        tapWork.cancel()
+        self.tapWork = nil
+        onCancel?()
+    }
+
     private func cancelHold() {
+        tapWork?.cancel(); tapWork = nil
         holdWork?.cancel()
         holdWork = nil
         holding = false
