@@ -62,7 +62,7 @@ for i in $(seq 1 90); do
     r=$(cat "$SUPPORT/update-result")
     case "$r" in
       installed) sleep 3; echo "installed build $BUILD — user chose Install; running: $(pgrep -x Visor | wc -l | tr -d ' ')"; exit 0 ;;
-      declined)  echo "build $BUILD staged; user chose Not now — it will ask again after the next dictation"; exit 0 ;;
+      declined)  echo "build $BUILD staged; user chose Not now — "Install build N" waits in the menu-bar panel, and it asks again at next launch"; exit 0 ;;
       failed)    echo "build $BUILD: the in-app install failed"; exit 1 ;;
     esac
   fi
