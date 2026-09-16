@@ -188,6 +188,30 @@ enum DesignLab {
                      note: "The collapsed notch, one-sided visual: recording, then transcribing with a two-sided idle visual (right half only). Red = the computed window frame.") { f in
                 AnyView(f.listening(during: .wave, after: .pong))
             },
+            Scenario(name: "notch-rainbow", size: CGSize(width: 760, height: 3 * 118 + 40), themed: false,
+                     note: "Bars and wave mirrored to both sides, and single-court Pong, in the rainbow palette") { _ in
+                NotchVisuals.shared.palette = .rainbow
+                let levels: [Float] = (0..<28).map { i in Float(0.15 + 0.7 * abs(sin(Double(i) * 0.55))) }
+                func pill(_ grid: [[Double]]) -> some View {
+                    DotGrid(columns: grid, cell: 5, animated: false).padding(8).background(Color.black)
+                }
+                return AnyView(VStack(alignment: .leading, spacing: 8) {
+                    ForEach([NotchGallery.Live.bars, .wave], id: \.self) { k in
+                        HStack(spacing: 6) {
+                            Text(k.rawValue).font(.system(size: 10, design: .monospaced)).frame(width: 60, alignment: .leading)
+                            pill(NotchGallery.live(k, levels: levels, t: 1.7, side: .leading))
+                            Rectangle().fill(Color.black).frame(width: 60, height: 40)
+                            pill(NotchGallery.live(k, levels: levels, t: 1.7, side: .trailing))
+                        }
+                    }
+                    HStack(spacing: 6) {
+                        Text("pong·1").font(.system(size: 10, design: .monospaced)).frame(width: 60, alignment: .leading)
+                        Color.clear.frame(width: 172)
+                        Rectangle().fill(Color.black).frame(width: 60, height: 40)
+                        NotchPong(side: .trailing, single: true).padding(8).background(Color.black)
+                    }
+                }.padding(16).background(Color(white: 0.12)).foregroundStyle(.white))
+            },
             Scenario(name: "notch-visuals", size: CGSize(width: 760, height: 13 * 118 + 40), themed: false,
                      note: "Every notch visual, both pills (left · notch · right), frozen at t=1.7 with a spoken level history") { _ in
                 let levels: [Float] = (0..<28).map { i in Float(0.15 + 0.7 * abs(sin(Double(i) * 0.55))) }

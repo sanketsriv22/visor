@@ -19,6 +19,21 @@ final class ListeningTests: XCTestCase {
         }
     }
 
+    func testBothSidesGivesEveryVisualALeftPill() {
+        for during in NotchVisuals.During.allCases {
+            XCTAssertTrue(NotchVisuals.Shape.current(during: during, bothSides: true).leftPill, "\(during)")
+        }
+    }
+
+    func testAOneSidedVisualMirrorsOnTheLeft() {
+        let levels: [Float] = (0..<28).map { Float(abs(sin(Double($0) * 0.7))) }
+        for kind in NotchGallery.Live.allCases where kind.sides == .right {
+            let right = NotchGallery.live(kind, levels: levels, t: 2.5, side: .trailing)
+            let left = NotchGallery.live(kind, levels: levels, t: 2.5, side: .leading)
+            XCTAssertEqual(left, right.reversed(), "\(kind)")
+        }
+    }
+
     func testSessionShapeIsFixedUntilItEnds() {
         let v = NotchVisuals.shared
         let original = v.during

@@ -1174,6 +1174,7 @@ struct DotGrid: View {
     /// Outer: columns, left to right. Inner: rows, top to bottom. 0…1.
     var columns: [[Double]]
     var cell: CGFloat = 2
+    @ObservedObject private var visuals = NotchVisuals.shared
     /// Hot cells warm towards orange. White fire is just noise; the colour is
     /// most of what makes it read as flame rather than as static.
     var warm = false
@@ -1185,11 +1186,11 @@ struct DotGrid: View {
 
     var body: some View {
         HStack(spacing: spacing) {
-            ForEach(Array(columns.enumerated()), id: \.offset) { _, rows in
+            ForEach(Array(columns.enumerated()), id: \.offset) { columnIndex, rows in
                 VStack(spacing: spacing) {
                     ForEach(Array(rows.enumerated()), id: \.offset) { _, value in
                         Circle()
-                            .fill(colour(for: value))
+                            .fill(colour(for: value, column: columnIndex, of: columns.count))
                             .opacity(0.06 + 0.9 * max(0, min(1, value)))
                             .frame(width: cell, height: cell)
                             .animation(animated ? .easeOut(duration: 0.09) : nil,
@@ -1200,7 +1201,13 @@ struct DotGrid: View {
         }
     }
 
-    private func colour(for value: Double) -> Color {
+    private func colour(for value: Double, column: Int, of count: Int) -> Color {
+        if !warm, visuals.palette == .rainbow {
+            // Red through violet across the width — the six-colour stripe,
+            // as a hue sweep so neighbouring dots agree.
+            let hue = 0.02 + 0.78 * Double(column) / Double(max(1, count - 1))
+            return Color(hue: hue, saturation: 0.85, brightness: 1)
+        }
         guard warm else { return .white }
         // Cool at the tips, white-hot at the base — the way a flame actually
         // grades, and the way every fire effect of that era faked it.
@@ -1326,9 +1333,14 @@ struct VoicePongView: View {
 /// through.
 struct NotchPong: View {
     let side: ListeningPill.Side
+    /// One pill only: the court is that pill, and the ball bounces off the
+    /// notch — a wall on the inner edge — instead of crossing into a pill
+    /// that isn't there.
+    var single = false
 
-    private static let total = 40
+    private static let both = 40
     private static let perSide = 20
+    private var total: Int { single ? Self.perSide : Self.both }
     private static let rows = 10
     /// A full round trip. Fast, because the ball may only get one crossing.
     private static let rally: Double = 1.1
@@ -1352,7 +1364,11 @@ struct NotchPong: View {
     private func columns(at date: Date) -> [[Double]] {
         let t = date.timeIntervalSinceReferenceDate
         // Inset by one so the ball turns at the paddles rather than at the wall.
-        let ballX = triangle(t, period: Self.rally, span: Double(Self.total - 3)) + 1
+        // In a single court the inner edge is the notch: the ball goes all
+        // the way to column 0 and turns there, with no paddle.
+        let ballX = single
+            ? triangle(t, period: Self.rally * 0.6, span: Double(total - 2))
+            : triangle(t, period: Self.rally, span: Double(total - 3)) + 1
         let ballY = triangle(t, period: Self.bounce, span: Double(Self.rows - 1))
 
         // Each paddle tracks the ball only as it comes towards it, and drifts
@@ -1368,7 +1384,7 @@ struct NotchPong: View {
         // and mid-court it is off doing something else. Both are still read
         // off the clock, so the halves agree without sharing state.
         func paddleTop(nearWallAt wallX: Double, wander period: Double, phase: Double) -> Int {
-            let travel = Double(Self.total - 3)
+            let travel = Double(total - 3)
             let nearness = 1 - min(1, abs(ballX - wallX) / travel)
             let follow = nearness * nearness
             let idle = triangle(t + phase, period: period,
@@ -1378,16 +1394,16 @@ struct NotchPong: View {
             return max(0, min(Self.rows - Self.paddleHeight, Int(top.rounded())))
         }
         let leadingTop = paddleTop(nearWallAt: 1, wander: 1.9, phase: 0.4)
-        let trailingTop = paddleTop(nearWallAt: Double(Self.total - 2), wander: 2.7, phase: 1.3)
-        let offset = side == .trailing ? Self.perSide : 0
+        let trailingTop = paddleTop(nearWallAt: Double(total - 2), wander: 2.7, phase: 1.3)
+        let offset = (side == .trailing && !single) ? Self.perSide : 0
 
         return (0..<Self.perSide).map { index in
             let column = index + offset
             return (0..<Self.rows).map { row in
-                if column == 0 {
+                if column == 0, !single {
                     return (row >= leadingTop && row < leadingTop + Self.paddleHeight) ? 1 : 0
                 }
-                if column == Self.total - 1 {
+                if column == total - 1 {
                     return (row >= trailingTop && row < trailingTop + Self.paddleHeight) ? 1 : 0
                 }
                 // A little tolerance, so the ball reads as a ball crossing dots
@@ -1522,17 +1538,18 @@ struct ListeningPill: View {
             switch visuals.during {
             case .invaders:  VoiceInvaders(arcade: voice.arcade, side: side)
             case .voicePong: VoicePongView(pong: voice.pong, side: side)
-            case .pong:      NotchPong(side: side)
+            case .pong:      NotchPong(side: side, single: !visuals.active.leftPill)
             default:
                 if let kind = visuals.during.gallery { NotchLiveView(voice: voice, kind: kind, side: side) }
             }
         case .transcribing:
-            // A one-sided visual has nothing for the left pill.
-            if side == .leading, visuals.after.rightOnly {
+            // A one-sided visual has nothing for the left pill — unless both
+            // sides is on, in which case the gallery mirrors it.
+            if side == .leading, visuals.after.rightOnly, !visuals.bothSides {
                 Color.clear
             } else {
                 switch visuals.after {
-                case .pong:  NotchPong(side: side)
+                case .pong:  NotchPong(side: side, single: !visuals.active.leftPill)
                 case .quiet: Color.clear
                 default:
                     if let kind = visuals.after.gallery { NotchIdleView(kind: kind, side: side) }

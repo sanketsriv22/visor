@@ -1492,6 +1492,15 @@ private struct VoicePane: View {
                 SettingsMenu(selection: $visuals.after,
                              options: NotchVisuals.After.allCases.map { ($0, $0.title) }, width: 280)
             }
+            Rectangle().fill(Design.Retro.line).frame(height: 1).opacity(0.6)
+            SettingsRow(title: "Both sides",
+                        caption: "One-sided visuals grow out of the notch on the left too, mirrored. In a one-sided session Pong bounces off the notch.") {
+                Toggle("", isOn: $visuals.bothSides).labelsHidden().toggleStyle(.switch)
+            }
+            SettingsRow(title: "Colour", caption: "White dots, or a rainbow across the width.") {
+                SettingsMenu(selection: $visuals.palette,
+                             options: NotchVisuals.Palette.allCases.map { ($0, $0.title) }, width: 160)
+            }
             if visuals.during == .voicePong {
                 Text("Your paddle is on the left and moves while you speak, turning round "
                    + "at the top and bottom. Stop talking and it stays put. The notch "

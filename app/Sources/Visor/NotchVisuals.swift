@@ -47,6 +47,19 @@ final class NotchVisuals: ObservableObject {
     @Published var during: During {
         didSet { UserDefaults.standard.set(during.rawValue, forKey: "visor.notch.during") }
     }
+    /// One-sided visuals drawn on both sides too, mirrored about the notch.
+    @Published var bothSides: Bool {
+        didSet { UserDefaults.standard.set(bothSides, forKey: "visor.notch.bothSides") }
+    }
+    /// The dots' colour.
+    enum Palette: String, CaseIterable, Identifiable {
+        case mono, rainbow
+        var id: String { rawValue }
+        var title: String { self == .mono ? "White" : "Rainbow" }
+    }
+    @Published var palette: Palette {
+        didSet { UserDefaults.standard.set(palette.rawValue, forKey: "visor.notch.palette") }
+    }
     @Published var after: After {
         didSet { UserDefaults.standard.set(after.rawValue, forKey: "visor.notch.after") }
     }
@@ -56,6 +69,9 @@ final class NotchVisuals: ObservableObject {
             .flatMap(During.init(rawValue:)) ?? .invaders
         after = UserDefaults.standard.string(forKey: "visor.notch.after")
             .flatMap(After.init(rawValue:)) ?? .pong
+        bothSides = UserDefaults.standard.bool(forKey: "visor.notch.bothSides")
+        palette = UserDefaults.standard.string(forKey: "visor.notch.palette")
+            .flatMap(Palette.init(rawValue:)) ?? .mono
     }
 
     /// The shape the notch takes while listening: whether there is a left
@@ -72,8 +88,8 @@ final class NotchVisuals: ObservableObject {
         var extraHeight: CGFloat
 
         /// The shape the current settings would give a new session.
-        static func current(during: During) -> Shape {
-            Shape(leftPill: !during.rightOnly,
+        static func current(during: During, bothSides: Bool = false) -> Shape {
+            Shape(leftPill: !during.rightOnly || bothSides,
                   // Voice Pong wants room: ten rows is enough for a formation
                   // to march across but too tight for a rally to be anything
                   // but a blur. Everything else stays in the notch's height.
@@ -86,9 +102,9 @@ final class NotchVisuals: ObservableObject {
 
     /// What the pills and the frame use right now: the session's shape
     /// while one is on, else what the settings would give.
-    var active: Shape { session ?? Shape.current(during: during) }
+    var active: Shape { session ?? Shape.current(during: during, bothSides: bothSides) }
 
-    func beginSession() { session = Shape.current(during: during) }
+    func beginSession() { session = Shape.current(during: during, bothSides: bothSides) }
     func endSession() { session = nil }
 
     var extraHeight: CGFloat { active.extraHeight }

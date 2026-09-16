@@ -106,6 +106,11 @@ enum NotchGallery {
     // MARK: Live visuals
 
     static func live(_ kind: Live, levels: [Float], t: Double, side: ListeningPill.Side) -> [[Double]] {
+        // A one-sided visual on the left pill is the right pill in a mirror:
+        // it grows out of the notch on both sides.
+        if kind.sides == .right, side == .leading {
+            return live(kind, levels: levels, t: t, side: .trailing).reversed()
+        }
         let recent = levels.suffix(columns).map(Double.init)   // oldest first
         let newest = recent.last ?? 0
         switch kind {
@@ -191,6 +196,9 @@ enum NotchGallery {
     // MARK: Idle visuals
 
     static func idle(_ kind: Idle, t: Double, side: ListeningPill.Side) -> [[Double]] {
+        if kind.sides == .right, side == .leading {
+            return idle(kind, t: t, side: .trailing).reversed()
+        }
         switch kind {
         case .scanner:
             // A bright bar that runs across both pills and back, dimming
