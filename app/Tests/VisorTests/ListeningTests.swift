@@ -106,7 +106,7 @@ final class ListeningTests: XCTestCase {
         XCTAssertEqual(arms, 1, "a double-tap keeps the first tap's microphone")
         XCTAssertEqual(cancels, 0); XCTAssertEqual(shows, 1)
         key.pressed()                                   // while on: no new arm
-        XCTAssertEqual(arms, 2)
+        XCTAssertEqual(arms, 1)
         key.released(heldFor: 0.05)                     // done
         XCTAssertEqual(ends, 1)
     }
