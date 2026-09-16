@@ -8,12 +8,18 @@ import SwiftUI
 /// reason this is explicit — they arrive as plain @objc selectors with no
 /// isolation of their own.
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopoverDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var controller: NotchController?
     private var statusItem: NSStatusItem?
-    private var menuPopover: NSPopover?
-    private var menuClickMonitor: Any?
-    private var menuUpMonitor: Any?
+    /// The status item's menu: one item whose view is the designed panel.
+    /// A real menu, so the system owns what a menu owns — the icon lit for
+    /// exactly as long as it's open, click-outside and Escape to close, the
+    /// icon's own click to toggle — none of which a popover could be made
+    /// to do without monitors and re-highlight timers racing the button's
+    /// tracking loop. That race was the icon flickering, and losing it was
+    /// the icon not lighting at all.
+    private var menuBarMenu: NSMenu?
+    private var menuBarHost: NSHostingView<MenuBarPanel>?
     private let updater = Updater()
     private let ai = AIRunner()
     private var sendToMenu: NSMenu?
@@ -272,109 +278,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         icon?.isTemplate = true
         icon?.size = NSSize(width: 18, height: 18)
         item.button?.image = icon
-        // A designed panel on click, not a system menu. The old NSMenu carried
-        // three routing submenus ("Send tasks to", "Run agents in", "Run in
-        // folder") that predate the HUD and no longer earn their place — those
-        // are gone; run-mode lives in Settings → Workspace.
-        item.button?.action = #selector(toggleMenuPanel)
-        item.button?.target = self
-        // Fire on mouse-DOWN, like every other menu-bar app: the dropdown and
-        // the lit icon appear the instant you press, not when you release. The
-        // default is mouse-up, which is why it felt laggy and the highlight
-        // "re-selected" on release.
-        _ = (item.button?.cell as? NSButtonCell)?.sendAction(on: [.leftMouseDown])
+        // The designed panel, carried by a system menu: the menu is what
+        // lights the icon, closes on a click outside or Escape, and toggles
+        // on the icon's own click. The panel is its only item.
+        let host = NSHostingView(rootView: makeMenuPanel())
+        host.frame = NSRect(origin: .zero, size: host.fittingSize)
+        let row = NSMenuItem()
+        row.view = host
+        let menu = NSMenu()
+        menu.delegate = self
+        menu.addItem(row)
+        item.menu = menu
+        menuBarMenu = menu
+        menuBarHost = host
         statusItem = item
     }
 
-    @objc private func toggleMenuPanel() {
-        let popover = ensureMenuPopover()
-        // Deterministic toggle: with .applicationDefined the popover never
-        // auto-closes, so a click on the icon while it's open reliably closes it
-        // — no transient close-then-reopen race, which was the stutter.
-        if popover.isShown { closeMenuPanel(); return }
-        guard let button = statusItem?.button else { return }
-        (popover.contentViewController as? NSHostingController<MenuBarPanel>)?.rootView = makeMenuPanel()
-        popover.appearance = NSAppearance(named: VisorTheme.current.isDark ? .darkAqua : .aqua)
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        installMenuClickMonitor()
-        // Light it, and keep it lit. The button runs its own mouse-tracking
-        // loop from mouse-down to mouse-up and clears the highlight when that
-        // loop ends — after any plain async re-light we queue during it, which
-        // is why the lit state kept vanishing on release. `relightMenuButton`
-        // waits until the loop has returned before lighting it again.
-        button.highlight(true)
-        relightMenuButton()
-    }
-
-    private func closeMenuPanel() {
-        menuPopover?.performClose(nil)
-        statusItem?.button?.highlight(false)
-        (statusItem?.button?.cell as? NSButtonCell)?.isHighlighted = false
-        removeMenuClickMonitor()
-    }
-
-    /// Since the popover no longer closes itself, close it on a click anywhere
-    /// outside it — but not on the icon, whose own click is the toggle (letting
-    /// that through would close-then-reopen).
-    private func installMenuClickMonitor() {
-        if menuClickMonitor == nil {
-            menuClickMonitor = NSEvent.addGlobalMonitorForEvents(
-                matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-                guard let self, let button = self.statusItem?.button, let window = button.window else {
-                    self?.closeMenuPanel(); return
-                }
-                let iconRect = window.convertToScreen(button.convert(button.bounds, to: nil))
-                if !iconRect.contains(NSEvent.mouseLocation) { self.closeMenuPanel() }
-            }
-        }
-        // The button un-highlights itself on our own mouse-UP (its push-button
-        // tracking). Re-light it right after, on the next runloop tick, so the
-        // icon stays lit for as long as the popover is open — matching how a
-        // native menu keeps its item highlighted while open.
-        if menuUpMonitor == nil {
-            menuUpMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] event in
-                guard let self, self.menuPopover?.isShown == true else { return event }
-                self.relightMenuButton()
-                return event
-            }
-        }
-    }
-
-    /// Re-highlight the status item after the button's own tracking loop has
-    /// had its say. Two passes, because a slow release can outlast the first.
-    private func relightMenuButton() {
-        for delay in [0.06, 0.25] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self, self.menuPopover?.isShown == true, let button = self.statusItem?.button else { return }
-                button.highlight(true)
-                (button.cell as? NSButtonCell)?.isHighlighted = true
-                button.needsDisplay = true
-            }
-        }
-    }
-
-    private func removeMenuClickMonitor() {
-        if let m = menuClickMonitor { NSEvent.removeMonitor(m) }
-        menuClickMonitor = nil
-        if let m = menuUpMonitor { NSEvent.removeMonitor(m) }
-        menuUpMonitor = nil
-    }
-
-    private func ensureMenuPopover() -> NSPopover {
-        if let menuPopover { return menuPopover }
-        let hosting = NSHostingController(rootView: makeMenuPanel())
-        hosting.sizingOptions = .preferredContentSize
-        let popover = NSPopover()
-        popover.behavior = .applicationDefined   // we control open/close ourselves
-        popover.animates = false
-        popover.delegate = self
-        popover.contentViewController = hosting
-        menuPopover = popover
-        return popover
+    /// Fresh state each time it opens: the toggles' labels, the staged build,
+    /// the theme's appearance, and a size to match.
+    private func refreshMenuBarPanel() {
+        guard let host = menuBarHost else { return }
+        host.rootView = makeMenuPanel()
+        menuBarMenu?.appearance = NSAppearance(named: VisorTheme.current.isDark ? .darkAqua : .aqua)
+        host.frame = NSRect(origin: .zero, size: host.fittingSize)
     }
 
     private func makeMenuPanel() -> MenuBarPanel {
-        let close: () -> Void = { [weak self] in self?.menuPopover?.performClose(nil) }
+        let close: () -> Void = { [weak self] in self?.menuBarMenu?.cancelTracking() }
         return MenuBarPanel(
             version: AppInfo.version,
             computerUseOn: ComputerUseAgent.shared.running,
@@ -386,12 +316,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             onIntroduction: { close(); self.showOnboarding(fresh: true) },
             onCheckUpdates: { close(); self.updater.controller.checkForUpdates(nil) },
             onQuit:         { NSApp.terminate(nil) })
-    }
-
-    func popoverDidClose(_ notification: Notification) {
-        statusItem?.button?.highlight(false)
-        (statusItem?.button?.cell as? NSButtonCell)?.isHighlighted = false
-        removeMenuClickMonitor()
     }
 
     private func whatsNewItem() -> NSMenuItem {
@@ -421,6 +345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     /// when the user explicitly clicks "Check for Updates…". Just reset the
     /// item label (e.g. after a previous check left a status on it).
     func menuWillOpen(_ menu: NSMenu) {
+        if menu === menuBarMenu { refreshMenuBarPanel(); return }
         rebuildSendToMenu()
         rebuildRunModeMenu()
         rebuildRunInFolderMenu()
