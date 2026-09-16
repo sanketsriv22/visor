@@ -156,6 +156,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
         TrackpadGesture.shared.startIfPossible()
 
+        // New builds ask before they replace this one, and never while
+        // something is in flight.
+        UpdateInstaller.shared.isBusy = { [weak self] in
+            guard let self, let controller = self.controller else { return false }
+            return controller.chat.voice.state.isBusy
+                || LiveSession.shared.state.isOn
+                || ComputerUseAgent.shared.running
+        }
+        UpdateInstaller.shared.start()
+
         pushToTalk.onArm = { [weak self] in self?.controller?.armDictation() }
         pushToTalk.onHoldStart = { [weak self] in self?.controller?.beginDictation() }
         pushToTalk.onCancel = { [weak self] in self?.controller?.cancelDictation() }
