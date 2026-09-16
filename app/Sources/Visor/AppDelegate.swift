@@ -92,6 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         // touched: the lab renders fixtures next to a running Visor and must
         // not read or change anything of the user's.
         if DesignLab.runIfRequested(args) { return }
+        if TranscriptionProbe.runIfRequested(args) { return }
 
         if args.contains("--probe") {
             Self.printScreenProbe()
