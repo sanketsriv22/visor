@@ -305,7 +305,7 @@ struct NotchLiveView: View {
         TimelineView(.animation(minimumInterval: 1 / 30)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             DotGrid(columns: NotchGallery.live(kind, levels: voice.levels, t: t, side: side),
-                    warm: kind.warm, animated: !kind.warm)
+                    mirrored: side == .leading, warm: kind.warm, animated: !kind.warm)
         }
     }
 }
@@ -318,7 +318,7 @@ struct NotchIdleView: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
-            DotGrid(columns: NotchGallery.idle(kind, t: t, side: side), warm: kind.warm, animated: false)
+            DotGrid(columns: NotchGallery.idle(kind, t: t, side: side), mirrored: side == .leading, warm: kind.warm, animated: false)
         }
     }
 }

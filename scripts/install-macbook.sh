@@ -11,14 +11,14 @@
 set -euo pipefail
 HOST="${VISOR_HOST:-100.101.123.108}"
 ZIP="$1"
-BUILD=$(unzip -p "$ZIP" '*/Contents/Info.plist' 2>/dev/null | plutil -extract CFBundleVersion raw -o - - 2>/dev/null || echo "?")
 
 scp -q -o ConnectTimeout=15 "$ZIP" "$HOST:/tmp/Visor.zip"
-ssh -o ConnectTimeout=15 "$HOST" "BUILD='$BUILD' bash -s" <<'REMOTE'
+ssh -o ConnectTimeout=15 "$HOST" bash -s <<'REMOTE'
 set -e
 rm -rf /tmp/visor-staged && mkdir -p /tmp/visor-staged
 ditto -xk /tmp/Visor.zip /tmp/visor-staged
 APP=$(find /tmp/visor-staged -name Visor.app -maxdepth 3 | head -1)
+BUILD=$(defaults read "$APP/Contents/Info.plist" CFBundleVersion 2>/dev/null || echo "?")
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 SUPPORT="$HOME/Library/Application Support/Visor"
 mkdir -p "$SUPPORT"

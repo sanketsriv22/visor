@@ -1174,6 +1174,9 @@ struct DotGrid: View {
     /// Outer: columns, left to right. Inner: rows, top to bottom. 0…1.
     var columns: [[Double]]
     var cell: CGFloat = 2
+    /// The left pill: hues run outward from the notch, so the rainbow is
+    /// symmetrical about it rather than repeating.
+    var mirrored = false
     @ObservedObject private var visuals = NotchVisuals.shared
     /// Hot cells warm towards orange. White fire is just noise; the colour is
     /// most of what makes it read as flame rather than as static.
@@ -1205,7 +1208,8 @@ struct DotGrid: View {
         if !warm, visuals.palette == .rainbow {
             // Red through violet across the width — the six-colour stripe,
             // as a hue sweep so neighbouring dots agree.
-            let hue = 0.02 + 0.78 * Double(column) / Double(max(1, count - 1))
+            let position = Double(column) / Double(max(1, count - 1))
+            let hue = 0.02 + 0.78 * (mirrored ? position : 1 - position)   // violet at the notch, red at the edge
             return Color(hue: hue, saturation: 0.85, brightness: 1)
         }
         guard warm else { return .white }
@@ -1290,7 +1294,7 @@ struct VoiceInvaders: View {
             return arcade.grid.indices.contains(column)
                 ? arcade.grid[column]
                 : Array(repeating: 0, count: VoiceArcade.rows)
-        })
+        }, mirrored: side == .leading)
     }
 }
 
@@ -1309,7 +1313,7 @@ struct VoicePongView: View {
             return pong.grid.indices.contains(column)
                 ? pong.grid[column]
                 : Array(repeating: 0, count: VoicePong.rows)
-        })
+        }, mirrored: side == .leading)
     }
 }
 
@@ -1351,7 +1355,7 @@ struct NotchPong: View {
 
     var body: some View {
         TimelineView(.animation) { context in
-            DotGrid(columns: columns(at: context.date))
+            DotGrid(columns: columns(at: context.date), mirrored: side == .leading)
         }
     }
 

@@ -192,14 +192,14 @@ enum DesignLab {
                      note: "Bars and wave mirrored to both sides, and single-court Pong, in the rainbow palette") { _ in
                 NotchVisuals.shared.palette = .rainbow
                 let levels: [Float] = (0..<28).map { i in Float(0.15 + 0.7 * abs(sin(Double(i) * 0.55))) }
-                func pill(_ grid: [[Double]]) -> some View {
-                    DotGrid(columns: grid, cell: 5, animated: false).padding(8).background(Color.black)
+                func pill(_ grid: [[Double]], mirrored: Bool = false) -> some View {
+                    DotGrid(columns: grid, cell: 5, mirrored: mirrored, animated: false).padding(8).background(Color.black)
                 }
                 return AnyView(VStack(alignment: .leading, spacing: 8) {
                     ForEach([NotchGallery.Live.bars, .wave], id: \.self) { k in
                         HStack(spacing: 6) {
                             Text(k.rawValue).font(.system(size: 10, design: .monospaced)).frame(width: 60, alignment: .leading)
-                            pill(NotchGallery.live(k, levels: levels, t: 1.7, side: .leading))
+                            pill(NotchGallery.live(k, levels: levels, t: 1.7, side: .leading), mirrored: true)
                             Rectangle().fill(Color.black).frame(width: 60, height: 40)
                             pill(NotchGallery.live(k, levels: levels, t: 1.7, side: .trailing))
                         }
