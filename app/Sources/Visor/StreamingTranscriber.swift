@@ -47,6 +47,13 @@ final class StreamingTranscriber: NSObject {
     /// something to commit.
     private var audioSinceCut = false
     private var sentBytes = 0
+    /// The service's voice detector has heard speech stop and is about to
+    /// commit a segment itself; its item and transcript are on their way.
+    private var vadClosing = false
+    /// After our commit, the final waits a beat for any segment the service
+    /// closed on its own at the same moment. "Buffer too small" on our
+    /// commit means exactly that: the detector just took the audio.
+    private var grace: DispatchWorkItem?
 
     private var outbox = Data()
 
@@ -69,7 +76,7 @@ final class StreamingTranscriber: NSObject {
         guard !isOpen else { return }
         let model = model ?? Self.model
         text = ""; ready = false; queued = []; committed = false; finished = false
-        order = []; segments = [:]; audioSinceCut = false; sentBytes = 0
+        order = []; segments = [:]; audioSinceCut = false; sentBytes = 0; vadClosing = false
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 20
         let session = URLSession(configuration: config, delegate: self, delegateQueue: .main)
@@ -126,7 +133,7 @@ final class StreamingTranscriber: NSObject {
             self.close()
         }
         closeTimer = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: work)
     }
 
     /// Everything so far, in order: finished segments and the one in flight.
@@ -136,16 +143,26 @@ final class StreamingTranscriber: NSObject {
             .joined(separator: " ")
     }
 
-    /// After key-up, the transcript is final once nothing is uncommitted
-    /// and no segment is still being transcribed.
+    /// After key-up, the transcript is final once nothing is uncommitted, no
+    /// segment is still being transcribed, the service isn't mid-way through
+    /// closing one itself — and then a short grace has passed with nothing
+    /// new, because the service's own commit for the last phrase can land a
+    /// beat after ours is refused.
     private func settleIfDone() {
-        guard committed, !finished, !audioSinceCut else { return }
+        guard committed, !finished, !audioSinceCut, !vadClosing else { return }
         guard !order.contains(where: { segments[$0]?.done == false }) else { return }
-        finished = true
-        closeTimer?.cancel()
-        DictationLog.note("stream: final \(stitched.count) chars")
-        onFinal?(stitched)
-        close()
+        grace?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.finished, !self.audioSinceCut, !self.vadClosing,
+                  !self.order.contains(where: { self.segments[$0]?.done == false }) else { return }
+            self.finished = true
+            self.closeTimer?.cancel()
+            DictationLog.note("stream: final \(self.stitched.count) chars (\(self.order.count) segments)")
+            self.onFinal?(self.stitched)
+            self.close()
+        }
+        grace = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: work)
     }
 
     /// Drop everything.
@@ -155,6 +172,7 @@ final class StreamingTranscriber: NSObject {
 
     private func close() {
         closeTimer?.cancel()
+        grace?.cancel()
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
         session?.invalidateAndCancel()
@@ -203,13 +221,14 @@ final class StreamingTranscriber: NSObject {
                 for chunk in queued { send(["type": "input_audio_buffer.append", "audio": chunk]) }
                 queued.removeAll()
             }
-        case "input_audio_buffer.committed", "conversation.item.created":
+        case "input_audio_buffer.committed", "conversation.item.created", "conversation.item.added":
             // A segment closed (by the service's VAD, or by our commit): a
             // new item that will now be transcribed.
             if let id = (event["item_id"] as? String) ?? ((event["item"] as? [String: Any])?["id"] as? String) {
                 open(id)
             }
-            if type == "input_audio_buffer.committed" { audioSinceCut = false }
+            if type == "input_audio_buffer.committed" { audioSinceCut = false; vadClosing = false }
+            DictationLog.note("stream: segment opened (\(type))")
         case _ where type.hasSuffix("transcription.delta"):
             if let delta = event["delta"] as? String {
                 let id = (event["item_id"] as? String) ?? order.last ?? "item"
@@ -229,15 +248,28 @@ final class StreamingTranscriber: NSObject {
             settleIfDone()
         case "input_audio_buffer.speech_started":
             audioSinceCut = true
+            DictationLog.note("stream: speech started")
+        case "input_audio_buffer.speech_stopped":
+            // The service will commit this segment itself; wait for it.
+            vadClosing = true
+            DictationLog.note("stream: speech stopped — service closing the segment")
         case "error":
             let err = event["error"] as? [String: Any]
             let message = err?["message"] as? String ?? "Transcription failed"
             DictationLog.note("stream: error \(message)")
-            // A commit with nothing new in the buffer is not a failure: the
-            // last phrase already closed on its own.
+            // A commit with nothing in the buffer is not a failure: the
+            // service's detector just closed the last phrase itself, and
+            // its item and transcript are on their way. Wait for them.
             if committed, message.lowercased().contains("buffer") {
                 audioSinceCut = false
-                settleIfDone()
+                vadClosing = true
+                DictationLog.note("stream: our commit found the buffer empty — the service took it; waiting")
+                // If nothing ever arrives, the grace below still ends it.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                    guard let self, !self.finished else { return }
+                    self.vadClosing = false
+                    self.settleIfDone()
+                }
                 return
             }
             fail(message)
@@ -250,6 +282,7 @@ final class StreamingTranscriber: NSObject {
         if segments[id] == nil {
             segments[id] = ("", false)
             order.append(id)
+            grace?.cancel()          // something new: not done after all
         }
     }
 

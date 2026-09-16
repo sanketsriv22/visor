@@ -81,3 +81,19 @@ paths with the Speed switch in Settings → Voice.
 - The lab's `notch-listening` scene draws the collapsed notch for a
   two-sided and a one-sided visual, recording and transcribing, with the
   computed window frame outlined in red so a mismatch is visible.
+
+## The empty-buffer race (found 2026-09-15 with `--probe-transcription`)
+
+When you stop talking and release the key in the same moment, the
+service's voice detector has just committed your last phrase itself, so
+our `input_audio_buffer.commit` is refused with "buffer too small …
+0.00ms". That refusal is not "nothing left": the detector's item and its
+transcript arrive a beat later. The transcriber now treats that error,
+and any `speech_stopped`, as a segment in flight, and the final waits a
+700 ms grace after the last event before it is declared. Closing the
+socket on the refusal — which is what lost transcripts — is gone.
+
+`Visor --probe-transcription <eager|wait> <model>` replays the session
+against the real service with the app's key and writes every server
+event to `~/Library/Logs/Visor/probe.log`; `dictation.log` beside it
+traces every real dictation.
