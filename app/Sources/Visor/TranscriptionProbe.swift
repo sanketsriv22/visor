@@ -12,9 +12,9 @@ enum TranscriptionProbe {
     static func runIfRequested(_ args: [String]) -> Bool {
         guard let i = args.firstIndex(of: "--probe-transcription") else { return false }
         let mode = args.count > i + 1 ? args[i + 1] : "eager"
-        let model = args.count > i + 2 ? args[i + 2] : StreamingTranscriber.model
+        let given = args.count > i + 2 ? args[i + 2] : nil
         Task { @MainActor in
-            await run(mode: mode, model: model)
+            await run(mode: mode, model: given ?? StreamingTranscriber.model)
             exit(0)
         }
         return true
