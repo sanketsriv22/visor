@@ -53,24 +53,36 @@ final class MicEngine {
     /// that a short first press after launch ended before a single buffer
     /// arrived, and the recording was empty. Only when nothing is running
     /// and permission is already granted; the mic indicator blinks once.
+    ///
+    /// Set up exactly as `start()` sets up — the input node touched and a
+    /// tap on it, on the main thread, before the engine is prepared. A
+    /// bare prepare() on a nodeless engine raises an ObjC exception (which
+    /// nothing in Swift can catch) and took build 479 down at launch.
     func warmUpDevice() {
         guard !running, AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { return }
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            DictationLog.note("mic: no input device to warm"); return
+        }
+        input.installTap(onBus: 0, bufferSize: 2400, format: format) { _, _ in }
         let engine = self.engine
         let gen = generation
         audio.async {
             let began = Date()
+            var note: String
             do {
                 engine.prepare()
                 try engine.start()
                 engine.stop()
-                engine.prepare()
-                let ms = Int(Date().timeIntervalSince(began) * 1000)
-                Task { @MainActor in
-                    guard gen == self.generation else { return }
-                    DictationLog.note("mic: warmed the device in \(ms) ms")
-                }
+                note = "mic: warmed the device in \(Int(Date().timeIntervalSince(began) * 1000)) ms"
             } catch {
-                Task { @MainActor in DictationLog.note("mic: warm-up failed: \(error.localizedDescription)") }
+                note = "mic: warm-up failed: \(error.localizedDescription)"
+            }
+            Task { @MainActor in
+                // Only if no real start has taken the node in the meantime.
+                if gen == self.generation, !self.running { input.removeTap(onBus: 0) }
+                DictationLog.note(note)
             }
         }
     }
