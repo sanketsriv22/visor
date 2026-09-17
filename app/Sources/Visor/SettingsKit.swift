@@ -107,6 +107,8 @@ struct SettingsCard<Content: View>: View {
                         UserDefaults.standard.set(next, forKey: "visor.settings.open.\(label)")
                     } label: {
                         header(label)
+                            .frame(minHeight: 24)
+                            .contentShape(Rectangle())   // the whole row, not just the ink
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(.isButton)
@@ -131,8 +133,8 @@ struct SettingsCard<Content: View>: View {
     private func header(_ label: String) -> some View {
         HStack(spacing: 6) {
             if collapsible {
-                RetroIcon(isOpen ? Glyph.chevron : "▸", size: 10, color: Design.Retro.accent)
-                    .frame(width: 12)
+                RetroIcon(isOpen ? Glyph.chevron : "▸", size: 13, color: Design.Retro.accent)
+                    .frame(width: 16)
             } else {
                 Text("»").font(.custom(Design.Text.face, size: 10))
                     .foregroundStyle(Design.Retro.accent)
@@ -213,7 +215,7 @@ struct InfoNote: View {
         VStack(alignment: .leading, spacing: 5) {
             Button { withAnimation(.easeInOut(duration: 0.15)) { open.toggle() } } label: {
                 HStack(spacing: 5) {
-                    RetroIcon(open ? Glyph.chevron : "▸", size: 9, color: Design.Retro.dim)
+                    RetroIcon(open ? Glyph.chevron : "▸", size: 11, color: Design.Retro.dim)
                     Text(summary).font(Design.Text.caption2).foregroundStyle(Design.Retro.dim)
                 }
                 .contentShape(Rectangle())

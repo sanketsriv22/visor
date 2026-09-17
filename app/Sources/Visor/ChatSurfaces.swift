@@ -24,8 +24,8 @@ struct AgentIdentity: View {
                         .truncationMode(.middle)
                 }
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Design.Ink.faint)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Design.Ink.tertiary)
             }
             .padding(.horizontal, Design.Space.normal)
             .frame(height: Design.Metric.regular)

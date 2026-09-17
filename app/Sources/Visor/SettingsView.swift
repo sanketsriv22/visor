@@ -359,18 +359,24 @@ private struct AgentRow: View {
                 Spacer(minLength: 6)
 
                 Button { withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() } } label: {
-                    RetroIcon(expanded ? Glyph.chevron : "▸", size: 11, color: Design.Retro.dim)
-                        .frame(width: 16, height: 16).contentShape(Rectangle())
+                    RetroIcon(expanded ? Glyph.chevron : "▸", size: 14, color: Design.Retro.text)
+                        .frame(width: 24, height: 24).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help(expanded ? "Collapse" : "Edit")
 
                 Button(role: .destructive) { ai.remove(provider) } label: {
                     RetroIcon(Glyph.close, size: 12, color: Design.Retro.dim)
+                        .frame(width: 24, height: 24).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help("Remove this agent")
             }
+            // The card's header opens and closes it — the name field, the
+            // default button and the chevron take their own clicks first;
+            // anywhere else on the row is the toggle.
+            .contentShape(Rectangle())
+            .onTapGesture { withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() } }
 
             if expanded {
                 if provider.isChat { chatFields } else { cliFields }

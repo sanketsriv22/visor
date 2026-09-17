@@ -128,7 +128,7 @@ struct HUDPanelSlot<Content: View>: View {
                         Self.headerIcon(for: panel)
                         SectionLabel(panel.title)
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 7, weight: .bold))
+                            .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(Design.Ink.faint)
                     }
                     .frame(height: Design.Metric.small)
@@ -142,10 +142,15 @@ struct HUDPanelSlot<Content: View>: View {
                 Spacer(minLength: 0)
 
                 IconButton(symbol: collapsed ? "chevron.left" : "chevron.down",
-                           size: Design.Metric.small, tint: Design.Ink.faint,
+                           size: Design.Metric.regular, tint: Design.Ink.secondary,
                            help: collapsed ? "Expand" : "Collapse", action: onToggle)
                     .accessibilityIdentifier("visor.hud.panel.toggle")
             }
+            // The whole header folds the panel, not just the chevron at its
+            // far end: the title's menu and the chevron take their own
+            // clicks first, and anywhere else on the row is the toggle.
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onToggle)
 
             if !collapsed {
                 content()
