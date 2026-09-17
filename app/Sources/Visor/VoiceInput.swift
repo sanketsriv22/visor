@@ -339,8 +339,14 @@ final class VoiceInput: NSObject, ObservableObject {
                                            guard let self else { return }
                                            let dB = 20 * log10(max(peak, 0.00001))
                                            self.peakDB = dB
-                                           self.recentPeaks.append(dB)
-                                           if self.recentPeaks.count > Self.floorWindow { self.recentPeaks.removeFirst() }
+                                           // The engine's first buffers are a start-up transient
+                                           // (-52, even -100) and digital silence is not a room;
+                                           // neither may set the floor, or the room reads as
+                                           // speech until they leave the window.
+                                           if self.sessionPeaks.count >= 3, dB > -70 {
+                                               self.recentPeaks.append(dB)
+                                               if self.recentPeaks.count > Self.floorWindow { self.recentPeaks.removeFirst() }
+                                           }
                                            if self.sessionPeaks.count < 4000 { self.sessionPeaks.append(dB) }
                                        },
                                        onFailure: { [weak self] error in

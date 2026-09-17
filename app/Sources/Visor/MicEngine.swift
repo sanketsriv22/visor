@@ -79,11 +79,8 @@ final class MicEngine {
             } catch {
                 note = "mic: warm-up failed: \(error.localizedDescription)"
             }
-            Task { @MainActor in
-                // Only if no real start has taken the node in the meantime.
-                if gen == self.generation, !self.running { input.removeTap(onBus: 0) }
-                DictationLog.note(note)
-            }
+            input.removeTap(onBus: 0)        // after the stop, on this queue
+            Task { @MainActor in DictationLog.note(note) }
         }
     }
 
@@ -113,6 +110,7 @@ final class MicEngine {
         }
         self.onPCM = onPCM
         self.onPeak = onPeak
+        input.removeTap(onBus: 0)        // a warm-up's, if one is still there; a no-op otherwise
         input.installTap(onBus: 0, bufferSize: 2400, format: inFormat) { [weak self] buffer, _ in
             self?.capture(buffer)
         }
@@ -147,7 +145,6 @@ final class MicEngine {
     func stop() {
         generation += 1
         let was = running
-        if running { engine.inputNode.removeTap(onBus: 0) }
         running = false
         file = nil          // closes and flushes
         onPCM = nil; onPeak = nil
@@ -156,8 +153,13 @@ final class MicEngine {
         // Unconditional, in order with any start still in flight: stopping
         // a stopped engine is free, and the generation check closes a start
         // that lands after this.
+        // The tap comes off *after* the engine has stopped, on the audio
+        // queue. Removing it from the main thread while the IO thread was
+        // still inside it called a freed block: a segfault on
+        // com.apple.audio.IOThread the moment a dictation ended.
         audio.async {
             engine.stop()
+            engine.inputNode.removeTap(onBus: 0)
             engine.prepare()
         }
     }
