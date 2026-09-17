@@ -212,7 +212,7 @@ enum DesignLab {
                     }
                 }.padding(16).background(Color(white: 0.12)).foregroundStyle(.white))
             },
-            Scenario(name: "notch-visuals", size: CGSize(width: 760, height: 13 * 118 + 40), themed: false,
+            Scenario(name: "notch-visuals", size: CGSize(width: 760, height: (NotchGallery.Live.allCases.count + NotchGallery.Idle.allCases.count) * 74 + 40), themed: false,
                      note: "Every notch visual, both pills (left · notch · right), frozen at t=1.7 with a spoken level history") { _ in
                 let levels: [Float] = (0..<28).map { i in Float(0.15 + 0.7 * abs(sin(Double(i) * 0.55))) }
                 let t = 1.7

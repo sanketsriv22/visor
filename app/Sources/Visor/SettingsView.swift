@@ -1489,7 +1489,7 @@ private struct VoicePane: View {
     private var notchGames: some View {
         VStack(alignment: .leading, spacing: 10) {
             SettingsRow(title: "While you talk",
-                        caption: "Eight visuals your voice drives, and three games. Some grow out of the notch's right side; the rest spread to both.") {
+                        caption: "Nineteen visuals your voice drives, and three games. Some grow out of the notch's right side; the rest spread to both.") {
                 SettingsMenu(selection: $visuals.during,
                              options: NotchVisuals.During.allCases.map { ($0, $0.title) }, width: 280)
             }

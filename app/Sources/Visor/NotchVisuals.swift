@@ -17,6 +17,7 @@ final class NotchVisuals: ObservableObject {
     enum During: String, CaseIterable, Identifiable {
         // The gallery's, then the games.
         case wave, mirror, bars, ripple, fire, comet, rain, pulse
+        case spectrum, warp, helix, lightning, swarm, needle, lissajous, spectrogram, fireworks, bounce, plasma
         case invaders, voicePong, pong
         var id: String { rawValue }
         var title: String {
@@ -32,7 +33,7 @@ final class NotchVisuals: ObservableObject {
     }
 
     enum After: String, CaseIterable, Identifiable {
-        case scanner, orbit, snake, ember, drizzle, pong, quiet
+        case scanner, orbit, snake, ember, drizzle, breathe, bouncer, life, figure, sea, pong, quiet
         var id: String { rawValue }
         var title: String {
             switch self {
