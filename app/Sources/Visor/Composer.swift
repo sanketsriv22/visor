@@ -123,7 +123,7 @@ struct Composer: View {
 
             if chat.isStreaming {
                 HStack(spacing: 6) {
-                    DotMatrixIndicator(size: metrics.button * 0.34, tint: Design.Retro.accent)
+                    DotMatrixIndicator(size: metrics.button * 0.34, tint: Design.Retro.glassAccent)
                     Text("Streaming")
                         .font(.system(size: metrics.chipFont - 1, weight: .medium))
                         .foregroundStyle(Design.Ink.tertiary)
@@ -150,12 +150,12 @@ struct Composer: View {
                 Circle().fill(sendFill)
                 if chat.isStreaming {
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(Design.Retro.onAccent)
+                        .fill(Design.Retro.glassOnAccent)
                         .frame(width: metrics.button * 0.34, height: metrics.button * 0.34)
                 } else {
                     Image(systemName: "arrow.up")
                         .font(.system(size: metrics.button * 0.5, weight: .bold))
-                        .foregroundStyle(canSend ? Design.Retro.onAccent : Color.white.opacity(0.3))
+                        .foregroundStyle(canSend ? Design.Retro.glassOnAccent : Color.white.opacity(0.3))
                 }
             }
             .frame(width: metrics.button, height: metrics.button)
@@ -180,7 +180,7 @@ struct Composer: View {
     }
 
     private var sendFill: Color {
-        if chat.isStreaming || canSend { return Design.Retro.accent }
+        if chat.isStreaming || canSend { return Design.Retro.glassAccent }
         return Color.white.opacity(0.1)
     }
 

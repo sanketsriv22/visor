@@ -73,7 +73,7 @@ struct ChatCard: View {
             HStack(spacing: 0) {
                 if chat.isStreaming {
                     IconButton(symbol: "stop.fill", size: Design.Metric.small,
-                               tint: Design.Retro.accent,
+                               tint: Design.Retro.glassAccent,
                                help: "Stop the reply — this also stops it being billed",
                                action: chat.stop)
                         .accessibilityIdentifier("visor.chat.stop")
@@ -268,7 +268,7 @@ struct MessageRow: View {
                         // the text beside it, it reads as a line in the
                         // transcript rather than a graphic pasted over one.
                         HStack(spacing: Design.Space.snug) {
-                            DotMatrixIndicator(size: 13 * scale, tint: Design.Retro.accent)
+                            DotMatrixIndicator(size: 13 * scale, tint: Design.Retro.glassAccent)
                             Text("Working")
                                 .font(Design.Typography.body(scale))
                                 .foregroundStyle(Design.Ink.tertiary)
@@ -318,7 +318,7 @@ private struct HistoryRow: View {
                     // A rail rather than a fill: it marks the current chat
                     // without turning the row into a block of colour.
                     RoundedRectangle(cornerRadius: 1)
-                        .fill(isCurrent ? Design.Retro.accent : .clear)
+                        .fill(isCurrent ? Design.Retro.glassAccent : .clear)
                         .frame(width: 2, height: 22)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(summary.title.isEmpty ? "Untitled" : summary.title)
@@ -1472,7 +1472,7 @@ struct DictationControl: View {
 
     private var tint: Color {
         switch voice.state {
-        case .recording:         return Design.Retro.accent
+        case .recording:         return Design.Retro.glassAccent
         case .denied:            return .red.opacity(0.7)
         case .failed:            return .orange.opacity(0.8)
         default:                 return .white.opacity(0.45)
@@ -1660,7 +1660,7 @@ struct ComposerOptions: View {
                 if chat.isFast || chat.effort != nil {
                     Text(summary)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Design.Retro.accent)
+                        .foregroundStyle(Design.Retro.glassAccent)
                 }
             }
             .contentShape(Rectangle())
@@ -1765,7 +1765,7 @@ struct FastToggle: View {
             HStack(spacing: 4) {
                 Image(systemName: "bolt.fill")
                     .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(chat.isFast ? Design.Retro.accent : Color.white.opacity(0.5))
+                    .foregroundStyle(chat.isFast ? Design.Retro.glassAccent : Color.white.opacity(0.5))
                 // Labelled, not a bare icon. A lightning bolt on its own does
                 // not say "route to the fastest provider rather than the
                 // cheapest one" to anybody.
@@ -1897,7 +1897,7 @@ extension InlineModelPicker {
         Button { chat.toggleFavourite(id) } label: {
             Image(systemName: chat.isFavourite(id) ? "star.fill" : "star")
                 .font(.system(size: 9))
-                .foregroundStyle(chat.isFavourite(id) ? Design.Retro.accent : Color.secondary.opacity(0.45))
+                .foregroundStyle(chat.isFavourite(id) ? Design.Retro.glassAccent : Color.secondary.opacity(0.45))
                 .frame(width: 18, height: 18)
                 .contentShape(Rectangle())
         }
@@ -1963,7 +1963,7 @@ struct ToolApprovalRow: View {
             HStack(spacing: Design.Space.snug) {
                 Image(systemName: "hand.raised.fill")
                     .font(.system(size: Design.Metric.iconSmall, weight: .medium))
-                    .foregroundStyle(Design.Retro.accent)
+                    .foregroundStyle(Design.Retro.glassAccent)
                 Text(pending.needing.count == 1
                      ? "Let \(pending.needing[0].name) run?"
                      : "Let \(pending.needing.count) tools run?")
@@ -1995,7 +1995,7 @@ struct ToolApprovalRow: View {
             }
         }
         .padding(Design.Space.roomy)
-        .raised(Design.Radius.panel, strong: true, stroke: Design.Retro.accent.opacity(0.45))
+        .raised(Design.Radius.panel, strong: true, stroke: Design.Retro.glassAccent.opacity(0.45))
     }
 
     /// The arguments as written, so what's being approved is visible.

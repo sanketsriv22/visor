@@ -611,7 +611,7 @@ struct LiveToggle: View {
     var body: some View {
         IconButton(symbol: live.state.isOn ? "waveform.circle.fill" : "waveform.circle",
                    size: size,
-                   tint: live.state.isOn ? Design.Retro.accent : Design.Ink.secondary,
+                   tint: live.state.isOn ? Design.Retro.glassAccent : Design.Ink.secondary,
                    active: live.state.isOn,
                    help: live.state.isOn ? "End the live conversation" : "Talk to \(chat.agent?.name ?? "the agent") — live voice") {
             live.toggle(chat: chat)
@@ -635,7 +635,7 @@ struct LiveWaveform: View {
         HStack(spacing: gap) {
             Text(word)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(live.state == .speaking ? Design.Retro.accent : Design.Ink.tertiary)
+                .foregroundStyle(live.state == .speaking ? Design.Retro.glassAccent : Design.Ink.tertiary)
                 .frame(width: 68, alignment: .leading)
                 .lineLimit(1)
                 .padding(.leading, 6)
@@ -664,7 +664,7 @@ struct LiveWaveform: View {
 
     private var tint: Color {
         switch live.state {
-        case .speaking: return Design.Retro.accent
+        case .speaking: return Design.Retro.glassAccent
         case .thinking: return Design.Ink.tertiary
         default: return live.muted ? Design.Ink.faint : Design.Ink.primary
         }
@@ -745,10 +745,10 @@ struct DuplexButton: View {
     var body: some View {
         Button { live.toggle(chat: chat) } label: {
             ZStack {
-                Circle().fill(live.state.isOn ? Design.Retro.accent : Color.white.opacity(0.1))
+                Circle().fill(live.state.isOn ? Design.Retro.glassAccent : Color.white.opacity(0.1))
                 Image(systemName: "waveform")
                     .font(.system(size: size * 0.42, weight: .semibold))
-                    .foregroundStyle(live.state.isOn ? Design.Retro.onAccent : Design.Ink.secondary)
+                    .foregroundStyle(live.state.isOn ? Design.Retro.glassOnAccent : Design.Ink.secondary)
             }
             .frame(width: size, height: size)
             .contentShape(Circle())
@@ -775,7 +775,7 @@ struct LiveComposerStatus: View {
                     .foregroundStyle(Design.Ink.tertiary)
                     .lineLimit(1)
                 LevelBars(level: live.state == .speaking ? live.outputLevel : live.inputLevel,
-                          tint: live.state == .speaking ? Design.Retro.accent : Design.Ink.secondary)
+                          tint: live.state == .speaking ? Design.Retro.glassAccent : Design.Ink.secondary)
             }
             .contentShape(Rectangle())
         }
@@ -815,13 +815,13 @@ struct LiveMicButton: View {
         Button { live.muted.toggle() } label: {
             ZStack {
                 Circle()
-                    .strokeBorder(Design.Retro.accent.opacity(0.5), lineWidth: 2)
+                    .strokeBorder(Design.Retro.glassAccent.opacity(0.5), lineWidth: 2)
                     .scaleEffect(1 + live.inputLevel * 0.35)
                     .opacity(live.muted ? 0 : Double(0.3 + live.inputLevel * 0.7))
-                Circle().fill(live.muted ? Color.white.opacity(0.1) : Design.Retro.accent)
+                Circle().fill(live.muted ? Color.white.opacity(0.1) : Design.Retro.glassAccent)
                 Image(systemName: live.muted ? "mic.slash.fill" : "mic.fill")
                     .font(.system(size: size * 0.42, weight: .semibold))
-                    .foregroundStyle(live.muted ? Color.white.opacity(0.6) : Design.Retro.onAccent)
+                    .foregroundStyle(live.muted ? Color.white.opacity(0.6) : Design.Retro.glassOnAccent)
             }
             .frame(width: size, height: size)
             .contentShape(Circle())

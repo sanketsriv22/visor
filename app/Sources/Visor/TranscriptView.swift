@@ -219,7 +219,7 @@ private struct LatestPill: View {
         Button(action: action) {
             HStack(spacing: 5) {
                 if unread {
-                    Circle().fill(Design.Retro.accent).frame(width: 5, height: 5)
+                    Circle().fill(Design.Retro.glassAccent).frame(width: 5, height: 5)
                 }
                 Image(systemName: "arrow.down")
                     .font(.system(size: 9 * scale, weight: .bold))

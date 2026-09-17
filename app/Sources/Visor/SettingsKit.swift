@@ -316,13 +316,16 @@ struct SettingsButtonStyle: ButtonStyle {
                     .strokeBorder(stroke, lineWidth: 1))
                 .contentShape(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous))
                 .scaleEffect(configuration.isPressed ? 0.96 : 1)
-                .opacity(enabled ? 1 : 0.4)
                 .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
                 .animation(.easeOut(duration: 0.15), value: hover)
                 .onHover { hover = $0 }
         }
 
+        // Disabled is drawn, not faded: fading the whole button turned a
+        // prominent one's white-on-accent into faint white on a grey wash,
+        // which on the light theme was white on light.
         private var foreground: Color {
+            if !enabled { return Design.Retro.dim }
             switch kind {
             case .regular:   return Design.Retro.text
             case .prominent: return Design.Retro.onAccent
@@ -331,6 +334,7 @@ struct SettingsButtonStyle: ButtonStyle {
         }
 
         private var fill: Color {
+            if !enabled { return kind == .quiet ? .clear : Design.Retro.text.opacity(0.06) }
             let pressed = configuration.isPressed
             switch kind {
             case .regular:   return Design.Retro.text.opacity(pressed ? 0.16 : (hover ? 0.12 : 0.07))
@@ -340,6 +344,7 @@ struct SettingsButtonStyle: ButtonStyle {
         }
 
         private var stroke: Color {
+            if !enabled { return kind == .quiet ? .clear : Design.Retro.text.opacity(0.12) }
             switch kind {
             case .regular:   return hover ? Design.Retro.text.opacity(0.28) : Design.Retro.text.opacity(0.16)
             case .prominent: return Design.Retro.accent

@@ -62,7 +62,7 @@ struct StatusDot: View {
                 .fill(colour)
                 .frame(width: 6, height: 6)
                 .opacity(breath)
-                .shadow(color: state == .working ? Design.Retro.accent.opacity(0.6) : .clear, radius: 4)
+                .shadow(color: state == .working ? Design.Retro.glassAccent.opacity(0.6) : .clear, radius: 4)
         }
         .frame(width: 8, height: 8)
     }
@@ -70,7 +70,7 @@ struct StatusDot: View {
     private var colour: Color {
         switch state {
         case .idle:    return Color.white.opacity(0.45)
-        case .working: return Design.Retro.accent
+        case .working: return Design.Retro.glassAccent
         case .absent:  return Design.Ink.faint
         }
     }
@@ -124,7 +124,7 @@ struct AgentSelector: View {
                 sub = agent.model ?? ChatController.defaultModel
             }
             return SelectorRow(id: agent.name, title: agent.name, subtitle: sub,
-                               mark: agent.isNotchCLI ? Design.Ink.secondary : Design.Retro.accent,
+                               mark: agent.isNotchCLI ? Design.Ink.secondary : Design.Retro.glassAccent,
                                selected: agent.name == chat.agent?.name)
         }
     }

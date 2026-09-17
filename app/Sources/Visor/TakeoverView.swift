@@ -31,7 +31,7 @@ struct TakeoverView: View {
     }
 
     private var reduced: Bool { Design.Motion.reduced }
-    private var accent: Color { Design.Retro.accent }
+    private var accent: Color { Design.Retro.glassAccent }
 
     var body: some View {
         GeometryReader { proxy in
@@ -401,7 +401,7 @@ private struct Targeting: View {
     let draw: CGFloat
     @State private var locked = false
 
-    private var accent: Color { Design.Retro.accent }
+    private var accent: Color { Design.Retro.glassAccent }
 
     var body: some View {
         let rect = target.rect.insetBy(dx: -8, dy: -6)

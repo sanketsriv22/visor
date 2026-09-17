@@ -74,7 +74,7 @@ struct ModelSelector: View {
         let pinned = chat.isFavourite(row.id)
         return AnyView(
             IconButton(symbol: pinned ? "star.fill" : "star", size: Design.Metric.small,
-                       tint: pinned ? Design.Retro.accent : Design.Ink.faint,
+                       tint: pinned ? Design.Retro.glassAccent : Design.Ink.faint,
                        help: pinned ? "Unpin" : "Pin to the short list") {
                 chat.toggleFavourite(row.id)
             }
@@ -126,7 +126,7 @@ struct OptionsSelector: View {
                     .toggleStyle(.switch)
                     .controlSize(.small)
                     .labelsHidden()
-                    .tint(Design.Retro.accent)
+                    .tint(Design.Retro.glassAccent)
             }
         }
         .padding(.vertical, Design.Space.tight)
@@ -272,7 +272,7 @@ struct CLISelector: View {
         let pinned = chat.isFavourite(row.id)
         return AnyView(
             IconButton(symbol: pinned ? "star.fill" : "star", size: Design.Metric.small,
-                       tint: pinned ? Design.Retro.accent : Design.Ink.faint,
+                       tint: pinned ? Design.Retro.glassAccent : Design.Ink.faint,
                        help: pinned ? "Unpin" : "Pin") { chat.toggleFavourite(row.id) }
         )
     }

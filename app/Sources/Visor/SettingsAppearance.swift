@@ -34,9 +34,12 @@ struct AppearancePane: View {
                         .font(Design.Text.caption2).foregroundStyle(Design.Retro.dim)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer()
-                    ActionChip(title: "Replay") {
+                    // A Settings button, not the chat's chip: the chip is
+                    // inked for the dark card and read white-on-paper here.
+                    Button("Replay") {
                         NotificationCenter.default.post(name: .visorReplayIntroduction, object: nil)
                     }
+                    .buttonStyle(.settings)
                     .accessibilityIdentifier("visor.settings.replayIntro")
                 }
             }

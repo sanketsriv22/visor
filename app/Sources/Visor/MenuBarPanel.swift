@@ -48,7 +48,9 @@ struct MenuBarPanel: View {
         .frame(width: 224)
         .background(Design.Retro.bg)
         .tint(Design.Retro.accent)
-        .environment(\.colorScheme, .dark)
+        // The theme's own scheme: forcing dark on Paper's ground would turn
+        // any system-inked text white on paper.
+        .environment(\.colorScheme, VisorTheme.current.isDark ? .dark : .light)
     }
 
     private var header: some View {

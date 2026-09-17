@@ -166,7 +166,7 @@ struct KeyStatusRow: View {
         switch status {
         case .active: return Color(red: 0.36, green: 0.85, blue: 0.5)
         case .checking, .unknown: return Design.Retro.dim
-        case .noKey: return Design.Ink.faint
+        case .noKey: return Design.Retro.faint
         case .rejected, .outOfCredits, .failed: return Design.Ink.warning
         }
     }

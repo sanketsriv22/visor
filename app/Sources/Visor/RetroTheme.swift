@@ -122,6 +122,15 @@ extension Design {
         /// Ink drawn on top of a solid accent fill: black on the light
         /// accents (Mono's white, Amber, Phosphor), white on the dark ones.
         static var onAccent: Color { theme.onAccent }
+        /// The accent as an ink on the surfaces that are dark in every
+        /// theme — the notch card, the HUD, the composer, the selector
+        /// popovers, the onboarding plates. Paper's accent is near-black,
+        /// and near-black on those surfaces vanished: the send arrow's
+        /// button, the approval card's icon, a lit row's marker. On a light
+        /// theme those surfaces take a light accent instead.
+        static var glassAccent: Color { theme.isDark ? theme.accent : Color.white.opacity(0.95) }
+        /// Ink on a `glassAccent` fill.
+        static var glassOnAccent: Color { theme.isDark ? theme.onAccent : Color.black.opacity(0.9) }
         static var text: Color { theme.text }
         static var dim: Color { theme.dim }
         static var faint: Color { theme.faint }

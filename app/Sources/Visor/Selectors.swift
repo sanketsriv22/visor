@@ -102,7 +102,7 @@ private struct SelectorRowView: View {
                     }
                     Image(systemName: "checkmark")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Design.Retro.accent)
+                        .foregroundStyle(Design.Retro.glassAccent)
                         .opacity(row.selected ? 1 : 0)
                         .frame(width: 12)
                 }
@@ -175,14 +175,18 @@ struct SelectorHeading: View {
 /// The surface every selector popover wears: opaque near-black so the
 /// desktop never bleeds into a list, one hairline, one radius. Applied to
 /// the popover's content — the popover window supplies the arrow.
+///
+/// Dark in every theme, because the rows are inked in white and the card
+/// it hangs from is dark in every theme. It used to take the theme's
+/// background, which on Paper put white rows on a paper ground.
 struct SelectorSurface: ViewModifier {
     var width: CGFloat
 
     func body(content: Content) -> some View {
         content
             .frame(width: width)
-            .background(Design.Retro.bg)
-            .tint(Design.Retro.accent)
+            .background(Design.Surface.glassOpaque)
+            .tint(Design.Retro.glassAccent)
             .environment(\.colorScheme, .dark)
     }
 }
@@ -278,12 +282,12 @@ struct ActionChip: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 12.5, weight: prominent ? .semibold : .medium))
-                .foregroundStyle(prominent ? Design.Retro.onAccent
+                .foregroundStyle(prominent ? Design.Retro.glassOnAccent
                                  : (destructive ? Design.Ink.destructive : Design.Ink.primary))
                 .padding(.horizontal, Design.Space.roomy)
                 .frame(height: Design.Metric.regular)
                 .background(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
-                    .fill(prominent ? Design.Retro.accent : Design.Surface.raised))
+                    .fill(prominent ? Design.Retro.glassAccent : Design.Surface.raised))
                 .overlay(RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
                     .strokeBorder(prominent ? Color.clear : Design.Stroke.edge, lineWidth: Design.Stroke.hairline))
                 .contentShape(Rectangle())
