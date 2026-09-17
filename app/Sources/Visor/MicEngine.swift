@@ -48,6 +48,33 @@ final class MicEngine {
         engine.prepare()
     }
 
+    /// Open and close the device once, so the first real start is tens of
+    /// milliseconds rather than the 650+ a cold engine took — long enough
+    /// that a short first press after launch ended before a single buffer
+    /// arrived, and the recording was empty. Only when nothing is running
+    /// and permission is already granted; the mic indicator blinks once.
+    func warmUpDevice() {
+        guard !running, AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { return }
+        let engine = self.engine
+        let gen = generation
+        audio.async {
+            let began = Date()
+            do {
+                engine.prepare()
+                try engine.start()
+                engine.stop()
+                engine.prepare()
+                let ms = Int(Date().timeIntervalSince(began) * 1000)
+                Task { @MainActor in
+                    guard gen == self.generation else { return }
+                    DictationLog.note("mic: warmed the device in \(ms) ms")
+                }
+            } catch {
+                Task { @MainActor in DictationLog.note("mic: warm-up failed: \(error.localizedDescription)") }
+            }
+        }
+    }
+
     /// Opens the device off the main thread — `AVAudioEngine.start()` takes
     /// a few hundred milliseconds the first time and tens after, and on the
     /// main thread that was the pill waiting to paint. `onFailure` is called

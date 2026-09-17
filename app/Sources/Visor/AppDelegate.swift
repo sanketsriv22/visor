@@ -20,6 +20,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// the icon not lighting at all.
     private var menuBarMenu: NSMenu?
     private var menuBarHost: NSHostingView<MenuBarPanel>?
+    /// What a row asked for, run once the menu has actually closed. Running
+    /// it from inside the row's click — while the menu was still tracking —
+    /// and opening a window or activating the app from there left the menu
+    /// bar's tracking wedged: no status item of any app highlighted until
+    /// the next relaunch.
+    private var menuBarAction: (() -> Void)?
     private let updater = Updater()
     private let ai = AIRunner()
     private var sendToMenu: NSMenu?
@@ -126,6 +132,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // failure further down degrades a feature instead of leaving the user
         // with a running app they have no way to reach.
         setUpStatusItem()
+        // Open and close the microphone once, after launch has settled, so
+        // the first press isn't the one that pays for a cold device.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { MicEngine.shared.warmUpDevice() }
         controller = NotchController(startExpanded: args.contains("--expanded"), ai: ai)
 
         // Re-launching Visor (e.g. from Spotlight) brings the note down.
@@ -304,18 +313,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func makeMenuPanel() -> MenuBarPanel {
-        let close: () -> Void = { [weak self] in self?.menuBarMenu?.cancelTracking() }
+        // Close first, act after: the action runs from menuDidClose.
+        let then: (@escaping () -> Void) -> Void = { [weak self] action in
+            self?.menuBarAction = action
+            self?.menuBarMenu?.cancelTracking()
+        }
         return MenuBarPanel(
             version: AppInfo.version,
             computerUseOn: ComputerUseAgent.shared.running,
-            onOpenVisor:    { close(); self.controller?.showNote() },
-            onComputerUse:  { close(); self.controller?.toggleComputerUse() },
-            onDictate:      { close(); self.controller?.toggleDictation() },
-            onSettings:     { close(); self.openSettings() },
-            onWhatsNew:     { close(); self.openReleases() },
-            onIntroduction: { close(); self.showOnboarding(fresh: true) },
-            onCheckUpdates: { close(); self.updater.controller.checkForUpdates(nil) },
-            onQuit:         { NSApp.terminate(nil) })
+            onOpenVisor:    { then { self.controller?.showNote() } },
+            onComputerUse:  { then { self.controller?.toggleComputerUse() } },
+            onDictate:      { then { self.controller?.toggleDictation() } },
+            onSettings:     { then { self.openSettings() } },
+            onWhatsNew:     { then { self.openReleases() } },
+            onIntroduction: { then { self.showOnboarding(fresh: true) } },
+            onCheckUpdates: { then { self.updater.controller.checkForUpdates(nil) } },
+            onQuit:         { then { NSApp.terminate(nil) } })
     }
 
     private func whatsNewItem() -> NSMenuItem {
@@ -344,6 +357,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// from the app's own bundle. No network here — we only reach the network
     /// when the user explicitly clicks "Check for Updates…". Just reset the
     /// item label (e.g. after a previous check left a status on it).
+    func menuDidClose(_ menu: NSMenu) {
+        guard menu === menuBarMenu, let action = menuBarAction else { return }
+        menuBarAction = nil
+        // The next turn of the run loop, once the menu's tracking has fully
+        // unwound — menuDidClose itself is still inside it.
+        DispatchQueue.main.async(execute: action)
+    }
+
     func menuWillOpen(_ menu: NSMenu) {
         if menu === menuBarMenu { refreshMenuBarPanel(); return }
         rebuildSendToMenu()
