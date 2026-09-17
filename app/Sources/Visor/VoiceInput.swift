@@ -82,7 +82,6 @@ final class VoiceInput: NSObject, ObservableObject {
     private var meterTimer: Timer?
     private var fileURL: URL?
     private var startedAt: Date?
-    /// Running estimate of the room's own noise, in dBFS.
     /// Set by the owner so a logged utterance records where it went.
     var currentConversation: (() -> UUID?)?
     /// Called with the transcript when one arrives.
