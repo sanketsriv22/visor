@@ -69,11 +69,20 @@ final class VoiceInput: NSObject, ObservableObject {
     /// above the "floor" and the meter (and the invaders' cannon) fired at
     /// silence for the half minute the floor took to creep back up.
     private var peakDB: Float?
+    /// The last 1.5 s of buffer peaks (buffers land ~20/s). The noise
+    /// floor is their minimum: a rolling window finds any room's level
+    /// within a few buffers, where a floor that started at a fixed -40
+    /// and climbed 1 dB/s read a louder room — fans, a hot microphone —
+    /// as speech for the fifteen seconds it took to catch up.
+    private var recentPeaks: [Float] = []
+    private static let floorWindow = 30
+    /// For the session summary in the log.
+    private var sessionPeaks: [Float] = []
+    private var meterTicks = 0, meterFired = 0
     private var meterTimer: Timer?
     private var fileURL: URL?
     private var startedAt: Date?
     /// Running estimate of the room's own noise, in dBFS.
-    private var noiseFloor: Float = -40
     /// Set by the owner so a logged utterance records where it went.
     var currentConversation: (() -> UUID?)?
     /// Called with the transcript when one arrives.
@@ -328,7 +337,12 @@ final class VoiceInput: NSObject, ObservableObject {
             try MicEngine.shared.start(file: url,
                                        onPCM: { [weak self] pcm in self?.streamer?.feed(pcm) },
                                        onPeak: { [weak self] peak in
-                                           self?.peakDB = 20 * log10(max(peak, 0.00001))
+                                           guard let self else { return }
+                                           let dB = 20 * log10(max(peak, 0.00001))
+                                           self.peakDB = dB
+                                           self.recentPeaks.append(dB)
+                                           if self.recentPeaks.count > Self.floorWindow { self.recentPeaks.removeFirst() }
+                                           if self.sessionPeaks.count < 4000 { self.sessionPeaks.append(dB) }
                                        },
                                        onFailure: { [weak self] error in
                                            guard let self, self.state == .recording || self.armed else { return }
@@ -487,8 +501,10 @@ final class VoiceInput: NSObject, ObservableObject {
 
     private func startMetering() {
         // Re-measured each time: the room is not the same room it was.
-        noiseFloor = -40
         peakDB = nil
+        recentPeaks.removeAll()
+        sessionPeaks.removeAll()
+        meterTicks = 0; meterFired = 0
         meterTimer?.invalidate()
         meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 50, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.sampleLevel() }
@@ -496,6 +512,12 @@ final class VoiceInput: NSObject, ObservableObject {
     }
 
     private func stopMetering() {
+        if meterTimer != nil, !sessionPeaks.isEmpty {
+            let sorted = sessionPeaks.sorted()
+            let q: (Double) -> Int = { Int(sorted[Int(Double(sorted.count - 1) * $0)]) }
+            let firedPct = meterTicks == 0 ? 0 : 100 * meterFired / meterTicks
+            DictationLog.note("meter: \(sessionPeaks.count) buffers, peak dBFS min \(q(0)) p10 \(q(0.1)) median \(q(0.5)) p90 \(q(0.9)) max \(q(1)); first \(sessionPeaks.prefix(12).map { Int($0) }); level>0.12 on \(firedPct)% of ticks")
+        }
         meterTimer?.invalidate()
         meterTimer = nil
         level = 0
@@ -517,31 +539,19 @@ final class VoiceInput: NSObject, ObservableObject {
         // Buffers arrive about twenty times a second and the meter samples
         // fifty; reading "silence" between them collapsed the noise floor and
         // lit the meter on room noise. Hold the last reading instead.
-        guard let dB = peakDB else { return }   // no buffer yet: nothing to read
+        guard let dB = peakDB, let quietest = recentPeaks.min() else { return }   // no buffer yet
 
-        // The floor is measured, not assumed.
+        // The floor is measured, not assumed: the quietest buffer of the
+        // last 1.5 s. Pauses between words are shorter than that, so it
+        // stays at the room's level through speech; a louder room is found
+        // within a few buffers rather than crept up to.
         //
-        // A fixed floor is what kept the middle rows lit in silence: a quiet
-        // room still reads around -50 dBFS, and mapping from -50 through a
-        // curve that expands the quiet end turned that into a third of the
-        // scale. The meter was faithfully displaying the sound of the room.
-        //
-        // This follows the quietest thing it has heard, dropping to it at once
-        // and creeping back up slowly, so it settles on the room's own noise
-        // wherever you are and doesn't mistake a pause for silence.
-        if dB < noiseFloor {
-            noiseFloor = dB
-        } else {
-            noiseFloor += 0.02
-        }
-
-        // Nothing registers until it is clearly above that floor, so an empty
-        // room reads as empty. The floor follows the *quietest* buffer, and
-        // the peaks of silence scatter 6–8 dB above their quietest; a 5 dB
-        // gate let that scatter through as a whisper and the invaders'
-        // cannon fired at an empty room. Ten clears it, and speech at -20
-        // is still most of the scale.
-        let floor = noiseFloor + 10
+        // Nothing registers until it is clearly above that floor, so an
+        // empty room reads as empty. The peaks of silence scatter 6–8 dB
+        // above their quietest; a 5 dB gate let that scatter through as a
+        // whisper and the invaders' cannon fired at an empty room. Ten
+        // clears it, and speech at -20 is still most of the scale.
+        let floor = quietest + 10
         let ceiling: Float = -12
         guard ceiling > floor else { level = 0; levels.removeFirst(); levels.append(0); return }
         let span = max(0, min(1, (dB - floor) / (ceiling - floor)))
@@ -558,6 +568,8 @@ final class VoiceInput: NSObject, ObservableObject {
         level = normalised > level ? normalised : level * 0.6 + normalised * 0.4
         levels.removeFirst()
         levels.append(level)
+        meterTicks += 1
+        if level > 0.12 { meterFired += 1 }
 
         arcade.tick(delta: 1.0 / 50, level: level)
         pong.tick(delta: 1.0 / 50, level: level)
