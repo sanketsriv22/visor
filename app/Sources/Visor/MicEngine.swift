@@ -42,6 +42,16 @@ final class MicEngine {
 
     private init() {}
 
+    enum MicError: LocalizedError {
+        case noInput, unsupportedFormat
+        var errorDescription: String? {
+            switch self {
+            case .noInput:           return "No microphone is available right now"
+            case .unsupportedFormat: return "The microphone's format can't be converted"
+            }
+        }
+    }
+
     /// Get the device ready without turning the mic on.
     func warm() {
         _ = engine.inputNode
@@ -65,12 +75,12 @@ final class MicEngine {
         guard format.sampleRate > 0, format.channelCount > 0 else {
             DictationLog.note("mic: no input device to warm"); return
         }
-        input.installTap(onBus: 0, bufferSize: 2400, format: format) { _, _ in }
         let engine = self.engine
-        let gen = generation
         audio.async {
             let began = Date()
             var note: String
+            input.removeTap(onBus: 0)
+            input.installTap(onBus: 0, bufferSize: 2400, format: format) { _, _ in }
             do {
                 engine.prepare()
                 try engine.start()
@@ -99,7 +109,22 @@ final class MicEngine {
         written = 0
         let input = engine.inputNode
         let inFormat = input.outputFormat(forBus: 0)
-        converter = AVAudioConverter(from: inFormat, to: Self.wire)
+        // A 0 Hz format is what the node reports with no input device (one
+        // just unplugged, a Bluetooth set mid-switch). Installing a tap
+        // with it raises an ObjC exception — "required condition is
+        // false" — which no Swift catch sees; AppKit swallowed it, the
+        // press logged "arm" and nothing more, and the concurrency
+        // runtime's thread state was left corrupt, so the next button or
+        // menu click crashed in assumeIsolated. Refuse it here instead.
+        guard inFormat.sampleRate > 0, inFormat.channelCount > 0 else {
+            DictationLog.note("mic: no input device (format \(Int(inFormat.sampleRate)) Hz/\(inFormat.channelCount) ch)")
+            throw MicError.noInput
+        }
+        guard let converter = AVAudioConverter(from: inFormat, to: Self.wire) else {
+            DictationLog.note("mic: no converter from \(Int(inFormat.sampleRate)) Hz/\(inFormat.channelCount) ch")
+            throw MicError.unsupportedFormat
+        }
+        self.converter = converter
         if let url {
             file = try AVAudioFile(forWriting: url, settings: [
                 AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
@@ -110,16 +135,19 @@ final class MicEngine {
         }
         self.onPCM = onPCM
         self.onPeak = onPeak
-        input.removeTap(onBus: 0)        // a warm-up's, if one is still there; a no-op otherwise
-        input.installTap(onBus: 0, bufferSize: 2400, format: inFormat) { [weak self] buffer, _ in
-            self?.capture(buffer)
-        }
         running = true
         generation += 1
         let gen = generation
         let engine = self.engine
         DictationLog.note("mic: start gen=\(gen) format=\(Int(inFormat.sampleRate))Hz/\(inFormat.channelCount)ch file=\(url?.lastPathComponent ?? "none")")
+        // The tap goes on here, on the audio queue, in order with any stop
+        // or warm-up still finishing there: the engine's graph is not for
+        // two threads to edit at once.
         audio.async {
+            input.removeTap(onBus: 0)        // a warm-up's, if one is still there; a no-op otherwise
+            input.installTap(onBus: 0, bufferSize: 2400, format: inFormat) { [weak self] buffer, _ in
+                self?.capture(buffer)
+            }
             do {
                 engine.prepare()
                 try engine.start()

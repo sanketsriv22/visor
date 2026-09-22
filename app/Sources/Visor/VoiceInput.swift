@@ -357,6 +357,7 @@ final class VoiceInput: NSObject, ObservableObject {
                                            self.state = .failed("Couldn't start the microphone: \(error.localizedDescription)")
                                        })
         } catch {
+            DictationLog.note("mic: open failed — \(error.localizedDescription)")
             stopMetering()
             streamer?.cancel(); streamer = nil
             armed = false
