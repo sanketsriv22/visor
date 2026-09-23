@@ -404,16 +404,25 @@ final class VoiceInput: NSObject, ObservableObject {
             self.streamer = nil
             self.finishing = nil
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let spoke = started.map { Date().timeIntervalSince($0) } ?? 0
+            let onDisk = self.fileURL.flatMap { (try? FileManager.default.attributesOfItem(atPath: $0.path)[.size] as? Int) } ?? 0
             // Nothing from the stream is not nothing said: the recording is
-            // on disk. Upload it rather than lose the words.
-            if trimmed.isEmpty, let url = self.fileURL,
-               (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0 > 4_000 {
-                DictationLog.note("final: stream returned nothing — uploading the file")
-                self.streamNote = "stream returned nothing"
+            // on disk. Upload it rather than lose the words. The same when
+            // the stream's yield is implausible — speech runs ten characters
+            // a second and more, and nine minutes came back as 73 once:
+            // fragments in three languages, from audio the service could
+            // not make out. The whole file gets a second chance, and is
+            // kept either way (see `retain`).
+            let implausible = spoke >= 10 && Double(trimmed.count) < spoke * 1.0
+            if (trimmed.isEmpty || implausible), let url = self.fileURL, onDisk > 4_000 {
+                let why = trimmed.isEmpty ? "stream returned nothing"
+                                          : "stream yield implausibly low (\(trimmed.count) chars for \(Int(spoke)) s)"
+                DictationLog.note("final: \(why) — uploading the file")
+                self.streamNote = why
                 Task { await self.transcribe(url) }
                 return
             }
-            if let fileURL { try? FileManager.default.removeItem(at: fileURL) }
+            if let fileURL { Self.retain(fileURL) }
             self.fileURL = nil
             self.deliver(raw: text, transcribeSeconds: self.finishedAt.map { Date().timeIntervalSince($0) } ?? 0,
                          startedAt: started, path: "stream")
@@ -600,8 +609,23 @@ final class VoiceInput: NSObject, ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "visor.transcriptionModel") }
     }
 
+    /// The last few recordings, kept under ~/Library/Logs/Visor/recordings
+    /// so a transcript that came back wrong can be checked against what the
+    /// microphone actually heard. Older ones go; nothing accumulates.
+    static func retain(_ url: URL) {
+        let dir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/Visor/recordings", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let dest = dir.appendingPathComponent("\(stamp).m4a")
+        if (try? FileManager.default.moveItem(at: url, to: dest)) == nil { try? FileManager.default.removeItem(at: url) }
+        let kept = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension == "m4a" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        for old in kept.dropLast(4) { try? FileManager.default.removeItem(at: old) }
+    }
+
     private func transcribe(_ url: URL) async {
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { Self.retain(url) }
         // From the moment there's audio to send, so the measurement includes
         // the upload — which for a minute of speech is most of it.
         let transcribeStarted = Date()
@@ -652,7 +676,7 @@ final class VoiceInput: NSObject, ObservableObject {
         }
     }
 
-    private static func multipartBody(boundary: String, audio: Data, filename: String) -> Data {
+    static func multipartBody(boundary: String, audio: Data, filename: String) -> Data {
         var body = Data()
         func field(_ name: String, _ value: String) {
             body.append(Data("--\(boundary)\r\n".utf8))

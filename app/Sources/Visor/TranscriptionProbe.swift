@@ -10,6 +10,14 @@ import Foundation
 /// not a script, because only the app may read the key from the Keychain.
 enum TranscriptionProbe {
     static func runIfRequested(_ args: [String]) -> Bool {
+        if let i = args.firstIndex(of: "--probe-mic") {
+            let seconds = args.count > i + 1 ? Double(args[i + 1]) ?? 6 : 6
+            Task { @MainActor in
+                await probeMicrophone(seconds: seconds)
+                exit(0)
+            }
+            return true
+        }
         guard let i = args.firstIndex(of: "--probe-transcription") else { return false }
         let mode = args.count > i + 1 ? args[i + 1] : "eager"
         let given = args.count > i + 2 ? args[i + 2] : nil
@@ -30,6 +38,57 @@ enum TranscriptionProbe {
     private static let t0 = Date()
     private static func note(_ s: String) {
         log.write("\(String(format: "%6.2f", Date().timeIntervalSince(t0))) \(s)\n".data(using: .utf8)!)
+    }
+
+    /// `Visor --probe-mic <seconds>`: record through the app's own capture
+    /// path (MicEngine, the AAC file, the same converter) while the Mac
+    /// speaks a known sentence through its speakers, keep the file at
+    /// ~/Library/Logs/Visor/mic-probe.m4a, and upload it as the app would.
+    /// The transcript in probe.log says whether what the microphone hears
+    /// survives the pipeline — no one needs to be at the keyboard.
+    @MainActor
+    private static func probeMicrophone(seconds: Double) async {
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Visor")
+        let file = dir.appendingPathComponent("mic-probe.m4a")
+        try? FileManager.default.removeItem(at: file)
+        note("mic probe: device \"\(MicEngine.defaultInputName())\", \(seconds) s")
+        var buffers = 0, bytes = 0
+        var peak: Float = 0
+        do {
+            try MicEngine.shared.start(file: file,
+                                       onPCM: { pcm in buffers += 1; bytes += pcm.count },
+                                       onPeak: { peak = max(peak, $0) },
+                                       onFailure: { note("mic probe: start FAILED \($0.localizedDescription)") })
+        } catch {
+            note("mic probe: could not start: \(error.localizedDescription)"); return
+        }
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        let say = Process(); say.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+        say.arguments = ["testing one two three. the quick brown fox jumps over the lazy dog. four five six."]
+        try? say.run()
+        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        MicEngine.shared.stop()
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        let size = (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0
+        note("mic probe: \(buffers) buffers, \(bytes) PCM bytes = \(String(format: "%.1f", Double(bytes) / 48_000)) s at 24 kHz; peak \(String(format: "%.3f", peak)) (\(Int(20 * log10(max(peak, 0.00001)))) dBFS); file \(size) bytes")
+        guard let key = Keychain.get(VoiceInput.keyAccount)?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty else {
+            note("mic probe: no key — file kept, not uploaded"); return
+        }
+        guard let audio = try? Data(contentsOf: file), audio.count > 1_000 else { note("mic probe: file too small"); return }
+        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/transcriptions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        let boundary = "visor-\(UUID().uuidString)"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = VoiceInput.multipartBody(boundary: boundary, audio: audio, filename: "mic-probe.m4a")
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let text = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["text"] as? String
+            note("mic probe: upload → \(status): \(text ?? String(data: data, encoding: .utf8) ?? "?")")
+        } catch {
+            note("mic probe: upload failed: \(error.localizedDescription)")
+        }
     }
 
     @MainActor

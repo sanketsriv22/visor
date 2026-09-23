@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreAudio
 import Foundation
 
 /// The one microphone path. A single `AVAudioEngine` kept for the life of
@@ -41,6 +42,29 @@ final class MicEngine {
     private var written = 0
 
     private init() {}
+
+    /// The system's default input device, by name — the one the engine's
+    /// input node follows. Logged at every start, because a Continuity
+    /// iPhone microphone or a Bluetooth set quietly becoming the default
+    /// is the difference between a transcript and Korean fragments.
+    nonisolated static func defaultInputName() -> String {
+        var device = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr,
+              device != 0 else { return "none" }
+        var name: CFString = "" as CFString
+        var nameSize = UInt32(MemoryLayout<CFString>.size)
+        var nameAddress = AudioObjectPropertyAddress(mSelector: kAudioObjectPropertyName,
+                                                     mScope: kAudioObjectPropertyScopeGlobal,
+                                                     mElement: kAudioObjectPropertyElementMain)
+        let status = withUnsafeMutablePointer(to: &name) { ptr in
+            AudioObjectGetPropertyData(device, &nameAddress, 0, nil, &nameSize, ptr)
+        }
+        return status == noErr ? (name as String) : "device \(device)"
+    }
 
     enum MicError: LocalizedError {
         case noInput, unsupportedFormat
@@ -139,7 +163,7 @@ final class MicEngine {
         generation += 1
         let gen = generation
         let engine = self.engine
-        DictationLog.note("mic: start gen=\(gen) format=\(Int(inFormat.sampleRate))Hz/\(inFormat.channelCount)ch file=\(url?.lastPathComponent ?? "none")")
+        DictationLog.note("mic: start gen=\(gen) device=\"\(Self.defaultInputName())\" format=\(Int(inFormat.sampleRate))Hz/\(inFormat.channelCount)ch file=\(url?.lastPathComponent ?? "none")")
         // The tap goes on here, on the audio queue, in order with any stop
         // or warm-up still finishing there: the engine's graph is not for
         // two threads to edit at once.

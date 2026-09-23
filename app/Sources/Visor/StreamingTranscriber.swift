@@ -43,6 +43,7 @@ final class StreamingTranscriber: NSObject {
     /// their text so far and whether they are done.
     private var order: [String] = []
     private var segments: [String: (text: String, done: Bool)] = [:]
+    private var opened: [String: Date] = [:]
     /// Audio has been sent since the last segment closed, so key-up has
     /// something to commit.
     private var audioSinceCut = false
@@ -248,7 +249,8 @@ final class StreamingTranscriber: NSObject {
             let id = (event["item_id"] as? String) ?? order.last ?? "item"
             open(id)
             let full = (event["transcript"] as? String) ?? (event["text"] as? String) ?? segments[id]?.text ?? ""
-            DictationLog.note("stream: segment done \(id.suffix(6)) \(full.count) chars")
+            let length = opened[id].map { String(format: "%.1f s", Date().timeIntervalSince($0)) } ?? "?"
+            DictationLog.note("stream: segment done \(id.suffix(6)) \(full.count) chars for \(length)")
             segments[id] = (full, true)
             text = stitched
             onPartial?(text)
@@ -288,6 +290,7 @@ final class StreamingTranscriber: NSObject {
     private func open(_ id: String) {
         if segments[id] == nil {
             segments[id] = ("", false)
+            opened[id] = Date()
             order.append(id)
         }
     }
