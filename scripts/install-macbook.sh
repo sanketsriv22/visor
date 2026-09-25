@@ -27,7 +27,7 @@ rm -f "$SUPPORT/update-result"
 # `visor` on the PATH: a symlink to the client inside the bundle, in the
 # first writable bin directory. Only ever a symlink, so it tracks installs.
 link_cli() {
-  local target=/Applications/Visor.app/Contents/MacOS/visor
+  local target=/Applications/Visor.app/Contents/MacOS/visor-cli
   [ -x "$target" ] || return 0
   for dir in /opt/homebrew/bin /usr/local/bin "$HOME/.local/bin"; do
     if [ -d "$dir" ] && [ -w "$dir" ]; then ln -sfn "$target" "$dir/visor" && echo "cli: $dir/visor" && return 0; fi

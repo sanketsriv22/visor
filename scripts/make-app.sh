@@ -60,12 +60,14 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Framewor
 cp "$BIN" "$APP/Contents/MacOS/Visor"
 echo "architectures: $(lipo -archs "$APP/Contents/MacOS/Visor" 2>/dev/null)"
 
-# The terminal client rides inside the bundle as Contents/MacOS/visor; the
-# installer links it onto the PATH.
+# The terminal client rides inside the bundle as Contents/MacOS/visor-cli —
+# not "visor": on a case-insensitive disk that name *is* "Visor", and the
+# first build of this overwrote the app with the client. The installer
+# links it onto the PATH as `visor`.
 CLI="$(dirname "$BIN")/visor-cli"
 if [ -f "$CLI" ]; then
-    cp "$CLI" "$APP/Contents/MacOS/visor"
-    echo "cli: $(lipo -archs "$APP/Contents/MacOS/visor" 2>/dev/null)"
+    cp "$CLI" "$APP/Contents/MacOS/visor-cli"
+    echo "cli: $(lipo -archs "$APP/Contents/MacOS/visor-cli" 2>/dev/null)"
 else
     echo "warning: visor-cli not built" >&2
 fi

@@ -27,8 +27,9 @@ their own and are resumed per conversation like the app does.
 
 It is the `visor-cli` product of the Swift package in `app/`. CI builds
 it with the app, `scripts/make-app.sh` copies it into the bundle as
-`Contents/MacOS/visor`, and `scripts/install-macbook.sh` links that onto
-the PATH. The sources in `app/Sources/VisorCLI/Shared` are symlinks into
+`Contents/MacOS/visor-cli` (not `visor`: on a case-insensitive disk that
+name is the app's), and `scripts/install-macbook.sh` links it onto the
+PATH as `visor`. The sources in `app/Sources/VisorCLI/Shared` are symlinks into
 `Sources/Visor`: one copy of each portable file, compiled into both.
 
 Linux: the client is Foundation-only apart from the Keychain and Combine's

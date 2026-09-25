@@ -8,8 +8,10 @@ enum Agents {
             return ([], nil)
         }
         let usable = cfg.providers.filter(\.isTerminalAgent)
-        let chosen = UserDefaults(suiteName: AIProvider.defaultsSuite)?
-            .string(forKey: AIProvider.defaultProviderKey)
+        // The app's own defaults domain, read directly: a UserDefaults suite
+        // named like an app's bundle id is refused with a warning.
+        let chosen = CFPreferencesCopyAppValue(AIProvider.defaultProviderKey as CFString,
+                                               AIProvider.defaultsSuite as CFString) as? String
         let name = [chosen, cfg.default].compactMap { $0 }
             .first { n in usable.contains { $0.name == n } } ?? usable.first?.name
         return (usable, name)
