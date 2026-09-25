@@ -24,6 +24,16 @@ SUPPORT="$HOME/Library/Application Support/Visor"
 mkdir -p "$SUPPORT"
 rm -f "$SUPPORT/update-result"
 
+# `visor` on the PATH: a symlink to the client inside the bundle, in the
+# first writable bin directory. Only ever a symlink, so it tracks installs.
+link_cli() {
+  local target=/Applications/Visor.app/Contents/MacOS/visor
+  [ -x "$target" ] || return 0
+  for dir in /opt/homebrew/bin /usr/local/bin "$HOME/.local/bin"; do
+    if [ -d "$dir" ] && [ -w "$dir" ]; then ln -sfn "$target" "$dir/visor" && echo "cli: $dir/visor" && return 0; fi
+  done
+  mkdir -p "$HOME/.local/bin" && ln -sfn "$target" "$HOME/.local/bin/visor" && echo "cli: ~/.local/bin/visor (add to PATH)"
+}
 INSTALLED=$(defaults read /Applications/Visor.app/Contents/Info.plist CFBundleVersion 2>/dev/null || echo 0)
 if pgrep -x Visor >/dev/null && [ "${INSTALLED:-0}" -lt 471 ]; then
   # Before the in-app updater: macOS refuses a dialog from SSH, so the
@@ -40,7 +50,7 @@ if pgrep -x Visor >/dev/null && [ "${INSTALLED:-0}" -lt 471 ]; then
     sleep 2
   done
   killall -9 Visor 2>/dev/null || true; sleep 2
-  rm -rf /Applications/Visor.app; ditto "$APP" /Applications/Visor.app
+  rm -rf /Applications/Visor.app; ditto "$APP" /Applications/Visor.app; link_cli
   open -n /Applications/Visor.app; sleep 2
   echo "installed build $BUILD over pre-updater build $INSTALLED when idle; running: $(pgrep -x Visor | wc -l | tr -d ' ')"
   exit 0
@@ -49,6 +59,7 @@ fi
 if ! pgrep -x Visor >/dev/null; then
   rm -rf /Applications/Visor.app
   ditto "$APP" /Applications/Visor.app
+  link_cli
   open -n /Applications/Visor.app
   sleep 2
   echo "installed build $BUILD (Visor was not running)"

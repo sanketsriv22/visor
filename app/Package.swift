@@ -10,6 +10,12 @@ let package = Package(
         // Supports macOS 12+, so the macOS 13 floor stays where it is.
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.1.0"),
     ],
+    products: [
+        .executable(name: "Visor", targets: ["Visor"]),
+        // `visor` at the prompt; the product is named apart from the app so
+        // the two binaries can't collide on a case-insensitive disk.
+        .executable(name: "visor-cli", targets: ["VisorCLI"]),
+    ],
     targets: [
         .executableTarget(
             name: "Visor",
@@ -22,6 +28,13 @@ let package = Package(
             // copies them into the .app's Contents/Resources. They're not SPM
             // resources, so exclude them to keep the build quiet.
             exclude: ["Resources"]
+        ),
+        // The terminal client: the same agents, chats and keys as the app,
+        // in a full-screen terminal UI. Its Shared/ folder is symlinks into
+        // Sources/Visor — one copy of each portable file, compiled twice.
+        .executableTarget(
+            name: "VisorCLI",
+            path: "Sources/VisorCLI"
         ),
         // Covers the pure layers — storage, memory, the voice log, prompt
         // shaping. The UI isn't testable without a display, and that's exactly
