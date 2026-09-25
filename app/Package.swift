@@ -4,17 +4,17 @@ import PackageDescription
 let package = Package(
     name: "Visor",
     platforms: [.macOS(.v13)],
-    dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
-        // Block-level Markdown for replies: headings, lists, tables, fences.
-        // Supports macOS 12+, so the macOS 13 floor stays where it is.
-        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.1.0"),
-    ],
     products: [
         .executable(name: "Visor", targets: ["Visor"]),
         // `visor` at the prompt; the product is named apart from the app so
         // the two binaries can't collide on a case-insensitive disk.
         .executable(name: "visor-cli", targets: ["VisorCLI"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
+        // Block-level Markdown for replies: headings, lists, tables, fences.
+        // Supports macOS 12+, so the macOS 13 floor stays where it is.
+        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.1.0"),
     ],
     targets: [
         .executableTarget(
