@@ -41,12 +41,14 @@ echo "signing as: $IDENTITY"
 # Before signing, necessarily: stripping edits the binary, and editing a
 # signed binary invalidates the signature.
 BINARY="$APP/Contents/MacOS/Visor"
-if [ -f "$BINARY" ]; then
-  BEFORE=$(stat -f%z "$BINARY")
-  strip -x "$BINARY"
-  AFTER=$(stat -f%z "$BINARY")
-  echo "stripped: $((BEFORE / 1048576)) MB -> $((AFTER / 1048576)) MB"
-fi
+CLI="$APP/Contents/MacOS/visor-cli"
+for bin in "$BINARY" "$CLI"; do
+  [ -f "$bin" ] || continue
+  BEFORE=$(stat -f%z "$bin")
+  strip -x "$bin"
+  AFTER=$(stat -f%z "$bin")
+  echo "stripped $(basename "$bin"): $((BEFORE / 1048576)) MB -> $((AFTER / 1048576)) MB"
+done
 
 # --- 1. Sign inside-out ----------------------------------------------------
 # Nested code must be signed before whatever contains it: signing the outer
@@ -96,6 +98,14 @@ for item in "$APP/Contents/Frameworks/"*; do
   esac
 done
 
+# The terminal client is a second Mach-O beside the app's own executable.
+# Signing the bundle seals it as a resource but doesn't sign it, and Apple
+# refuses to notarize an unsigned executable — as it did the first time.
+if [ -f "$CLI" ]; then
+  echo "  signing visor-cli"
+  sign "$CLI"
+fi
+
 echo "  signing Visor.app"
 sign --entitlements "$ENTITLEMENTS" "$APP"
 
@@ -115,7 +125,17 @@ if [ "$NOTARIZE" = "1" ]; then
   else
     NOTARY_ARGS=(--keychain-profile "$PROFILE")
   fi
-  xcrun notarytool submit "$ZIP" "${NOTARY_ARGS[@]}" --wait
+  # Keep the submission's id and status: on a rejection the only useful
+  # thing is Apple's log, and a bare "Invalid" says nothing.
+  RESULT=$(xcrun notarytool submit "$ZIP" "${NOTARY_ARGS[@]}" --wait --output-format json 2>&1 | tail -n 1)
+  echo "$RESULT"
+  SUBMISSION_ID=$(echo "$RESULT" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("id",""))' 2>/dev/null || true)
+  STATUS=$(echo "$RESULT" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))' 2>/dev/null || true)
+  if [ "$STATUS" != "Accepted" ]; then
+    echo "=== notarization $STATUS — Apple's log ==="
+    [ -n "$SUBMISSION_ID" ] && xcrun notarytool log "$SUBMISSION_ID" "${NOTARY_ARGS[@]}" || true
+    exit 1
+  fi
   # Stapling attaches the ticket to the app so it validates offline.
   xcrun stapler staple "$APP"
   xcrun stapler validate "$APP"
