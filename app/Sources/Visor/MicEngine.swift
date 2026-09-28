@@ -41,7 +41,28 @@ final class MicEngine {
     private let audio = DispatchQueue(label: "visor.mic", qos: .userInteractive)
     private var written = 0
 
-    private init() {}
+    private init() {
+        // A device change (earphones in or out, a Bluetooth set switching)
+        // stops the engine; taps stay, the graph must be restarted. Without
+        // this a session went silent at the switch.
+        NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine,
+                                               queue: nil) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.running else { return }
+                let gen = self.generation
+                let engine = self.engine
+                DictationLog.note("mic: configuration changed — device now \"\(Self.defaultInputName())\"; restarting")
+                self.audio.async {
+                    do { engine.prepare(); try engine.start() } catch {
+                        Task { @MainActor in
+                            guard gen == self.generation else { return }
+                            DictationLog.note("mic: restart after device change FAILED: \(error.localizedDescription)")
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     /// The system's default input device, by name — the one the engine's
     /// input node follows. Logged at every start, because a Continuity
@@ -104,7 +125,7 @@ final class MicEngine {
             let began = Date()
             var note: String
             input.removeTap(onBus: 0)
-            input.installTap(onBus: 0, bufferSize: 2400, format: format) { _, _ in }
+            input.installTap(onBus: 0, bufferSize: 2400, format: nil) { _, _ in }
             do {
                 engine.prepare()
                 try engine.start()
@@ -144,11 +165,10 @@ final class MicEngine {
             DictationLog.note("mic: no input device (format \(Int(inFormat.sampleRate)) Hz/\(inFormat.channelCount) ch)")
             throw MicError.noInput
         }
-        guard let converter = AVAudioConverter(from: inFormat, to: Self.wire) else {
-            DictationLog.note("mic: no converter from \(Int(inFormat.sampleRate)) Hz/\(inFormat.channelCount) ch")
-            throw MicError.unsupportedFormat
-        }
-        self.converter = converter
+        // No converter yet: it is built from the first buffer's own format,
+        // and rebuilt whenever that changes (an earphone plugged in halfway
+        // through). The format read here is only for the log.
+        converter = nil
         if let url {
             file = try AVAudioFile(forWriting: url, settings: [
                 AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
@@ -169,7 +189,11 @@ final class MicEngine {
         // two threads to edit at once.
         audio.async {
             input.removeTap(onBus: 0)        // a warm-up's, if one is still there; a no-op otherwise
-            input.installTap(onBus: 0, bufferSize: 2400, format: inFormat) { [weak self] buffer, _ in
+            // `format: nil`: the node's current output format, whatever it is
+            // by now. Passing the format read a moment earlier raised an
+            // exception inside the engine — a fatal one — whenever the
+            // device had changed in between, which with EarPods it does.
+            input.installTap(onBus: 0, bufferSize: 2400, format: nil) { [weak self] buffer, _ in
                 self?.capture(buffer)
             }
             do {
@@ -218,7 +242,16 @@ final class MicEngine {
 
     private nonisolated func capture(_ buffer: AVAudioPCMBuffer) {
         Task { @MainActor in
-            guard self.running, let converter = self.converter else { return }
+            guard self.running else { return }
+            if self.converter == nil || self.converter?.inputFormat != buffer.format {
+                guard let fresh = AVAudioConverter(from: buffer.format, to: Self.wire) else {
+                    if self.converter == nil { DictationLog.note("mic: no converter from \(Int(buffer.format.sampleRate)) Hz/\(buffer.format.channelCount) ch") }
+                    return
+                }
+                if self.converter != nil { DictationLog.note("mic: input format changed to \(Int(buffer.format.sampleRate)) Hz/\(buffer.format.channelCount) ch") }
+                self.converter = fresh
+            }
+            guard let converter = self.converter else { return }
             let ratio = Self.wire.sampleRate / buffer.format.sampleRate
             let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 16
             guard let out = AVAudioPCMBuffer(pcmFormat: Self.wire, frameCapacity: capacity) else { return }

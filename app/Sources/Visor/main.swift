@@ -10,6 +10,11 @@ import AppKit
 // click crashes in MainActor.assumeIsolated with nothing in the report to
 // say why. Crash at the exception instead: the report then names it.
 UserDefaults.standard.register(defaults: ["NSApplicationCrashOnExceptions": true])
+// And say what it was: the crash report carries the stack but not the
+// reason, and "installTapOnBus raised" without the message is a guess.
+NSSetUncaughtExceptionHandler { exception in
+    DictationLog.note("EXCEPTION \(exception.name.rawValue): \(exception.reason ?? "no reason")")
+}
 
 MainActor.assumeIsolated {
     let app = NSApplication.shared
