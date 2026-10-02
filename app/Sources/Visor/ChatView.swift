@@ -423,10 +423,13 @@ struct ModeSwitcher: View {
 struct CLIModelPicker: View {
     @ObservedObject var chat: ChatController
     @State private var showing = false
+    @Environment(\.selectorHost) private var host
+    /// A popover in the card; inline above the composer in the HUD.
+    private func open() { if let host { host.toggle(.cliModel) } else { showing = true } }
     @State private var query = ""
 
     var body: some View {
-        Button { showing = true } label: {
+        Button { open() } label: {
             HStack(spacing: 4) {
                 Text(chat.cliModelName)
                     .lineLimit(1)
@@ -810,6 +813,9 @@ struct InlineModelPicker: View {
     @ObservedObject var chat: ChatController
 
     @State private var showing = false
+    @Environment(\.selectorHost) private var host
+    /// A popover in the card; inline above the composer in the HUD.
+    private func open() { if let host { host.toggle(.model) } else { showing = true } }
     @State private var query = ""
 
     /// With no query, the agent's pinned models. With one, the whole
@@ -826,7 +832,7 @@ struct InlineModelPicker: View {
     }
 
     var body: some View {
-        Button { showing = true } label: {
+        Button { open() } label: {
             HStack(spacing: 4) {
                 Circle().fill(vendorColor(chat.conversation.model)).frame(width: 5, height: 5)
                 Text(chat.shortModelName)
@@ -923,6 +929,10 @@ struct HUDView: View {
     /// Reading text scales from this — body, secondary and caption roles in
     /// the conversation. Chrome and rails never do: layout adapts by rule.
     @AppStorage("visor.hudScale") private var scale: Double = 1.0
+    /// The composer's selectors, drawn inline above it here rather than as
+    /// popovers — see SelectorHost.
+    @StateObject private var selectors = SelectorHost()
+    @State private var selectorQuery = ""
 
     /// Below this width the rails step aside and the conversation has the
     /// whole surface.
@@ -970,11 +980,47 @@ struct HUDView: View {
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
             }
             .environment(\.hudScale, min(max(scale, 0.85), 1.25))
+            .environment(\.selectorHost, selectors)
+
+            if selectors.showing != nil {
+                // A click anywhere else puts the selector away.
+                Color.clear.contentShape(Rectangle())
+                    .onTapGesture { selectors.showing = nil }
+                selectorOverlay
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .padding(.bottom, Design.Space.wide + 112)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
         }
         // One curve for everything. Long and well damped, because it covers a
         // screen of travel and anything snappier reads as a snap.
         .animation(Design.Motion.animation(Design.Motion.hud), value: visible)
-        .onExitCommand(perform: onExit)
+        .animation(Design.Motion.quick, value: selectors.showing)
+        .onExitCommand { if selectors.showing != nil { selectors.showing = nil } else { onExit() } }
+        .onChange(of: visible) { if !$0 { selectors.showing = nil } }
+    }
+
+    /// The selector the composer asked for, over the glass, just above it.
+    @ViewBuilder private var selectorOverlay: some View {
+        Group {
+            switch selectors.showing {
+            case .model:
+                ModelSelector(chat: chat, query: $selectorQuery) { id in
+                    chat.useModel(id); selectors.showing = nil; selectorQuery = ""
+                }
+            case .cliModel:
+                CLISelector(chat: chat, query: $selectorQuery) { selectors.showing = nil; selectorQuery = "" }
+            case .options:
+                OptionsSelector(chat: chat)
+            case nil:
+                EmptyView()
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Design.Radius.panel, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Design.Radius.panel, style: .continuous)
+            .strokeBorder(Design.Stroke.edge, lineWidth: Design.Stroke.hairline))
+        .shadow(color: .black.opacity(0.55), radius: 28, y: 10)
+        .environment(\.selectorHost, nil)
     }
 
     // MARK: Backdrop
@@ -1645,11 +1691,14 @@ enum ModelSearch {
 struct ComposerOptions: View {
     @ObservedObject var chat: ChatController
     @State private var showing = false
+    @Environment(\.selectorHost) private var host
+    /// A popover in the card; inline above the composer in the HUD.
+    private func open() { if let host { host.toggle(.options) } else { showing = true } }
 
     var body: some View {
         // ChatGPT's plus: everything optional behind one round button. A
         // summary appears beside it only once something is set.
-        Button { showing = true } label: {
+        Button { open() } label: {
             HStack(spacing: 5) {
                 Image(systemName: "plus")
                     .font(.system(size: 14, weight: .medium))

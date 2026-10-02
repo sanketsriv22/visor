@@ -374,6 +374,18 @@ final class ChatController: ObservableObject {
     func toggleFast() {
         guard var agent else { return }
         agent.fastMode = !(agent.fastMode ?? false)
+        if agent.fastMode == true { agent.providerPreference = nil }   // fastest is a choice of provider too
+        ai.upsert(agent)
+    }
+
+    /// Which provider serves this agent's requests, or nil for OpenRouter's
+    /// default routing.
+    var providerPreference: String? { agent?.providerPreference }
+
+    func useProvider(_ name: String?) {
+        guard var agent else { return }
+        agent.providerPreference = name
+        if name != nil { agent.fastMode = false }
         ai.upsert(agent)
     }
 
@@ -772,7 +784,8 @@ final class ChatController: ObservableObject {
 
             for try await event in client.stream(
                 messages: history, model: model, system: system,
-                effort: effort, fast: fast, tools: ToolRegistry.shared.schemas) {
+                effort: effort, fast: fast, provider: agent?.providerPreference,
+                tools: ToolRegistry.shared.schemas) {
                 switch event {
                 case .text(let chunk):
                     appendToReply(chunk)

@@ -50,6 +50,9 @@ struct AIProvider: Codable, Identifiable, Equatable {
     /// The picker shows these first and keeps the full catalogue behind a
     /// search, which is the difference between choosing and hunting.
     var favouriteModels: [String]?
+    /// The OpenRouter provider this agent is pinned to, by name — "Anthropic",
+    /// "Google Vertex", and so on — or nil for OpenRouter's own routing.
+    var providerPreference: String?
     var id: String { name }
 
     var isDevinCloud: Bool { kind == .devinCloud }

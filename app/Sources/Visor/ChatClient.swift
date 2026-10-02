@@ -112,6 +112,29 @@ struct ORModel: Codable, Identifiable, Hashable {
     }
 }
 
+/// One provider serving a model, as OpenRouter lists it: its own price,
+/// context and ceiling, which is what you choose a provider on.
+struct OREndpoint: Codable, Identifiable, Hashable {
+    var name: String?
+    var provider_name: String?
+    var context_length: Int?
+    var max_completion_tokens: Int?
+    var pricing: ORModel.Pricing?
+    var status: Int?
+    var uptime_last_30m: Double?
+
+    var providerLabel: String { provider_name ?? name ?? "Provider" }
+    var id: String { providerLabel }
+    var promptPerMillion: Double? {
+        guard let p = pricing?.prompt, let v = Double(p) else { return nil }
+        return v * 1_000_000
+    }
+    var completionPerMillion: Double? {
+        guard let c = pricing?.completion, let v = Double(c) else { return nil }
+        return v * 1_000_000
+    }
+}
+
 /// Talks to OpenRouter's OpenAI-compatible chat API.
 ///
 /// OpenRouter is the one backend here because it fans out to essentially every
@@ -155,7 +178,7 @@ final class OpenRouterClient {
 
     private func body(messages: [ChatMessage], model: String, system: String?,
                       temperature: Double?, stream: Bool,
-                      effort: String? = nil, fast: Bool = false,
+                      effort: String? = nil, fast: Bool = false, provider: String? = nil,
                       tools: [[String: Any]] = []) -> [String: Any] {
         var wire: [[String: Any]] = []
         if let system, !system.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -188,7 +211,13 @@ final class OpenRouterClient {
         // OpenRouter serves most models from several providers at different
         // speeds and prices; by default it optimises for price. This asks for
         // the fastest one instead.
-        if fast { body["provider"] = ["sort": "throughput"] }
+        // A pinned provider, or the fastest one; otherwise OpenRouter's own
+        // default, which is the cheapest serving the model.
+        if let provider, !provider.isEmpty {
+            body["provider"] = ["order": [provider], "allow_fallbacks": false]
+        } else if fast {
+            body["provider"] = ["sort": "throughput"]
+        }
         if !tools.isEmpty { body["tools"] = tools }
         return body
     }
@@ -209,7 +238,7 @@ final class OpenRouterClient {
 
     func stream(messages: [ChatMessage], model: String, system: String? = nil,
                 temperature: Double? = nil, effort: String? = nil,
-                fast: Bool = false,
+                fast: Bool = false, provider: String? = nil,
                 tools: [[String: Any]] = []) -> AsyncThrowingStream<StreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -218,7 +247,7 @@ final class OpenRouterClient {
                     req.httpBody = try JSONSerialization.data(
                         withJSONObject: body(messages: messages, model: model, system: system,
                                              temperature: temperature, stream: true,
-                                             effort: effort, fast: fast, tools: tools))
+                                             effort: effort, fast: fast, provider: provider, tools: tools))
 
                     let (bytes, response) = try await session.bytes(for: req)
                     if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
@@ -304,11 +333,11 @@ final class OpenRouterClient {
     /// Non-streaming completion, for short internal calls (titling a chat,
     /// summarising for memory) where partial output is useless.
     func complete(messages: [ChatMessage], model: String, system: String? = nil,
-                  temperature: Double? = nil, fast: Bool = false,
+                  temperature: Double? = nil, fast: Bool = false, provider: String? = nil,
                   maxTokens: Int? = nil) async throws -> String {
         var req = try request(path: "/chat/completions")
         var payload = body(messages: messages, model: model, system: system,
-                           temperature: temperature, stream: false, fast: fast)
+                           temperature: temperature, stream: false, fast: fast, provider: provider)
         // A ceiling on a rewrite task is a safety net, not a tuning knob: it
         // caps the damage when a model decides to answer the text instead of
         // correcting it.
@@ -329,6 +358,18 @@ final class OpenRouterClient {
     }
 
     /// The models this key can reach. Sorted by label so the picker is stable.
+    /// The providers serving one model, with each one's price and limits.
+    func endpoints(for model: String) async throws -> [OREndpoint] {
+        var req = try request(path: "/models/\(model)/endpoints", method: "GET")
+        req.httpBody = nil
+        let (data, response) = try await session.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw ChatError.http(status: http.statusCode, body: Self.reason(from: String(data: data, encoding: .utf8) ?? ""))
+        }
+        struct Envelope: Codable { struct Inner: Codable { let endpoints: [OREndpoint] }; let data: Inner }
+        return try JSONDecoder().decode(Envelope.self, from: data).data.endpoints
+    }
+
     func models() async throws -> [ORModel] {
         var req = try request(path: "/models", method: "GET")
         req.httpBody = nil

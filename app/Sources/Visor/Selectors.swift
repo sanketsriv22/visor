@@ -296,3 +296,26 @@ struct ActionChip: View {
         .focusable(false)
     }
 }
+
+
+/// Where a composer selector opens. In the notch card the pills present a
+/// popover; in the HUD the same content is drawn inline above the composer
+/// instead — the HUD's full-screen panel sits over the menu bar, and a
+/// popover anchored there was placed half off the bottom of the screen.
+@MainActor
+final class SelectorHost: ObservableObject {
+    enum Kind: Equatable { case model, cliModel, options }
+    @Published var showing: Kind?
+    func toggle(_ kind: Kind) { showing = showing == kind ? nil : kind }
+}
+
+private struct SelectorHostKey: EnvironmentKey {
+    static let defaultValue: SelectorHost? = nil
+}
+
+extension EnvironmentValues {
+    var selectorHost: SelectorHost? {
+        get { self[SelectorHostKey.self] }
+        set { self[SelectorHostKey.self] = newValue }
+    }
+}
